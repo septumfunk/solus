@@ -21,6 +21,7 @@ typedef enum {
     CTR_OP_MOVE,
     CTR_OP_RET,
     CTR_OP_JMP,
+    CTR_OP_CALL,
 
     CTR_OP_ADD,
     CTR_OP_SUB,
@@ -100,22 +101,6 @@ typedef struct {
     ctr_dtype tt;
     uint32_t rc;
 } ctr_dheader;
-/// Allocates a dynamic object, a heap allocated object with an information header.
-static inline ctr_dyn ctr_dnew(size_t size, ctr_dtype tt) {
-    ctr_dyn p = calloc(1, sizeof(ctr_dheader) + size);
-    *(ctr_dheader *)p = (ctr_dheader){size, false, tt, 1};
-    p = (char *)p + sizeof(ctr_dheader);
-    return p;
-}
-static inline ctr_dheader *ctr_header(ctr_dyn dyn) { return (ctr_dheader *)((char *)dyn - sizeof(ctr_dheader)); }
-/// Make a new reference to a dynamic object.
-static inline ctr_dyn ctr_dref(ctr_dyn dyn) { ++ctr_header(dyn)->rc; return dyn; }
-/// Delete a reference to a dynamic object.
-static inline void ctr_ddel(ctr_dyn dyn) {
-    ctr_dheader *dh = ctr_header(dyn);
-    if (!dh->is_const && --dh->rc)
-        free(ctr_header(dyn));
-}
 
 typedef struct {
     union ctr_innerval {
@@ -130,23 +115,18 @@ typedef struct {
 #define VEC_T ctr_val
 #include <sf/containers/vec.h>
 
-extern const sf_str CTR_TYPE_NAMES[(size_t)CTR_TCOUNT + (size_t)CTR_DCOUNT];
-static inline sf_str ctr_typename(ctr_val val) { return val.tt == CTR_TDYN ? CTR_TYPE_NAMES[CTR_TDYN + 1 + ctr_header(val.val.dyn)->tt] : CTR_TYPE_NAMES[val.tt]; }
-
 /// Function prototype. This is the main unit of bytecode
 /// for the language, and the result of compilation.
 typedef struct {
     ctr_instruction *code;
-    size_t code_s, entry;
+    uint32_t code_s, reg_c, arg_c, entry;
     ctr_valvec constants;
-    uint32_t reg_c;
 } ctr_proto;
 #define VEC_NAME ctr_protovec
 #define VEC_T ctr_proto *
 #include <sf/containers/vec.h>
 EXPORT ctr_proto ctr_proto_new(void);
 EXPORT void ctr_proto_free(ctr_proto *proto);
-
 
 typedef sf_str ctr_dstr;
 #define MAP_NAME ctr_dobj
@@ -157,6 +137,25 @@ typedef sf_str ctr_dstr;
 #include <sf/containers/map.h>
 typedef ctr_proto *ctr_dfun;
 
+/// Allocates a dynamic object, a heap allocated object with an information header.
+EXPORT ctr_val ctr_dnew(ctr_dtype tt);
+static inline ctr_dheader *ctr_header(ctr_val val) { return (ctr_dheader *)((char *)val.val.dyn - sizeof(ctr_dheader)); }
+/// Make a new reference to a dynamic object.
+static inline ctr_val ctr_dref(ctr_val val) {
+    ctr_dheader *dh = ctr_header(val);
+    if (!dh->is_const) ++ctr_header(val)->rc;
+    return val;
+}
+/// Delete a reference to a dynamic object.
+static inline void ctr_ddel(ctr_val val) {
+    ctr_dheader *dh = ctr_header(val);
+    if (!dh->is_const && --dh->rc == 0)
+        free(dh);
+}
+
+extern const sf_str CTR_TYPE_NAMES[(size_t)CTR_TCOUNT + (size_t)CTR_DCOUNT];
+static inline sf_str ctr_typename(ctr_val val) { return val.tt == CTR_TDYN ? CTR_TYPE_NAMES[CTR_TDYN + 1 + ctr_header(val)->tt] : CTR_TYPE_NAMES[val.tt]; }
+
 
 typedef struct {
     enum {
@@ -166,7 +165,7 @@ typedef struct {
         CTR_ERR_MISSING_ARG,
         CTR_ERR_STRING_FORMAT,
     } type;
-    sf_str msg;
+    sf_str string;
 } ctr_asm_err;
 #define EXPECTED_NAME ctr_asm_ex
 #define EXPECTED_O ctr_proto

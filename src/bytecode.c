@@ -25,9 +25,10 @@ ctr_proto ctr_proto_new(void) {
     return (ctr_proto){
         .code = NULL,
         .code_s = 0,
+        .reg_c = 0,
+        .arg_c = 0,
         .entry = 0,
         .constants = ctr_valvec_new(),
-        .reg_c = 0,
     };
 }
 
@@ -37,6 +38,29 @@ void ctr_proto_free(ctr_proto *proto) {
     proto->code = NULL;
     ctr_valvec_free(&proto->constants);
     proto->reg_c = 0;
+}
+
+
+ctr_val ctr_dnew(ctr_dtype tt) {
+    size_t size;
+    switch (tt) {
+        case CTR_DSTR: size = sizeof(sf_str); break;
+        case CTR_DOBJ: size = sizeof(ctr_dobj); break;
+        case CTR_DFUN: size = sizeof(ctr_dfun); break;
+        case CTR_DCOUNT: return CTR_NIL;
+    }
+
+    ctr_dyn p = calloc(1, sizeof(ctr_dheader) + size);
+    *(ctr_dheader *)p = (ctr_dheader){size, false, tt, 1};
+    p = (char *)p + sizeof(ctr_dheader);
+
+    switch (tt) {
+        case CTR_DSTR: *(sf_str *)p = SF_STR_EMPTY; break;
+        case CTR_DOBJ: *(ctr_dobj *)p = ctr_dobj_new(); break;
+        case CTR_DFUN: *(ctr_dfun *)p = NULL; break;
+        case CTR_DCOUNT: return CTR_NIL;
+    }
+    return (ctr_val){ .tt = CTR_TDYN, .val.dyn = p };
 }
 
 
@@ -116,9 +140,6 @@ ctr_asm_ex ctr_assemble(const sf_str code) {
     // Assemble
     sf_str string_work = SF_STR_EMPTY;
     char *sw_name = NULL;
-
-    int register_count = -1;
-
     for (char *token = strtok(preprocessed.c_str, " "); token; token = strtok(NULL, " ")) {
         if (!token) {
             err = (ctr_asm_err){CTR_ERR_UNEXPECTED_EOF, SF_STR_EMPTY};
@@ -133,7 +154,16 @@ ctr_asm_ex ctr_assemble(const sf_str code) {
                 err = (ctr_asm_err){CTR_ERR_UNEXPECTED_EOF, SF_STR_EMPTY};
                 goto err;
             }
-            register_count = atoi(regs);
+            proto.reg_c = (uint32_t)atoi(regs);
+            continue;
+        }
+        if (strcmp(token, "#args") == 0) {
+            char *args = strtok(NULL, " ");
+            if (!args) {
+                err = (ctr_asm_err){CTR_ERR_UNEXPECTED_EOF, SF_STR_EMPTY};
+                goto err;
+            }
+            proto.arg_c = (uint32_t)atoi(args);
             continue;
         }
 
@@ -185,17 +215,19 @@ ctr_asm_ex ctr_assemble(const sf_str code) {
                     if (tk[0] == '"') {
                         tk = tk + 1;
                     } else sf_str_append(&string_work, sf_lit(" "));
+                    if (*tk == '\\' && *(tk + 1) == '\0')
+                        *tk = ' ';
 
                     if (tk[strlen(tk) - 1] == '"') {
                         tk[strlen(tk) - 1] = '\0';
 
                         __lsan_disable(); /// String stored safely in the constant table.
                         sf_str_append(&string_work, sf_ref(tk));
-                        sf_str *s = ctr_dnew(sizeof(sf_str), CTR_DSTR);
+                        ctr_val s = ctr_dnew(CTR_DSTR);
                         ctr_header(s)->is_const = true;
-                        *s = string_work;
+                        *(sf_str *)s.val.dyn = string_work;
                         ctr_cmap_set(&consts, sf_str_cdup(sw_name), (ctr_i64)const_c++);
-                        ctr_valvec_push(&proto.constants, (ctr_val){.tt = CTR_TDYN, .val.dyn = s});
+                        ctr_valvec_push(&proto.constants, s);
                         __lsan_enable();
 
                         string_work = SF_STR_EMPTY;
@@ -255,15 +287,14 @@ ctr_asm_ex ctr_assemble(const sf_str code) {
         goto err;
     }
 
-    if (register_count < 0){
+    if (proto.reg_c < 0){
         err = (ctr_asm_err){CTR_ERR_STRING_FORMAT, SF_STR_EMPTY};
         goto err;
     }
-    proto.reg_c = (uint32_t)register_count;
 
     // Entry
     ctr_cmap_ex main = ctr_cmap_get(&consts, sf_lit("main:"));
-    proto.entry = main.is_ok ? (size_t)main.value.ok : 0;
+    proto.entry = main.is_ok ? (uint32_t)main.value.ok : 0;
 
     sf_str_free(preprocessed);
     ctr_opmap_free(&ops);
@@ -299,6 +330,11 @@ const ctr_inssig CTR_OP_INFO[CTR_OP_COUNT] = {
         .opcode = CTR_OP_JMP,
         .mnemonic = "jmp",
         .type = CTR_INS_A,
+    },
+    [CTR_OP_CALL] = {
+        .opcode = CTR_OP_CALL,
+        .mnemonic = "call",
+        .type = CTR_INS_ABC,
     },
 
     [CTR_OP_ADD] = {
