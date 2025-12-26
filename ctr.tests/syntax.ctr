@@ -1,1 +1,2 @@
-let fun = (test) => { return 2; };
+let fun = (test) => { return test; };
+fun(4);

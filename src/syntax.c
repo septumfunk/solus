@@ -353,17 +353,32 @@ ctr_parse_ex ctr_parstmt(ctr_parser *p);
 
 ctr_parse_ex ctr_parprim(ctr_parser *p) {
     switch (p->tok->tt) {
-        case TK_INTEGER: case TK_NUMBER: case TK_STRING: case TK_TRUE: case TK_FALSE: case TK_NIL: case TK_IDENTIFIER: {
+        case TK_INTEGER: case TK_NUMBER: case TK_STRING: case TK_TRUE: case TK_FALSE: case TK_NIL: {
             ctr_node *n = malloc(sizeof(ctr_node));
             *n = (ctr_node){
                 p->tok->tt == TK_IDENTIFIER ? ND_IDENTIFIER : ND_LITERAL,
                 p->tok->line, p->tok->column,
-                .statement = p->tok->tt == TK_IDENTIFIER ?
-                    (union ctr_statement){.identifier = ctr_dref(p->tok->value)} :
-                    (union ctr_statement){.literal = ctr_dref(p->tok->value)},
+                .statement = (union ctr_statement){.literal = ctr_dref(p->tok->value)},
             };
             ++p->tok;
             return ctr_parse_ex_ok(n);
+        }
+        case TK_IDENTIFIER: {
+            if ((p->tok + 1)->tt == TK_LEFT_PAREN) { // Call
+                ctr_parse_ex cex = ctr_parcall(p);
+                if (!cex.is_ok) return cex;
+                return ctr_parse_ex_ok(cex.value.ok);
+            } else { // Identifier
+                ctr_node *n = malloc(sizeof(ctr_node));
+                *n = (ctr_node){
+                    p->tok->tt == TK_IDENTIFIER ? ND_IDENTIFIER : ND_LITERAL,
+                    p->tok->line, p->tok->column,
+                    .statement = (union ctr_statement){.identifier = ctr_dref(p->tok->value)},
+                };
+                ++p->tok;
+                return ctr_parse_ex_ok(n);
+            }
+            break;
         }
         case TK_LEFT_PAREN: {
             ++p->tok;
@@ -554,8 +569,8 @@ ctr_parse_ex ctr_parcall(ctr_parser *p) {
             ctr_node_free(n_call);
             return ctr_parse_ex_err((ctr_parse_err){CTR_ERR_UNTERMINATED_ARGS, p->tok->line, p->tok->column});
         }
-        ++p->tok;
     }
+    ++p->tok;
 
     if (p->tok->tt != TK_SEMICOLON) {
         ctr_node_free(n_call);
@@ -627,11 +642,8 @@ ctr_parse_ex ctr_parstmt(ctr_parser *p) {
         case TK_RETURN: return ctr_parreturn(p);
         case TK_IDENTIFIER:
             switch ((p->tok + 1)->tt) {
-                case TK_LEFT_PAREN: return ctr_parcall(p);
                 case TK_EQUAL: return ctr_parassign(p);
-                case TK_SEMICOLON:
-                    return ctr_parse_ex_err((ctr_parse_err){CTR_ERR_UNUSED_EVALUATION, p->tok->line, p->tok->column});
-                default: return ctr_parse_ex_err((ctr_parse_err){CTR_ERR_EXPECTED_SEMICOLON, (p->tok + 1)->line, (p->tok + 1)->column});
+                default: return ctr_parbin(p, 0);
             }
         default: return ctr_parse_ex_err((ctr_parse_err){CTR_ERR_EXPECTED_STMT, p->tok->line, p->tok->column});
     };
