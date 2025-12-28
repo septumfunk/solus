@@ -214,7 +214,12 @@ ctr_scan_ex ctr_scan(sf_str src) {
             }
 
             default:
-                if (c == '-' && (tks.top->tt == TK_IDENTIFIER || tks.top->tt == TK_NUMBER || tks.top->tt == TK_INTEGER)) {
+                if (c == '-' && tks.count > 0 && (
+                    tks.top->tt == TK_NUMBER || tks.top->tt == TK_INTEGER ||
+                    tks.top->tt == TK_IDENTIFIER || tks.top->tt == TK_STRING ||
+                    tks.top->tt == TK_TRUE || tks.top->tt == TK_FALSE ||
+                    tks.top->tt == TK_NIL || tks.top->tt == TK_RIGHT_PAREN
+                )) {
                     s.current.tt = TK_MINUS;
                     ctr_tokenvec_push(&tks, s.current);
                     continue;
@@ -313,6 +318,10 @@ void ctr_node_free(ctr_node *tree) {
             if (tree->inner.fun.block)
                 ctr_node_free(tree->inner.fun.block);
             break;
+        case CTR_ND_WHILE:
+            ctr_node_free(tree->inner.stmt_while.condition);
+            ctr_node_free(tree->inner.stmt_while.block);
+            break;
     }
     free(tree);
 }
@@ -356,6 +365,7 @@ ctr_parse_ex ctr_parassign(ctr_parser *p);
 ctr_parse_ex ctr_parcall(ctr_parser *p);
 ctr_parse_ex ctr_parblock(ctr_parser *p);
 ctr_parse_ex ctr_parfun(ctr_parser *p);
+ctr_parse_ex ctr_parwhile(ctr_parser *p);
 ctr_parse_ex ctr_parreturn(ctr_parser *p);
 ctr_parse_ex ctr_parstmt(ctr_parser *p);
 
@@ -677,6 +687,47 @@ ctr_parse_ex ctr_parfun(ctr_parser *p) {
     return ctr_parse_ex_ok(n_fun);
 }
 
+ctr_parse_ex ctr_parwhile(ctr_parser *p) {
+    ++p->tok;
+    ctr_node *n_while = malloc(sizeof(ctr_node));
+    *n_while = (ctr_node){
+        .tt = CTR_ND_WHILE,
+        .line = p->tok->line, .column = p->tok->column,
+        .inner.stmt_while = {
+            .condition = NULL,
+            .block = NULL,
+        },
+    };
+
+    ctr_parse_ex ex = ctr_parbin(p, 0);
+    if (!ex.is_ok) {
+        ctr_node_free(n_while);
+        return ex;
+    }
+
+    n_while->inner.stmt_while.condition = ex.value.ok;
+    if (ex.value.ok->tt != CTR_ND_BINARY || !ctr_niscondition(ex.value.ok)) {
+        size_t line = ex.value.ok->line;
+        size_t column = ex.value.ok->column;
+        ctr_node_free(n_while);
+        return ctr_parse_ex_err((ctr_parse_err){CTR_ERRP_EXPECTED_CONDITION, line, column});
+    }
+
+    if (p->tok->tt != TK_LEFT_BRACE) {
+        ctr_node_free(n_while);
+        return ctr_parse_ex_err((ctr_parse_err){CTR_ERRP_EXPECTED_BLOCK, p->tok->line, p->tok->column});
+    }
+
+    ex = ctr_parblock(p);
+    if (!ex.is_ok) {
+        ctr_node_free(n_while);
+        return ex;
+    }
+    n_while->inner.stmt_while.block = ex.value.ok;
+
+    return ctr_parse_ex_ok(n_while);
+}
+
 ctr_parse_ex ctr_parreturn(ctr_parser *p) {
     ++p->tok;
     ctr_parse_ex expr = ctr_parbin(p, 0);
@@ -700,12 +751,20 @@ ctr_parse_ex ctr_parstmt(ctr_parser *p) {
     switch (p->tok->tt) {
         case TK_IF: return ctr_parif(p);
         case TK_LET: return ctr_parlet(p);
+        case TK_WHILE: return ctr_parwhile(p);
         case TK_LEFT_BRACE: case TK_SOF: return ctr_parblock(p);
         case TK_RETURN: return ctr_parreturn(p);
         case TK_IDENTIFIER:
             switch ((p->tok + 1)->tt) {
                 case TK_EQUAL: return ctr_parassign(p);
-                default: return ctr_parbin(p, 0);
+                default: {
+                    ctr_parse_ex id = ctr_parbin(p, 0);
+                    if (!id.is_ok) return id;
+                    if (p->tok->tt != TK_SEMICOLON)
+                        return ctr_parse_ex_err((ctr_parse_err){CTR_ERRP_EXPECTED_SEMICOLON, p->tok->line, p->tok->column});
+                    ++p->tok;
+                    return id;
+                }
             }
         default: return ctr_parse_ex_err((ctr_parse_err){CTR_ERRP_EXPECTED_STMT, p->tok->line, p->tok->column});
     };

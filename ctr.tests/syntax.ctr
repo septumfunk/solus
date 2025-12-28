@@ -1,9 +1,24 @@
-let x = 4;
-let y = 4.0;
-let t = [x]() { x = 2; return x; };
+let i = 0;
+let tries = 10;
+let cache = new();
+while i < tries {
+    let model = string(randi(3, 17));
+    if model == "10" { model = "X"; }
+    println("Like for free iPhone " + model + "!");
+    set(cache, i, model);
+    i = i + 1;
+}
 
-if t() == x {
-    return "Closures";
+i = 0;
+let has4 = 0;
+while i < tries {
+    let model = get(cache, i);
+    if model == "4" { has4 = 1; }
+    i = i + 1;
+}
+
+if has4 == 1 {
+    println("Hooray we love iPhone 4!");
 } else {
-    return nil;
+    error("MAN FUCK YOU NO IPHONE 4?");
 }

@@ -28,7 +28,8 @@ void _ctr_dobj_cleanup(ctr_dobj *obj) {
 
 ctr_proto ctr_proto_new(void) {
     return (ctr_proto){
-        .code = NULL,
+        .tt = CTR_PROTO_BC,
+        .code.bc = NULL,
         .code_s = 0,
         .reg_c = 0,
         .arg_c = 0,
@@ -38,10 +39,23 @@ ctr_proto ctr_proto_new(void) {
     };
 }
 
+ctr_proto ctr_proto_cfun(ctr_cfunction c_fun, uint32_t arg_c, uint32_t temp_c) {
+    return (ctr_proto){
+        .tt = CTR_PROTO_CFUN,
+        .code.c_fun = c_fun,
+        .code_s = 0,
+        .reg_c = arg_c + temp_c,
+        .arg_c = arg_c,
+        .entry = 0,
+        .constants = ctr_valvec_new(),
+        .upvals = NULL,
+    };
+}
+
 void ctr_proto_free(ctr_proto *proto) {
-    if (proto->code)
-        free(proto->code);
-    proto->code = NULL;
+    if (proto->tt == CTR_PROTO_BC && proto->code.bc)
+        free(proto->code.bc);
+    proto->code.bc = NULL;
     ctr_valvec_free(&proto->constants);
     if (proto->upvals) {
         for (uint32_t i = 0; i < proto->up_c; ++i)
@@ -75,7 +89,7 @@ ctr_val ctr_dnew(ctr_dtype tt) {
     switch (tt) {
         case CTR_DSTR: *(sf_str *)p = SF_STR_EMPTY; break;
         case CTR_DOBJ: *(ctr_dobj *)p = ctr_dobj_new(); break;
-        case CTR_DFUN: *(ctr_proto *)p = (ctr_proto){.code = NULL, .code_s = 0}; break;
+        case CTR_DFUN: *(ctr_proto *)p = ctr_proto_new(); break;
         case CTR_DVAL: *(ctr_val *)p = CTR_NIL; break;
         case CTR_DCOUNT: return CTR_NIL;
     }
@@ -279,7 +293,7 @@ ctr_asm_ex ctr_assemble(const sf_str code) {
         }
         const ctr_inssig *inss = ir.value.ok;
 
-        proto.code = realloc(proto.code, ++proto.code_s * sizeof(ctr_instruction));
+        proto.code.bc = realloc(proto.code.bc, ++proto.code_s * sizeof(ctr_instruction));
         ctr_instruction instr;
         ctr_i64 arg[3] = {0, 0, 0};
         for (uint64_t i = 0; i < inss->type + 1; ++i) {
@@ -298,7 +312,7 @@ ctr_asm_ex ctr_assemble(const sf_str code) {
             case CTR_INS_AB: instr = ctr_ins_ab(inss->opcode, (uint8_t)arg[0], (uint32_t)arg[1]); break;
             case CTR_INS_ABC: instr = ctr_ins_abc(inss->opcode, (uint8_t)arg[0], (uint16_t)arg[1], (uint16_t)arg[2]); break;
         }
-        proto.code[proto.code_s - 1] = instr;
+        proto.code.bc[proto.code_s - 1] = instr;
     }
 
     if (string_work.c_str) {
@@ -447,4 +461,5 @@ const sf_str CTR_TYPE_NAMES[(size_t)CTR_TCOUNT + (size_t)CTR_DCOUNT] = {
     sf_lit("str"),
     sf_lit("obj"),
     sf_lit("fun"),
+    sf_lit("dval"),
 };

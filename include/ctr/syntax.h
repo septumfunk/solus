@@ -72,6 +72,7 @@ typedef enum {
     CTR_ND_IF,
     CTR_ND_BLOCK,
     CTR_ND_FUN,
+    CTR_ND_WHILE,
     CTR_ND_RETURN,
 } ctr_nodetype;
 
@@ -100,6 +101,10 @@ typedef struct ctr_node {
             struct ctr_node **args;
             uint32_t arg_c;
         } stmt_call;
+        struct {
+            struct ctr_node *condition;
+            struct ctr_node *block;
+        } stmt_while;
         struct ctr_block {
             struct ctr_node **stmts;
             uint32_t count;

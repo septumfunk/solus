@@ -4,10 +4,13 @@
 #include "sf/str.h"
 #include <stddef.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
 
 // crash team racing
 #define CTR_BYTECODE_HEADER { 'C', 'T', 'R' }
+// The great switch for debug output
+//#define CTR_DEBUG_LOG
 
 typedef enum {
     CTR_INS_A, // A: i26 (jmp)
@@ -136,10 +139,21 @@ typedef struct {
     int32_t frame_o;
 } ctr_upvalue;
 
+struct ctr_state;
+struct ctr_call_ex;
+typedef struct ctr_call_ex (*ctr_cfunction)(struct ctr_state *);
+
 /// Function prototype. This is the main unit of bytecode
 /// for the language, and the result of compilation.
 typedef struct {
-    ctr_instruction *code;
+    enum {
+        CTR_PROTO_BC,
+        CTR_PROTO_CFUN,
+    } tt;
+    union {
+        ctr_instruction *bc;
+        ctr_cfunction c_fun;
+    } code;
     uint32_t code_s, reg_c, arg_c, up_c, entry;
     ctr_valvec constants;
     ctr_upvalue *upvals;
@@ -148,6 +162,7 @@ typedef struct {
 #define VEC_T ctr_proto *
 #include <sf/containers/vec.h>
 EXPORT ctr_proto ctr_proto_new(void);
+EXPORT ctr_proto ctr_proto_cfun(ctr_cfunction c_fun, uint32_t arg_c, uint32_t temp_c);
 EXPORT void ctr_proto_free(ctr_proto *proto);
 
 typedef sf_str ctr_dstr;
@@ -184,7 +199,7 @@ static inline void ctr_ddel(ctr_val val) {
     ctr_dheader *dh = ctr_header(val);
     if (dh && !dh->is_const && --dh->rc == 0) {
         if (dh->tt == CTR_DSTR && val.val.dyn)
-            ctr_proto_free((ctr_proto *)val.val.dyn);
+            sf_str_free(*(sf_str *)val.val.dyn);
         if (dh->tt == CTR_DOBJ && val.val.dyn)
             ctr_dobj_free((ctr_dobj *)val.val.dyn);
         if (dh->tt == CTR_DVAL && val.val.dyn)
@@ -196,7 +211,7 @@ static inline void ctr_ddel(ctr_val val) {
 }
 
 extern const sf_str CTR_TYPE_NAMES[(size_t)CTR_TCOUNT + (size_t)CTR_DCOUNT];
-static inline sf_str ctr_typename(ctr_val val) { return val.tt == CTR_TDYN ? CTR_TYPE_NAMES[CTR_TDYN + 1 + ctr_header(val)->tt] : CTR_TYPE_NAMES[val.tt]; }
+static inline sf_str ctr_typename(ctr_val val) { return val.tt == CTR_TDYN ? CTR_TYPE_NAMES[(int)CTR_TDYN + 1 + ctr_header(val)->tt] : CTR_TYPE_NAMES[val.tt]; }
 
 
 typedef struct {

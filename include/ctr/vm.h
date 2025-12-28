@@ -9,7 +9,7 @@ typedef struct {
     uint32_t size;
 } ctr_stackframe;
 
-typedef struct {
+typedef struct ctr_state {
     ctr_valvec stack;
     ctr_protovec protos;
     ctr_stackframe *frames;
@@ -33,8 +33,7 @@ static inline ctr_val ctr_rawget(ctr_state *state, uint32_t index, uint32_t fram
 }
 static inline ctr_val ctr_get(ctr_state *state, uint32_t index) { return ctr_rawget(state, index, state->frame_c - 1); }
 static inline void ctr_rawset(ctr_state *state, uint32_t index, ctr_val val, uint32_t frame) {
-    index = state->frames[frame].bottom_o + index;
-    ctr_val old = ctr_get(state, index);
+    ctr_val old = ctr_rawget(state, index, frame);
     if (old.tt == CTR_TDYN) {
         if (ctr_header(old)->tt == CTR_DVAL) {
             *(ctr_val *)old.val.dyn = val;
@@ -42,18 +41,30 @@ static inline void ctr_rawset(ctr_state *state, uint32_t index, ctr_val val, uin
         }
         ctr_ddel(old);
     }
-    ctr_valvec_set(&state->stack, index, val);
+    ctr_valvec_set(&state->stack, state->frames[frame].bottom_o + index, val);
 }
 static inline void ctr_set(ctr_state *state, uint32_t index, ctr_val val) {
     ctr_rawset(state, index, val, state->frame_c - 1);
 }
 
+static inline ctr_val ctr_getg(ctr_state *state, sf_str name) {
+    ctr_dobj_ex ex = ctr_dobj_get((ctr_dobj *)state->global.val.dyn, name);
+    if (!ex.is_ok) return CTR_NIL;
+    return ex.value.ok;
+}
+static inline void ctr_setg(ctr_state *state, sf_str name, ctr_val value) {
+    ctr_dobj_set((ctr_dobj *)state->global.val.dyn, sf_str_dup(name), value);
+}
+
+EXPORT ctr_val ctr_wrapcfun(ctr_cfunction fptr, uint32_t arg_c, uint32_t temp_c);
 
 typedef struct {
     enum ctr_call_errt {
         CTR_ERRV_UNKNOWN_OP,
         CTR_ERRV_OOB_ACCESS,
         CTR_ERRV_TYPE_MISMATCH,
+        CTR_ERRV_OBJ_NO_MEMBER,
+        CTR_ERRV_RUNTIME_ERR,
     } tt;
     sf_str string;
     size_t pc;

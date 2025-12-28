@@ -10,6 +10,7 @@ project(citrus C)
 add_library(${PROJECT_NAME} ${LIBRARY_TYPE}
     src/bytecode.c
     src/ctrc.c
+    src/std.c
     src/syntax.c
     src/vm.c
 )
