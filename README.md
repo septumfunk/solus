@@ -66,14 +66,6 @@ io.time(); // f64
 io.fread(path); // ? err
 io.fwrite(path); // ? err
 ```
-### GFX
-```
-gfx.camera(fov, near, far); // sf_camera
-gfx.shader(path); // sf_shader ? err
-gfx.window(title, width, height, camera); // sf_window ? err
-gfx.loop(window); // bool
-gfx.draw(window, post); // ? err
-```
 ### OBJ
 ```
 obj.new(); // obj

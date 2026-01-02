@@ -1,5 +1,4 @@
 #include "sol/bytecode.h"
-#include "sf/gfx/window.h"
 #include "sf/str.h"
 #include <stdlib.h>
 
@@ -145,7 +144,6 @@ void sol_ddel(sol_val val) {
             case SOL_DUSR: {
                 sol_usrwrap *w = sol_uheader(val);
                 sf_str_free(w->name);
-                sf_window *ww = sol_uptr(val); (void)ww;
                 if (w->del)
                     w->del(sol_uptr(val));
                 break;

@@ -70,13 +70,7 @@ FetchContent_Declare(
         GIT_TAG master
 )
 FetchContent_MakeAvailable(sf-std)
-FetchContent_Declare(
-        sepgfx
-        GIT_REPOSITORY https://github.com/septek/sepgfx.git
-        GIT_TAG main
-)
-FetchContent_MakeAvailable(sepgfx)
-target_link_libraries(${PROJECT_NAME} PUBLIC sf-std sepgfx)
+target_link_libraries(${PROJECT_NAME} PUBLIC sf-std)
 
 # CTest
 if (PROJECT_IS_TOP_LEVEL)
