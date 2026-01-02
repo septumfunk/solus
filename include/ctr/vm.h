@@ -34,7 +34,7 @@ EXPORT sf_str ctr_stackdump(ctr_state *state);
 /// Get the value of a register from a specific stack frame
 static inline ctr_val ctr_rawget(ctr_state *state, uint32_t index, uint32_t frame) {
     ctr_val val = ctr_valvec_get(&state->stack, state->frames.data[frame].bottom_o + index);
-    if (val.tt == CTR_TDYN && ctr_header(val)->tt == CTR_DREF)
+    if (ctr_isdtype(val, CTR_DREF))
         return *(ctr_val *)val.dyn;
     return val;
 }

@@ -31,10 +31,10 @@ void cli_highlight_line(sf_str src, sf_str err, uint16_t line, uint16_t column) 
             break;
         } else ++c;
     }
-    fprintf(stderr, "%u | %s\n", line, c);
+    fprintf(stderr, /* "%d | " */ "%s\n", /* line, */ c);
     *cc = '\n';
 
-    char pointer[5 + column];
+    char pointer[column];
     memset(pointer, '~', sizeof(pointer));
     pointer[sizeof(pointer) - 1] = '\0';
     pointer[sizeof(pointer) - 2] = '^';

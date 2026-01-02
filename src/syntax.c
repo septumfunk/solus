@@ -5,7 +5,7 @@
 #include <stdlib.h>
 
 void _ctr_tokenvec_cleanup(ctr_tokenvec *vec) {
-    for (ctr_token *t = vec->data; t && t < vec->top + 1; ++t) {
+    for (ctr_token *t = vec->data; t && t < vec->data + vec->count; ++t) {
         if (t->tt == TK_STRING || t->tt == TK_IDENTIFIER)
             ctr_ddel(t->value);
     }
@@ -28,7 +28,7 @@ static inline bool ctr_scanpeek(ctr_scanner *s, char match) {
     if (s->cc + 1 >= s->src.len || s->src.c_str[s->cc+1] != match)
         return false;
     ++s->cc;
-    ++s->current.column;
+    ++s->current.len;
     return true;
 }
 
@@ -47,18 +47,19 @@ ctr_token ctr_scanstr(ctr_scanner *s) {
         ++len;
     }
     if (!terminated)
-        return (ctr_token){TK_NIL, CTR_NIL, 0, 0};
+        return (ctr_token){TK_NIL, CTR_NIL, 0, 0, 0};
 
     char *str = calloc(1, len + 1);
     memcpy(str, s->src.c_str + s->cc + 1, len);
+
     s->cc += len + 1;
-    s->current.column += len + 1;
 
     return (ctr_token){
         TK_STRING,
         ctr_dnewstr(sf_own(str)),
         s->current.line,
         s->current.column,
+        .len = (uint16_t)len + 2,
     };
 }
 
@@ -68,7 +69,7 @@ ctr_token ctr_scannum(ctr_scanner *s) {
     for (size_t cc = s->cc + 1; cc < s->src.len; ++cc) {
         if (s->src.c_str[cc] == '.') {
             if (is_number)
-                return (ctr_token){TK_NIL, CTR_NIL, 0, 0};
+                return (ctr_token){TK_NIL, CTR_NIL, 0, 0, 0};
             is_number = true;
         } else if (!ctr_isnumber(s->src.c_str[cc]))
             break;
@@ -79,7 +80,6 @@ ctr_token ctr_scannum(ctr_scanner *s) {
     memset(str, 0, sizeof(str));
     memcpy(str, s->src.c_str + s->cc, len);
     s->cc += len - 1;
-    s->current.column += len;
 
     ctr_token tok;
     if (is_number)
@@ -88,6 +88,7 @@ ctr_token ctr_scannum(ctr_scanner *s) {
             .value = (ctr_val){.f64 = atof(str), .tt = CTR_TF64},
             .line = s->current.line,
             .column = s->current.column,
+            .len = (uint16_t)len,
         };
     else
         tok = (ctr_token) {
@@ -95,12 +96,13 @@ ctr_token ctr_scannum(ctr_scanner *s) {
             .value = (ctr_val){.i64 = atoll(str), .tt = CTR_TI64},
             .line = s->current.line,
             .column = s->current.column,
+            .len = (uint16_t)len,
         };
     return tok;
 }
 
 ctr_token ctr_scanidentifier(ctr_scanner *s) {
-    size_t len = 1;
+    uint16_t len = 1;
     for (size_t cc = s->cc + 1; cc < s->src.len; ++cc) {
         if (!ctr_isalphan(s->src.c_str[cc]))
             break;
@@ -112,7 +114,6 @@ ctr_token ctr_scanidentifier(ctr_scanner *s) {
     memcpy(str, s->src.c_str + s->cc, len);
 
     s->cc += len - 1;
-    s->current.column += len - 1;
 
     ctr_keywords_ex ex = ctr_keywords_get(&s->keywords, sf_ref(str));
     if (ex.is_ok) {
@@ -125,16 +126,18 @@ ctr_token ctr_scanidentifier(ctr_scanner *s) {
             .tt = ex.ok,
             .value = value,
             .line = s->current.line,
-            .column = s->current.line,
+            .column = s->current.column,
+            .len = len - 1,
         };
     } else {
         char *s2 = calloc(1, len + 1);
         memcpy(s2, str, len);
         return (ctr_token){
-            TK_IDENTIFIER,
-            ctr_dnewstr(sf_own(s2)),
-            s->current.line,
-            s->current.column,
+            .tt = TK_IDENTIFIER,
+            .value = ctr_dnewstr(sf_own(s2)),
+            .line = s->current.line,
+            .column = s->current.column,
+            .len = len - 1,
         };
     }
 }
@@ -143,7 +146,7 @@ ctr_scan_ex ctr_scan(sf_str src) {
     ctr_tokenvec tks = ctr_tokenvec_new();
     ctr_scanner s = {
         .src = src,
-        .current = {TK_EOF, CTR_NIL, 1, 1},
+        .current = {TK_EOF, CTR_NIL, 1, 1, 0},
         .cc = 0,
         .keywords = ctr_keywords_new(),
     };
@@ -161,9 +164,9 @@ ctr_scan_ex ctr_scan(sf_str src) {
     ctr_keywords_set(&s.keywords, sf_lit("true"), TK_TRUE);
     ctr_keywords_set(&s.keywords, sf_lit("false"), TK_FALSE);
 
-    ctr_tokenvec_push(&tks, (ctr_token){TK_SOF, CTR_NIL, s.current.line, s.current.column});
-    for (; s.cc < src.len; ++s.cc, ++s.current.column) {
-        s.current = (ctr_token){TK_EOF, CTR_NIL, s.current.line, s.current.column};
+    ctr_tokenvec_push(&tks, (ctr_token){TK_SOF, CTR_NIL, s.current.line, s.current.column, 1});
+    for (; s.cc < src.len; ++s.cc) {
+        s.current = (ctr_token){TK_EOF, CTR_NIL, s.current.line, s.current.column, 1};
         char c = src.c_str[s.cc];
         size_t pcc = s.cc;
         switch (c) {
@@ -184,11 +187,11 @@ ctr_scan_ex ctr_scan(sf_str src) {
             ctr_scancase('=', ctr_scanpeek(&s, '=') ? TK_DOUBLE_EQUAL : TK_EQUAL);
 
             case '&': {
-                if (ctr_scanpeek(&s, '&')) { s.current.tt = TK_AND; break; }
+                if (ctr_scanpeek(&s, '&')) { s.current.len = 2; s.current.tt = TK_AND; break; }
                 goto err;
             }
             case '|': {
-                if (ctr_scanpeek(&s, '|')) { s.current.tt = TK_OR; break; }
+                if (ctr_scanpeek(&s, '|')) { s.current.len = 2; s.current.tt = TK_OR; break; }
                 goto err;
             }
             case '/': {
@@ -205,7 +208,8 @@ ctr_scan_ex ctr_scan(sf_str src) {
                 s.current.column = 0;
                 continue;
             }
-            case ' ': case '\r': case '\t': continue;
+            case ' ': ++s.current.column; continue;
+            case '\r': case '\t': continue;
             case '"': {
                 s.current = ctr_scanstr(&s);
                 if (s.current.tt != TK_STRING) {
@@ -213,18 +217,20 @@ ctr_scan_ex ctr_scan(sf_str src) {
                     goto err;
                 }
                 ctr_tokenvec_push(&tks, s.current);
+                s.current.column += s.current.len;
                 continue;
             }
 
             default:
                 if (c == '-' && tks.count > 0 && (
-                    tks.top->tt == TK_NUMBER || tks.top->tt == TK_INTEGER ||
-                    tks.top->tt == TK_IDENTIFIER || tks.top->tt == TK_STRING ||
-                    tks.top->tt == TK_TRUE || tks.top->tt == TK_FALSE ||
-                    tks.top->tt == TK_NIL || tks.top->tt == TK_RIGHT_PAREN
+                    (tks.data + tks.count - 1)->tt == TK_NUMBER || (tks.data + tks.count - 1)->tt == TK_INTEGER ||
+                    (tks.data + tks.count - 1)->tt == TK_IDENTIFIER || (tks.data + tks.count - 1)->tt == TK_STRING ||
+                    (tks.data + tks.count - 1)->tt == TK_TRUE || (tks.data + tks.count - 1)->tt == TK_FALSE ||
+                    (tks.data + tks.count - 1)->tt == TK_NIL || (tks.data + tks.count - 1)->tt == TK_RIGHT_PAREN
                 )) {
                     s.current.tt = TK_MINUS;
                     ctr_tokenvec_push(&tks, s.current);
+                    s.current.column += s.current.len;
                     continue;
                 }
                 if (ctr_isnumber(c) || (c == '-' && ctr_isnumber(s.src.c_str[s.cc + 1]))) { // Number
@@ -234,10 +240,12 @@ ctr_scan_ex ctr_scan(sf_str src) {
                         goto err;
                     }
                     ctr_tokenvec_push(&tks, s.current);
+                    s.current.column += s.current.len;
                     continue;
                 } else if (ctr_isalphan(c)) { // Identifier
                     s.current = ctr_scanidentifier(&s);
                     ctr_tokenvec_push(&tks, s.current);
+                    s.current.column += s.current.len;
                     continue;
                 }
             err: {
@@ -255,11 +263,12 @@ ctr_scan_ex ctr_scan(sf_str src) {
                 return ctr_scan_ex_err((ctr_scan_err){eval, sf_own(str), s.current.line, s.current.column});
             }
         }
+        s.current.column += s.current.len;
         ctr_tokenvec_push(&tks, s.current);
     }
 
     ctr_keywords_free(&s.keywords);
-    ctr_tokenvec_push(&tks, (ctr_token){TK_EOF, CTR_NIL, s.current.line, s.current.column});
+    ctr_tokenvec_push(&tks, (ctr_token){TK_EOF, CTR_NIL, s.current.line, s.current.column, 1});
     return ctr_scan_ex_ok(tks);
 }
 
@@ -267,6 +276,10 @@ typedef struct { ctr_token *tok; } ctr_parser;
 
 void ctr_node_free(ctr_node *tree) {
     switch (tree->tt) {
+        case CTR_ND_MEMBER:
+            ctr_node_free(tree->n_postfix.expr);
+            ctr_ddel(tree->n_postfix.postfix);
+            break;
         case CTR_ND_BINARY:
             ctr_node_free(tree->n_binary.left);
             ctr_node_free(tree->n_binary.right);
@@ -283,11 +296,11 @@ void ctr_node_free(ctr_node *tree) {
             ctr_node_free(tree->n_let.value);
             break;
         case CTR_ND_ASSIGN:
-            ctr_ddel(tree->n_assign.name);
+            ctr_node_free(tree->n_assign.expr);
             ctr_node_free(tree->n_assign.value);
             break;
         case CTR_ND_CALL:
-            ctr_ddel(tree->n_call.name);
+            ctr_node_free(tree->n_call.identifier);
             if (tree->n_call.args) {
                 for (size_t i = 0; i < tree->n_call.arg_c; ++i)
                     ctr_node_free(tree->n_call.args[i]);
@@ -331,6 +344,7 @@ void ctr_node_free(ctr_node *tree) {
 
 size_t ctr_precedence(ctr_tokentype tt) {
     switch (tt) {
+        case TK_EQUAL: return 0;
         case TK_OR: return 1;
         case TK_AND: return 2;
         case TK_DOUBLE_EQUAL:
@@ -371,10 +385,10 @@ ctr_parse_ex ctr_pprimary(ctr_parser *p);
 ctr_parse_ex ctr_pexpr(ctr_parser *p, size_t prec);
 ctr_parse_ex ctr_pif(ctr_parser *p);
 ctr_parse_ex ctr_plet(ctr_parser *p);
-ctr_parse_ex ctr_passign(ctr_parser *p);
-ctr_parse_ex ctr_pcall(ctr_parser *p);
+ctr_parse_ex ctr_ppostfix(ctr_parser *p);
 ctr_parse_ex ctr_pblock(ctr_parser *p);
 ctr_parse_ex ctr_pfun(ctr_parser *p);
+ctr_parse_ex ctr_pobj(ctr_parser *p);
 ctr_parse_ex ctr_pwhile(ctr_parser *p);
 ctr_parse_ex ctr_preturn(ctr_parser *p);
 ctr_parse_ex ctr_pstmt(ctr_parser *p);
@@ -391,27 +405,17 @@ ctr_parse_ex ctr_pprimary(ctr_parser *p) {
             ++p->tok;
             return ctr_parse_ex_ok(n);
         }
-        case TK_LEFT_BRACKET: {
-            ctr_parse_ex fex = ctr_pfun(p);
-            if (!fex.is_ok) return fex;
-            return fex;
-        }
+        case TK_LEFT_BRACKET: return ctr_pfun(p);
+        case TK_LEFT_BRACE: return ctr_pobj(p);
         case TK_IDENTIFIER: {
-            if ((p->tok + 1)->tt == TK_LEFT_PAREN) { // Call
-                ctr_parse_ex cex = ctr_pcall(p);
-                if (!cex.is_ok) return cex;
-                return cex;
-            } else { // Identifier
-                ctr_node *n = malloc(sizeof(ctr_node));
-                *n = (ctr_node){
-                    p->tok->tt == TK_IDENTIFIER ? CTR_ND_IDENTIFIER : CTR_ND_LITERAL,
-                    p->tok->line, p->tok->column,
-                    .n_identifier = ctr_dref(p->tok->value),
-                };
-                ++p->tok;
-                return ctr_parse_ex_ok(n);
-            }
-            break;
+            ctr_node *n = malloc(sizeof(ctr_node));
+            *n = (ctr_node){
+                p->tok->tt == TK_IDENTIFIER ? CTR_ND_IDENTIFIER : CTR_ND_LITERAL,
+                p->tok->line, p->tok->column,
+                .n_identifier = ctr_dref(p->tok->value),
+            };
+            ++p->tok;
+            return ctr_parse_ex_ok(n);
         }
         case TK_LEFT_PAREN: {
             ++p->tok;
@@ -428,7 +432,7 @@ ctr_parse_ex ctr_pprimary(ctr_parser *p) {
 }
 
 ctr_parse_ex ctr_pexpr(ctr_parser *p, size_t prec) {
-    ctr_parse_ex ex = ctr_pprimary(p);
+    ctr_parse_ex ex = ctr_ppostfix(p);
     if (!ex.is_ok) return ex;
 
     ctr_node *left = ex.ok;
@@ -439,7 +443,7 @@ ctr_parse_ex ctr_pexpr(ctr_parser *p, size_t prec) {
             break;
         ++p->tok;
 
-        ex = ctr_pexpr(p, op_prec + 1);
+        ex = ctr_pexpr(p, (op->tt == TK_EQUAL) ? op_prec : op_prec + 1);
         if (!ex.is_ok) {
             ctr_node_free(left);
             return ex;
@@ -540,73 +544,69 @@ ctr_parse_ex ctr_plet(ctr_parser *p) {
     return ctr_parse_ex_ok(n_let);
 }
 
-ctr_parse_ex ctr_passign(ctr_parser *p) {
-    if (p->tok->tt != TK_IDENTIFIER)
-        return ctr_perr(CTR_ERRP_EXPECTED_IDENTIFIER);
-    ctr_token *name = p->tok++;
+ctr_parse_ex ctr_ppostfix(ctr_parser *p) {
+    ctr_parse_ex ex = ctr_pprimary(p);
+    if (!ex.is_ok) return ex;
+    ctr_node *node = ex.ok;
 
-    if (p->tok->tt != TK_EQUAL)
-        return ctr_perr(CTR_ERRP_EXPECTED_EQUAL);
-    ++p->tok;
+    while (true) {
+        if (p->tok->tt == TK_LEFT_PAREN) {
+            ctr_node *call = malloc(sizeof(ctr_node));
+            *call = (ctr_node){
+                .tt = CTR_ND_CALL,
+                .line = p->tok->line,
+                .column = p->tok->column,
+                .n_call = {
+                    .identifier = node,
+                    .args = NULL,
+                    .arg_c = 0,
+                }
+            };
+            ++p->tok;
 
-    ctr_parse_ex vex = ctr_pexpr(p, 0);
-    if (!vex.is_ok) return vex;
-    if (p->tok->tt != TK_SEMICOLON) {
-        ctr_node_free(vex.ok);
-        --p->tok;
-        return ctr_perr(CTR_ERRP_EXPECTED_SEMICOLON);
+            while (p->tok->tt != TK_RIGHT_PAREN && p->tok->tt != TK_EOF) {
+                ctr_parse_ex arg = ctr_pexpr(p, 0);
+                if (!arg.is_ok) {
+                    ctr_node_free(call);
+                    return arg;
+                }
+                call->n_call.args = realloc(call->n_call.args, sizeof(ctr_node*) * (++call->n_call.arg_c));
+                call->n_call.args[call->n_call.arg_c - 1] = arg.ok;
+                if (p->tok->tt == TK_COMMA)
+                    ++p->tok;
+                else break;
+            }
+            if (p->tok->tt != TK_RIGHT_PAREN)
+                return ctr_perr(CTR_ERRP_UNTERMINATED_ARGS);
+
+            ++p->tok;
+            node = call;
+            continue;
+        }
+
+        if (p->tok->tt == TK_PERIOD) {
+            ++p->tok;
+            if (p->tok->tt != TK_IDENTIFIER)
+                return ctr_perr(CTR_ERRP_EXPECTED_IDENTIFIER);
+
+            ctr_node *member = malloc(sizeof(ctr_node));
+            *member = (ctr_node){
+                .tt = CTR_ND_MEMBER,
+                .line = p->tok->line,
+                .column = p->tok->column,
+                .n_postfix = {
+                    .expr = node,
+                    .postfix = ctr_dref(p->tok->value),
+                }
+            };
+            ++p->tok;
+            node = member;
+            continue;
+        }
+        break;
     }
-    ++p->tok;
 
-    ctr_node *n_assign = malloc(sizeof(ctr_node));
-    *n_assign = (ctr_node){
-        .tt = CTR_ND_ASSIGN,
-        .line = name->line, .column = name->column,
-        .n_assign = {
-            .name = ctr_dref(name->value),
-            .value = vex.ok,
-        }
-    };
-    return ctr_parse_ex_ok(n_assign);
-}
-
-ctr_parse_ex ctr_pcall(ctr_parser *p) {
-    if (p->tok->tt != TK_IDENTIFIER)
-        return ctr_perr(CTR_ERRP_EXPECTED_IDENTIFIER);
-    ctr_token *name = p->tok++;
-
-    if (p->tok->tt != TK_LEFT_PAREN)
-        return ctr_perr(CTR_ERRP_EXPECTED_LPAREN);
-    ++p->tok;
-
-    ctr_node *n_call = malloc(sizeof(ctr_node));
-    *n_call = (ctr_node){
-        .tt = CTR_ND_CALL,
-        .line = name->line, .column = name->column,
-        .n_call = {
-            .name = ctr_dref(name->value),
-            .args = NULL,
-            .arg_c = 0,
-        },
-    };
-
-    while (p->tok->tt != TK_RIGHT_PAREN && p->tok->tt != TK_EOF) {
-        ctr_parse_ex arg = ctr_pexpr(p, 0);
-        if (!arg.is_ok) {
-            ctr_node_free(n_call);
-            return arg;
-        }
-        n_call->n_call.args = realloc(n_call->n_call.args, ++n_call->n_call.arg_c * sizeof(ctr_node *));
-        n_call->n_call.args[n_call->n_call.arg_c - 1] = arg.ok;
-        if (p->tok->tt != TK_COMMA && p->tok->tt != TK_RIGHT_PAREN) {
-            ctr_node_free(n_call);
-            return ctr_perr(CTR_ERRP_UNTERMINATED_ARGS);
-        }
-        if (p->tok->tt == TK_COMMA) ++p->tok;
-    }
-    ++p->tok;
-
-    return ctr_parse_ex_ok(n_call);
+    return ctr_parse_ex_ok(node);
 }
 
 ctr_parse_ex ctr_pblock(ctr_parser *p) {
@@ -681,7 +681,7 @@ ctr_parse_ex ctr_pfun(ctr_parser *p) {
             ctr_node_free(n_fun);
             return ctr_perr(CTR_ERRP_EXPECTED_IDENTIFIER);
         }
-        n_fun->n_fun.args = realloc(n_fun->n_fun.args, ++n_fun->n_fun.arg_c * sizeof(ctr_val *));
+        n_fun->n_fun.args = realloc(n_fun->n_fun.args, ++n_fun->n_fun.arg_c * sizeof(ctr_val));
         n_fun->n_fun.args[n_fun->n_fun.arg_c - 1] = ctr_dref(p->tok->value);
         ++p->tok;
 
@@ -705,6 +705,20 @@ ctr_parse_ex ctr_pfun(ctr_parser *p) {
     n_fun->n_fun.block = bex.ok;
 
     return ctr_parse_ex_ok(n_fun);
+}
+
+ctr_parse_ex ctr_pobj(ctr_parser *p) {
+    ++p->tok; // Consume {
+    ctr_node *n_obj = malloc(sizeof(ctr_node));
+    *n_obj = (ctr_node){
+        .tt = CTR_ND_FUN,
+        .line = p->tok->line, .column = p->tok->column,
+        .n_obj = {
+            .members = NULL,
+        },
+    };
+
+    return ctr_parse_ex_ok(n_obj);
 }
 
 ctr_parse_ex ctr_pwhile(ctr_parser *p) {
@@ -774,20 +788,16 @@ ctr_parse_ex ctr_pstmt(ctr_parser *p) {
         case TK_WHILE: return ctr_pwhile(p);
         case TK_LEFT_BRACE: case TK_SOF: return ctr_pblock(p);
         case TK_RETURN: return ctr_preturn(p);
-        case TK_IDENTIFIER:
-            switch ((p->tok + 1)->tt) {
-                case TK_EQUAL: return ctr_passign(p);
-                default: {
-                    ctr_parse_ex id = ctr_pexpr(p, 0);
-                    if (!id.is_ok) return id;
-                    if (p->tok->tt != TK_SEMICOLON) {
-                        --p->tok;
-                        return ctr_perr(CTR_ERRP_EXPECTED_SEMICOLON);
-                    }
-                    ++p->tok;
-                    return id;
-                }
+        case TK_IDENTIFIER: {
+            ctr_parse_ex id = ctr_pexpr(p, 0);
+            if (!id.is_ok) return id;
+            if (p->tok->tt != TK_SEMICOLON) {
+                --p->tok;
+                return ctr_perr(CTR_ERRP_EXPECTED_SEMICOLON);
             }
+            ++p->tok;
+            return id;
+        }
         default: return ctr_perr(CTR_ERRP_EXPECTED_STMT);
     };
 }

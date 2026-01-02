@@ -1,11 +1,9 @@
-let f = panic(fread("baller.txt"));
-println(f);
-let x = [crap]() { return 1; };
+let my_obj = obj.new();
+my_obj.wow = 1.4;
+assert(type(my_obj) == "obj");
 
-if f == "baller" {
-    let f = "fucker";
-    println(f);
-}
-if f != "baller" {
-    panic(err(f));
-}
+assert(math.floor(my_obj.wow) == 1);
+
+let set_myobj = [my_obj](key, val) { obj.set(my_obj, key, val); };
+set_myobj("wow", 2.4);
+assert(math.floor(my_obj.wow) == 2);

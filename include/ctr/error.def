@@ -2,6 +2,7 @@ X(V, UNKNOWN_OP, "Corrupt instruction") \
 X(V, OOB_ACCESS, "OOB Access") \
 X(V, TYPE_MISMATCH, "Type Mismatch") \
 X(V, MEMBER_NOT_FOUND, "Member Not Found") \
+X(V, ASSERT, "Assert Panic") \
 X(V, PANIC, "Runtime Panic") \
 \
 X(P, UNEXPECTED_TOKEN, "Unexpected token") \
@@ -29,4 +30,5 @@ X(C, UNKNOWN_LOCAL, "Unknown local variable") \
 X(C, REDEFINED_LOCAL, "Redefined local variable") \
 X(C, UNKNOWN_OPERATION, "Unknown operation") \
 X(C, UNUSED_EVALUATION, "Unused (discarded) evaluation") \
+X(C, INVALID_ASSIGN, "Malformed assignment") \
 X(C, UNKNOWN, "Unimplemented")

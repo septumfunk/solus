@@ -1,5 +1,6 @@
 #include "ctr/bytecode.h"
 #include "ctr/vm.h"
+#include "sf/str.h"
 #include <sf/fs.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -113,6 +114,14 @@ ctr_call_ex ctr_std_panic(ctr_state *s) {
         return ctr_call_ex_ok(ctr_dref(err));
     return ctr_call_ex_err((ctr_call_err){CTR_ERRV_PANIC, sf_str_dup(*(sf_str *)err.dyn), 0});
 }
+ctr_call_ex ctr_std_assert(ctr_state *s) {
+    ctr_val con = ctr_get(s, 0);
+    if (con.tt != CTR_TBOOL)
+        return ctr_call_ex_err((ctr_call_err){CTR_ERRV_TYPE_MISMATCH,
+            sf_str_fmt("Arg 'con' expected bool, found '%s'", ctr_typename(con).c_str),
+        0});
+    return con.boolean ? ctr_call_ex_ok(CTR_NIL) : ctr_call_ex_err((ctr_call_err){CTR_ERRV_ASSERT, SF_STR_EMPTY, 0});
+}
 ctr_call_ex ctr_std_type(ctr_state *s) {
     ctr_val val = ctr_get(s, 0);
     ctr_val str = ctr_dnew(CTR_DSTR);
@@ -179,6 +188,10 @@ ctr_call_ex ctr_std_randf(ctr_state *s) {
 
     return ctr_call_ex_ok((ctr_val){ .tt = CTR_TF64, .f64 = val });
 }
+ctr_call_ex ctr_std_floor(ctr_state *s) {
+    ctr_val f64 = ctr_get(s, 0);
+    return ctr_call_ex_ok((ctr_val){ .tt = CTR_TI64, .i64 = (ctr_i64)f64.f64 });
+}
 
 ctr_call_ex ctr_std_fread(ctr_state *s) {
     ctr_val path = ctr_get(s, 0);
@@ -197,7 +210,7 @@ ctr_call_ex ctr_std_fread(ctr_state *s) {
             case SF_OPEN_FAILURE: errs = sf_str_fmt("File '%s' failed to open", p.c_str); break;
             case SF_READ_FAILURE: errs = sf_str_fmt("File '%s' failed to read", p.c_str); break;
         }
-        return ctr_call_ex_ok(ctr_dnewerr(errs));
+        return ctr_call_ex_ok(ctr_dnewerr(sf_str_dup(errs)));
     }
     fsb.ok.flags = SF_BUFFER_GROW;
     sf_buffer_autoins(&fsb.ok, ""); // [\0]
@@ -229,25 +242,34 @@ ctr_call_ex ctr_std_fwrite(ctr_state *s) {
 }
 
 void ctr_usestd(ctr_state *state) {
+    ctr_val io = ctr_dnew(CTR_DOBJ);
+    ctr_dobj_set(io.dyn, sf_lit("print"), ctr_wrapcfun(ctr_std_print, 1, 0));
+    ctr_dobj_set(io.dyn, sf_lit("println"), ctr_wrapcfun(ctr_std_println, 1, 0));
+    ctr_dobj_set(io.dyn, sf_lit("time"), ctr_wrapcfun(ctr_std_time, 0, 0));
+    ctr_dobj_set(io.dyn, sf_lit("fread"), ctr_wrapcfun(ctr_std_fread, 2, 0));
+    ctr_dobj_set(io.dyn, sf_lit("fwrite"), ctr_wrapcfun(ctr_std_fread, 2, 0));
+
+
+    ctr_val obj = ctr_dnew(CTR_DOBJ);
+    ctr_dobj_set(obj.dyn, sf_lit("new"), ctr_wrapcfun(ctr_std_new, 0, 0));
+    ctr_dobj_set(obj.dyn, sf_lit("set"), ctr_wrapcfun(ctr_std_set, 3, 0));
+    ctr_dobj_set(obj.dyn, sf_lit("get"), ctr_wrapcfun(ctr_std_get, 2, 0));
+
+    ctr_val math = ctr_dnew(CTR_DOBJ);
+    ctr_dobj_set(math.dyn, sf_lit("randi"), ctr_wrapcfun(ctr_std_randi, 2, 0));
+    ctr_dobj_set(math.dyn, sf_lit("randf"), ctr_wrapcfun(ctr_std_randf, 2, 0));
+    ctr_dobj_set(math.dyn, sf_lit("floor"), ctr_wrapcfun(ctr_std_floor, 1, 0));
+
     ctr_dobj *_g = state->global.dyn;
-    ctr_dobj_set(_g, sf_lit("print"), ctr_wrapcfun(ctr_std_print, 1, 0));
-    ctr_dobj_set(_g, sf_lit("println"), ctr_wrapcfun(ctr_std_println, 1, 0));
-    ctr_dobj_set(_g, sf_lit("time"), ctr_wrapcfun(ctr_std_time, 0, 0));
     ctr_dobj_set(_g, sf_lit("string"), ctr_wrapcfun(ctr_std_string, 1, 0));
-
-    ctr_dobj_set(_g, sf_lit("new"), ctr_wrapcfun(ctr_std_new, 0, 0));
-    ctr_dobj_set(_g, sf_lit("set"), ctr_wrapcfun(ctr_std_set, 3, 0));
-    ctr_dobj_set(_g, sf_lit("get"), ctr_wrapcfun(ctr_std_get, 2, 0));
-
     ctr_dobj_set(_g, sf_lit("err"), ctr_wrapcfun(ctr_std_err, 1, 0));
     ctr_dobj_set(_g, sf_lit("panic"), ctr_wrapcfun(ctr_std_panic, 1, 0));
+    ctr_dobj_set(_g, sf_lit("assert"), ctr_wrapcfun(ctr_std_assert, 1, 0));
     ctr_dobj_set(_g, sf_lit("type"), ctr_wrapcfun(ctr_std_type, 1, 0));
 
-    ctr_dobj_set(_g, sf_lit("randi"), ctr_wrapcfun(ctr_std_randi, 2, 0));
-    ctr_dobj_set(_g, sf_lit("randf"), ctr_wrapcfun(ctr_std_randf, 2, 0));
-
-    ctr_dobj_set(_g, sf_lit("fread"), ctr_wrapcfun(ctr_std_fread, 2, 0));
-    ctr_dobj_set(_g, sf_lit("fwrite"), ctr_wrapcfun(ctr_std_fread, 2, 0));
+    ctr_dobj_set(_g, sf_lit("io"), io);
+    ctr_dobj_set(_g, sf_lit("obj"), obj);
+    ctr_dobj_set(_g, sf_lit("math"), math);
 
     srand((unsigned)time(NULL));
 }

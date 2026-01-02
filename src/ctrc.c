@@ -55,7 +55,7 @@ typedef struct {
 #define OP_W 10
 /// Add an instruction to the proto.
 /// Optionally logs every instruction compiled (see CTR_DBG_LOG)
-static inline void _ctr_cemit(ctr_compiler *c, ctr_instruction ins, uint16_t line, uint16_t column) {
+static inline void ctr_cemitraw(ctr_compiler *c, ctr_instruction ins, uint16_t line, uint16_t column) {
     if (c->echo) {
         const char *op = ctr_op_info(ctr_ins_op(ins))->mnemonic;
         switch (ctr_op_info(ctr_ins_op(ins))->type) {
@@ -69,7 +69,7 @@ static inline void _ctr_cemit(ctr_compiler *c, ctr_instruction ins, uint16_t lin
     c->proto.dbg = realloc(c->proto.dbg, c->proto.code_s * sizeof(ctr_dbg));
     c->proto.dbg[c->proto.code_s - 1] = CTR_DBG_ENCODE(line, column);
 }
-#define ctr_cemit(c, ins) _ctr_cemit(c, ins, node->line, node->column)
+#define ctr_cemit(c, ins) ctr_cemitraw(c, ins, node->line, node->column)
 
 /// Reserve local variable register
 static inline uint32_t ctr_rlocal(ctr_compiler *c) {
@@ -83,7 +83,7 @@ static inline void ctr_clocals(ctr_compiler *c, uint32_t count) {
 }
 /// Find whether a local exists, and output the local if it does
 static inline bool ctr_lexists(ctr_compiler *c, sf_str name, ctr_local *loc) {
-    for (ctr_scope *s = c->scopes.top; s != c->scopes.data; --s) {
+    for (ctr_scope *s = c->scopes.data + c->scopes.count - 1; s != c->scopes.data - 1; --s) {
         ctr_scope_ex sc_ex = ctr_scope_get(s, name);
         if (sc_ex.is_ok) {
             *loc = sc_ex.ok;
@@ -156,9 +156,9 @@ ctr_compile_ex ctr_cfun(ctr_node *ast, uint32_t arg_c, ctr_val *args, uint32_t u
     c.proto.arg_c = arg_c;
     ctr_scopes_push(&c.scopes, ctr_scope_new());
     for (uint32_t i = 0; i < arg_c; ++i)
-        ctr_scope_set(c.scopes.data, sf_str_dup(*(sf_str *)args[i].dyn), (ctr_local){i, 0, false, 0});
+        ctr_scope_set(c.scopes.data + c.scopes.count - 1, sf_str_dup(*(sf_str *)args[i].dyn), (ctr_local){i, 0, false, 0});
     for (uint32_t i = 0; i < up_c; ++i)
-        ctr_scope_set(c.scopes.data, sf_str_dup(upvals[i].name), (ctr_local){i, 0, true, upvals[i].frame_o});
+        ctr_scope_set(c.scopes.data + c.scopes.count - 1, sf_str_dup(upvals[i].name), (ctr_local){i, 0, true, upvals[i].frame_o});
 
     ctr_kadd(&c, (ctr_val){.tt = CTR_TBOOL, .boolean = false});
     ctr_kadd(&c, (ctr_val){.tt = CTR_TBOOL, .boolean = true});
@@ -178,6 +178,24 @@ ctr_compile_ex ctr_cfun(ctr_node *ast, uint32_t arg_c, ctr_val *args, uint32_t u
 /// Passing UINT32_MAX as t_reg acts as a discard
 ctr_cnode_ex ctr_cnode(ctr_compiler *c, ctr_node *node, uint32_t t_reg) {
     switch (node->tt) {
+        case CTR_ND_MEMBER: {
+            uint32_t lhs = ctr_rtemp(c);
+            ctr_cnode_ex lex = ctr_cnode(c, node->n_postfix.expr, lhs);
+            if (!lex.is_ok) return lex;
+
+            uint32_t name_i;
+            if (!ctr_kfind(c, node->n_postfix.postfix, &name_i)) {
+                ctr_kadd(c, ctr_dref(node->n_postfix.postfix));
+                name_i = c->proto.constants.count - 1;
+            }
+
+            uint32_t name = ctr_rtemp(c);
+            ctr_cemit(c, ctr_ins_ab(CTR_OP_LOAD, name, name_i));
+            ctr_cemit(c, ctr_ins_abc(CTR_OP_GET, t_reg, lhs, name));
+            ctr_ctemps(c, 2);
+
+            return ctr_cnode_ex_ok();
+        }
         case CTR_ND_BLOCK: {
             ctr_scopes_push(&c->scopes, ctr_scope_new());
             for (size_t i = 0; i < node->n_block.count; ++i) {
@@ -197,8 +215,8 @@ ctr_cnode_ex ctr_cnode(ctr_compiler *c, ctr_node *node, uint32_t t_reg) {
             ctr_local loc;
             if (!ctr_lexists(c, *(sf_str *)node->n_identifier.dyn, &loc)) { // Global
                 uint32_t name_i;
-                if (!ctr_kfind(c, node->n_assign.name, &name_i)) {
-                    ctr_kadd(c, ctr_dref(node->n_assign.name));
+                if (!ctr_kfind(c, node->n_identifier, &name_i)) {
+                    ctr_kadd(c, ctr_dref(node->n_identifier));
                     name_i = c->proto.constants.count - 1;
                 }
 
@@ -226,7 +244,7 @@ ctr_cnode_ex ctr_cnode(ctr_compiler *c, ctr_node *node, uint32_t t_reg) {
         }
 
         case CTR_ND_LET: {
-            ctr_scope_ex exists = ctr_scope_get(c->scopes.top, *(sf_str *)node->n_let.name.dyn);
+            ctr_scope_ex exists = ctr_scope_get(c->scopes.data + c->scopes.count - 1, *(sf_str *)node->n_let.name.dyn);
             if (exists.is_ok)
                 return ctr_cerr(CTR_ERRC_REDEFINED_LOCAL);
             uint32_t rhs = ctr_rlocal(c);
@@ -234,59 +252,64 @@ ctr_cnode_ex ctr_cnode(ctr_compiler *c, ctr_node *node, uint32_t t_reg) {
             if (!rv_ex.is_ok) return rv_ex;
 
             if (!exists.is_ok)
-                ctr_scope_set(c->scopes.top, sf_str_dup(*(sf_str *)node->n_let.name.dyn), (ctr_local){rhs, c->scopes.count - 1, false, 0});
+                ctr_scope_set(c->scopes.data + c->scopes.count - 1, sf_str_dup(*(sf_str *)node->n_let.name.dyn), (ctr_local){rhs, c->scopes.count - 1, false, 0});
             if (node->n_let.value->tt == CTR_ND_BINARY && ctr_niscondition(node->n_let.value)) { // Conditions
                 ctr_cemit(c, ctr_ins_ab(CTR_OP_LOAD, rhs, 0));
                 ctr_cemit(c, ctr_ins_ab(CTR_OP_LOAD, rhs, 1));
             }
             return ctr_cnode_ex_ok();
         }
-        case CTR_ND_ASSIGN: {
-            ctr_scope_ex exists = ctr_scope_get(c->scopes.top, *(sf_str *)node->n_let.name.dyn);
-            if (exists.is_ok)
-                return ctr_cerr(CTR_ERRC_REDEFINED_LOCAL);
-            uint32_t rhs = ctr_rlocal(c);
-            ctr_cnode_ex rv_ex = ctr_cnode(c, node->n_let.value, rhs);
-            if (!rv_ex.is_ok) return rv_ex;
-
-            ctr_local loc;
-            if (!ctr_lexists(c, *(sf_str *)node->n_assign.name.dyn, &loc)) { // Global
-                uint32_t name_i;
-                if (!ctr_kfind(c, node->n_assign.name, &name_i)) {
-                    ctr_kadd(c, ctr_dref(node->n_assign.name));
-                    name_i = c->proto.constants.count - 1;
-                }
-
-                uint32_t gt = ctr_rtemp(c), name = ctr_rtemp(c);
-                ctr_cemit(c, ctr_ins_ab(CTR_OP_GETU, gt, 0)); // state->global
-                ctr_cemit(c, ctr_ins_ab(CTR_OP_LOAD, name, name_i));
-                ctr_cemit(c, ctr_ins_abc(CTR_OP_SET, gt, name, rhs));
-                ctr_ctemps(c, 2);
-            } else // Local
-                ctr_cemit(c, ctr_ins_ab(loc.upval ? CTR_OP_SETU : CTR_OP_MOVE, loc.reg, rhs));
-
-            if (node->n_assign.value->tt == CTR_ND_BINARY && ctr_niscondition(node->n_assign.value)) { // Conditions
-                ctr_cemit(c, ctr_ins_ab(loc.upval ? CTR_OP_SETU : CTR_OP_MOVE, loc.reg, 0));
-                ctr_cemit(c, ctr_ins_ab(loc.upval ? CTR_OP_SETU : CTR_OP_MOVE, loc.reg, 1));
-            }
-
-            ctr_ctemps(c, 1); // temp
-            return ctr_cnode_ex_ok();
-        }
 
         case CTR_ND_BINARY: {
-            if (t_reg == UINT32_MAX)
-                return ctr_cerr(CTR_ERRC_UNUSED_EVALUATION);
-
             uint32_t left = ctr_rtemp(c), right = ctr_rtemp(c);
-            ctr_cnode_ex left_ex = ctr_cnode(c, node->n_binary.left, left);
-            if (!left_ex.is_ok)
-                return left_ex;
+            if (node->n_binary.op != TK_EQUAL) {
+                ctr_cnode_ex left_ex = ctr_cnode(c, node->n_binary.left, left);
+                if (!left_ex.is_ok)
+                    return left_ex;
+            }
 
             ctr_cnode_ex right_ex = ctr_cnode(c, node->n_binary.right, right);
             if (!right_ex.is_ok) return right_ex;
 
             switch (node->n_binary.op) {
+                case TK_EQUAL: {
+                    if (node->n_binary.left->tt == CTR_ND_IDENTIFIER) {
+                        ctr_local loc;
+                        if (ctr_lexists(c, *(sf_str *)node->n_binary.left->n_identifier.dyn, &loc)) // Local/Upval
+                            ctr_cemit(c, loc.upval ? ctr_ins_ab(CTR_OP_SETU, loc.reg, right) : ctr_ins_ab(CTR_OP_MOVE, loc.reg, right));
+                        else { // Global
+                            uint32_t name_i;
+                            if (!ctr_kfind(c, node->n_binary.left->n_identifier, &name_i)) {
+                                ctr_kadd(c, ctr_dref(node->n_binary.left->n_identifier));
+                                name_i = c->proto.constants.count - 1;
+                            }
+
+                            uint32_t gt = ctr_rtemp(c), name = ctr_rtemp(c);
+                            ctr_cemit(c, ctr_ins_ab(CTR_OP_GETU, gt, 0)); // state->global
+                            ctr_cemit(c, ctr_ins_ab(CTR_OP_LOAD, name, name_i));
+                            ctr_cemit(c, ctr_ins_abc(CTR_OP_SET, gt, name, right));
+                            ctr_ctemps(c, 2);
+                        }
+                    } else if (node->n_binary.left->tt == CTR_ND_MEMBER) { // Member Assign
+                        uint32_t obj = ctr_rtemp(c), name = ctr_rtemp(c);
+                        ctr_cnode_ex ex = ctr_cnode(c, node->n_binary.left->n_postfix.expr, obj);
+                        if (!ex.is_ok) return ex;
+
+                        uint32_t name_i;
+                        sf_str *v = node->n_binary.left->n_postfix.postfix.dyn; (void)v;
+                        if (!ctr_kfind(c, node->n_binary.left->n_postfix.postfix, &name_i)) {
+                            ctr_kadd(c, ctr_dref(node->n_binary.left->n_postfix.postfix));
+                            name_i = c->proto.constants.count - 1;
+                        }
+
+                        ctr_cemit(c, ctr_ins_ab(CTR_OP_LOAD, name, name_i));
+                        ctr_cemit(c, ctr_ins_abc(CTR_OP_SET, obj, name, right));
+                        ctr_ctemps(c, 2);
+                    } else return ctr_cerr(CTR_ERRC_INVALID_ASSIGN);
+                    ctr_ctemps(c, 2);
+                    return ctr_cnode_ex_ok();
+                }
+
                 case TK_PLUS: ctr_cemit(c, ctr_ins_abc(CTR_OP_ADD, t_reg, left, right)); break;
                 case TK_MINUS: ctr_cemit(c, ctr_ins_abc(CTR_OP_SUB, t_reg, left, right)); break;
                 case TK_ASTERISK: ctr_cemit(c, ctr_ins_abc(CTR_OP_MUL, t_reg, left, right)); break;
@@ -312,36 +335,21 @@ ctr_cnode_ex ctr_cnode(ctr_compiler *c, ctr_node *node, uint32_t t_reg) {
             for (size_t i = 0; i < node->n_call.arg_c; ++i) {
                 uint32_t r = ctr_rtemp(c);
                 ctr_cnode_ex ex = ctr_cnode(c, node->n_call.args[i], r);
+                if (node->n_call.args[i]->tt == CTR_ND_BINARY && ctr_niscondition(node->n_call.args[i])) { // Conditions
+                    ctr_cemit(c, ctr_ins_ab(CTR_OP_LOAD, r, 0));
+                    ctr_cemit(c, ctr_ins_ab(CTR_OP_LOAD, r, 1));
+                }
+
                 if (!ex.is_ok) return ex;
                 if (arg_rs == UINT32_MAX) arg_rs = r;
             }
 
-            ctr_local loc;
-            if (!ctr_lexists(c, *(sf_str *)node->n_call.name.dyn, &loc)) { // Global
-                uint32_t name_i;
-                if (!ctr_kfind(c, node->n_assign.name, &name_i)) {
-                    ctr_kadd(c, ctr_dref(node->n_assign.name));
-                    name_i = c->proto.constants.count - 1;
-                }
+            uint32_t f_reg = ctr_rtemp(c);
+            ctr_cnode_ex lex = ctr_cnode(c, node->n_call.identifier, f_reg);
+            if (!lex.is_ok) return lex;
+            ctr_cemit(c, ctr_ins_abc(CTR_OP_CALL, t_reg == UINT32_MAX ? ctr_rtemp(c) : t_reg, f_reg, arg_rs == UINT32_MAX ? 0 : arg_rs));
 
-                uint32_t gt = ctr_rtemp(c), name = ctr_rtemp(c), fun_r = ctr_rtemp(c);
-                ctr_cemit(c, ctr_ins_ab(CTR_OP_GETU, gt, 0));
-                ctr_cemit(c, ctr_ins_ab(CTR_OP_LOAD, name, name_i));
-                ctr_cemit(c, ctr_ins_abc(CTR_OP_GET, fun_r, gt, name));
-                ctr_cemit(c, ctr_ins_abc(CTR_OP_CALL, t_reg == UINT32_MAX ? ctr_rtemp(c) : t_reg, fun_r, arg_rs == UINT32_MAX ? 0 : arg_rs));
-                ctr_ctemps(c, 3);
-            } else { // Local
-                uint32_t fun_r = loc.reg;
-                if (loc.upval) { // Reserve temp for upval
-                    fun_r = ctr_rtemp(c);
-                    ctr_cemit(c, ctr_ins_ab(CTR_OP_GETU, fun_r, loc.reg));
-                    ctr_cemit(c, ctr_ins_abc(CTR_OP_CALL, t_reg == UINT32_MAX ? ctr_rtemp(c) : t_reg, fun_r, arg_rs == UINT32_MAX ? 0 : arg_rs));
-                    ctr_ctemps(c, 1);
-                } else
-                    ctr_cemit(c, ctr_ins_abc(CTR_OP_CALL, t_reg == UINT32_MAX ? ctr_rtemp(c) : t_reg, fun_r, arg_rs == UINT32_MAX ? 0 : arg_rs));
-            }
-
-            ctr_ctemps(c, t_reg == UINT32_MAX ? node->n_call.arg_c + 1 : node->n_call.arg_c);
+            ctr_ctemps(c, t_reg == UINT32_MAX ? node->n_call.arg_c + 2 : node->n_call.arg_c + 1);
             return ctr_cnode_ex_ok();
         }
         case CTR_ND_FUN: {
@@ -388,8 +396,8 @@ ctr_cnode_ex ctr_cnode(ctr_compiler *c, ctr_node *node, uint32_t t_reg) {
                 ctr_local loc;
                 if (!ctr_lexists(c, *(sf_str *)node->n_if.condition->n_identifier.dyn, &loc)) { // Global
                     uint32_t name_i;
-                    if (!ctr_kfind(c, node->n_assign.name, &name_i)) {
-                        ctr_kadd(c, ctr_dref(node->n_assign.name));
+                    if (!ctr_kfind(c, node->n_if.condition->n_identifier, &name_i)) {
+                        ctr_kadd(c, ctr_dref(node->n_if.condition->n_identifier));
                         name_i = c->proto.constants.count - 1;
                     }
 
@@ -444,12 +452,12 @@ ctr_cnode_ex ctr_cnode(ctr_compiler *c, ctr_node *node, uint32_t t_reg) {
         case CTR_ND_WHILE: {
             uint32_t jmp_cond = c->proto.code_s - 1;
             uint32_t cr = ctr_rtemp(c);
-            if (node->n_if.condition->tt == CTR_ND_IDENTIFIER) {
+            if (node->n_while.condition->tt == CTR_ND_IDENTIFIER) {
                 ctr_local loc;
-                if (!ctr_lexists(c, *(sf_str *)node->n_if.condition->n_identifier.dyn, &loc)) { // Global
+                if (!ctr_lexists(c, *(sf_str *)node->n_while.condition->n_identifier.dyn, &loc)) { // Global
                     uint32_t name_i;
-                    if (!ctr_kfind(c, node->n_assign.name, &name_i)) {
-                        ctr_kadd(c, ctr_dref(node->n_assign.name));
+                    if (!ctr_kfind(c, node->n_while.condition->n_identifier, &name_i)) {
+                        ctr_kadd(c, ctr_dref(node->n_while.condition->n_identifier));
                         name_i = c->proto.constants.count - 1;
                     }
 
@@ -470,8 +478,8 @@ ctr_cnode_ex ctr_cnode(ctr_compiler *c, ctr_node *node, uint32_t t_reg) {
                         ctr_cemit(c, ctr_ins_abc(CTR_OP_EQ, 0, loc.reg, cr));
                 }
             } else {
-                ctr_cnode_ex ex = ctr_cnode(c, node->n_if.condition, cr);
-                if (node->n_if.condition->tt == CTR_ND_CALL) {
+                ctr_cnode_ex ex = ctr_cnode(c, node->n_while.condition, cr);
+                if (node->n_while.condition->tt == CTR_ND_CALL) {
                     uint32_t ttemp = ctr_rtemp(c);
                     ctr_cemit(c, ctr_ins_ab(CTR_OP_LOAD, ttemp, 1));
                     ctr_cemit(c, ctr_ins_abc(CTR_OP_EQ, cr, cr, ttemp));

@@ -163,10 +163,11 @@ ctr_call_ex ctr_call_bc(ctr_state *state, ctr_fproto *proto, const ctr_val *args
     uint32_t pc = proto->entry;
     ctr_val return_val = CTR_NIL;
 
-    ctr_pushframe(state, proto->reg_c);
-    for (uint32_t i = 0; i < proto->reg_c; ++i)
+    uint32_t t_reg = proto->arg_c + proto->reg_c;
+    ctr_pushframe(state, t_reg);
+    for (uint32_t i = 0; i < t_reg; ++i)
         ctr_valvec_push(&state->stack, CTR_NIL);
-    for (uint32_t i = 0; i < proto->arg_c && args; ++i)
+    for (uint32_t i = 0; i < t_reg && args; ++i)
         ctr_set(state, i, args[i]);
 
     #ifdef COMPUTE_GOTOS
@@ -241,7 +242,6 @@ ctr_call_ex ctr_call_bc(ctr_state *state, ctr_fproto *proto, const ctr_val *args
                     ctr_set(state, ctr_iabc_a(ins), (ctr_val){.tt = CTR_TI64, .i64 = lhs.i64 + rhs.i64});
                     break;
                 case CTR_TDYN: {
-                    ctr_dheader *dh1 = ctr_header(lhs), *dh2 = ctr_header(rhs); (void)dh1; (void)dh2;
                     if (!ctr_isdtype(lhs, CTR_DSTR))
                         return ctr_callerr(CTR_ERRV_TYPE_MISMATCH, "Cannot concatenate str with dynamic type.", NULL);
                     ctr_set(state, ctr_iabc_a(ins), ctr_dnewstr(sf_str_join(*(sf_str *)lhs.dyn, *(sf_str *)rhs.dyn)));
@@ -474,12 +474,12 @@ ctr_call_ex ctr_call_bc(ctr_state *state, ctr_fproto *proto, const ctr_val *args
         }
         CASE(CTR_OP_REFU) {
             ctr_val v = ctr_get(state, (uint32_t)ctr_ia_a(ins));
-            if (v.tt == CTR_TDYN && ctr_header(v)->tt == CTR_DREF) {
+            if (ctr_isdtype(v, CTR_DREF)) {
                 ctr_dref(v);
                 DISPATCH();
             }
             ctr_val vref = ctr_dnew(CTR_DREF);
-            *(ctr_val *)vref.dyn = v;
+            *(ctr_val *)vref.dyn = ctr_dref(v);
             ctr_set(state, (uint32_t)ctr_ia_a(ins), vref);
             DISPATCH();
         }
@@ -507,7 +507,7 @@ ctr_call_ex ctr_call_bc(ctr_state *state, ctr_fproto *proto, const ctr_val *args
                 return ctr_callerr(CTR_ERRV_TYPE_MISMATCH, "Expected str at [%d], found %s.", ctr_iabc_c(ins), ctr_typename(key).c_str);
             ctr_dobj_ex ex = ctr_dobj_get((ctr_dobj *)obj.dyn, *(sf_str *)key.dyn);
             if (!ex.is_ok)
-                return ctr_callerr(CTR_ERRV_TYPE_MISMATCH, "Object [%d], does not contain member '%s'.", ctr_iabc_a(ins), ((sf_str *)key.dyn)->c_str);
+                return ctr_callerr(CTR_ERRV_MEMBER_NOT_FOUND, "Object [%d], does not contain member '%s'.", ctr_iabc_b(ins), ((sf_str *)key.dyn)->c_str);
             ctr_set(state, ctr_iabc_a(ins), ctr_dref(ex.ok));
             DISPATCH();
         }

@@ -26,7 +26,7 @@ typedef enum {
 typedef struct {
     ctr_tokentype tt;
     ctr_val value;
-    uint16_t line, column;
+    uint16_t line, column, len;
 } ctr_token;
 
 typedef struct {
@@ -63,6 +63,7 @@ typedef enum {
     CTR_ND_BLOCK,
 
     CTR_ND_IDENTIFIER,
+    CTR_ND_MEMBER,
     CTR_ND_LITERAL,
 
     CTR_ND_LET,
@@ -85,22 +86,30 @@ typedef struct ctr_node {
     union {
         ctr_val n_literal, n_identifier;
         struct ctr_node *n_return;
-        struct { // x <op> y
+        struct { // e.p
+            struct ctr_node *expr;
+            ctr_val postfix;
+        } n_postfix;
+        struct { // l <op> r
             ctr_tokentype op;
             struct ctr_node *left;
             struct ctr_node *right;
         } n_binary;
-        struct { // <let> n = v;
+        struct { // <let> n = v; // { n = v }
             ctr_val name;
             struct ctr_node *value;
-        } n_let, n_assign;
+        } n_let, n_member;
+        struct {
+            struct ctr_node *expr;
+            struct ctr_node *value;
+        } n_assign;
         struct { // if c {t} else {e}
             struct ctr_node *condition;
             struct ctr_node *then_node;
             struct ctr_node *else_node;
         } n_if;
         struct { // x(a)
-            ctr_val name;
+            struct ctr_node *identifier;
             struct ctr_node **args;
             uint32_t arg_c;
         } n_call;
@@ -119,6 +128,10 @@ typedef struct ctr_node {
             uint32_t arg_c;
             struct ctr_node *block;
         } n_fun;
+
+        struct { // { n_member, }
+            struct ctr_node **members;
+        } n_obj;
     };
 } ctr_node;
 

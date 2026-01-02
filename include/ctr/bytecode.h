@@ -8,7 +8,7 @@
 #include <stdlib.h>
 
 // Define CTR_DBG_LOG to get debug output from the compiler and vm
-//#define CTR_DBG_LOG true
+#define CTR_DBG_LOG true
 
 #ifdef CTR_DBG_LOG
 #define ctr_log(lit) printf(lit"\n")
@@ -216,17 +216,17 @@ typedef ctr_fproto *ctr_dfun;
 /// Allocates a dynamic object, a heap allocated object with an information header
 EXPORT ctr_val ctr_dnew(ctr_dtype tt);
 /// Shorthand for using ctr_dnew and assigning a string value.
-/// Worry not, this duplicates the string passed
+/// This function takes ownership of the string passed, so make a copy if needed
 static inline ctr_val ctr_dnewstr(sf_str str) {
     ctr_val strv = ctr_dnew(CTR_DSTR);
-    *(sf_str *)strv.dyn = sf_str_dup(str);
+    *(sf_str *)strv.dyn = str;
     return strv;
 }
 /// Shorthand for using ctr_dnew and assigning a string value.
-/// Worry not, this duplicates the string passed
+/// This function takes ownership of the string passed, so make a copy if needed
 static inline ctr_val ctr_dnewerr(sf_str str) {
     ctr_val strv = ctr_dnew(CTR_DERR);
-    *(sf_str *)strv.dyn = sf_str_dup(str);
+    *(sf_str *)strv.dyn = str;
     return strv;
 }
 /// Delete a reference to a dynamic object (decrement ref counter)
@@ -254,6 +254,7 @@ static inline ctr_val ctr_dval(ctr_val val) {
 }
 /// Returns a (static) string denoting the type of a value
 static inline sf_str ctr_typename(ctr_val val) {
+    
     return val.tt == CTR_TDYN ? CTR_TYPE_NAMES[(int)CTR_TDYN + 1 + ctr_header(val)->tt] : CTR_TYPE_NAMES[val.tt];
 }
 
