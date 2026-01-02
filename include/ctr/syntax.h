@@ -15,6 +15,8 @@ typedef enum {
     TK_GREATER, TK_GREATER_EQUAL,
     TK_LESS, TK_LESS_EQUAL,
 
+    TK_ASM, TK_OPCODE,
+
     TK_IDENTIFIER, TK_STRING, TK_NUMBER, TK_INTEGER,
 
     TK_AND, TK_ELSE, TK_TRUE, TK_FALSE, TK_FUN, TK_FOR, TK_IF, TK_NIL, TK_OR,
@@ -73,6 +75,9 @@ typedef enum {
     CTR_ND_CALL,
     CTR_ND_FUN,
 
+    CTR_ND_ASM,
+    CTR_ND_INS,
+
     CTR_ND_IF,
     CTR_ND_WHILE,
     CTR_ND_RETURN,
@@ -121,6 +126,7 @@ typedef struct ctr_node {
             struct ctr_node **stmts;
             uint32_t count;
         } n_block;
+
         struct { // [c](a) {b}
             ctr_val *captures;
             uint32_t cap_c;
@@ -128,6 +134,15 @@ typedef struct ctr_node {
             uint32_t arg_c;
             struct ctr_node *block;
         } n_fun;
+
+        struct {
+            ctr_i64 temps;
+            struct ctr_node *n_fun;
+        } n_asm;
+        struct {
+            ctr_opcode op;
+            ctr_val opa[3];
+        } n_ins;
 
         struct { // { n_member, }
             struct ctr_node **members;

@@ -122,6 +122,11 @@ ctr_token ctr_scanidentifier(ctr_scanner *s) {
             value = CTR_TRUE;
         if (ex.ok == TK_FALSE)
             value = CTR_FALSE;
+        if (ex.ok == TK_OPCODE) {
+            for (ctr_opcode o = 0; o < CTR_OP_COUNT; ++o)
+                value = sf_str_eq(sf_lit(ctr_op_info(o)->mnemonic), sf_ref(str)) ?
+                    (ctr_val){.tt = CTR_TI64, .i64 = o} : value;
+        }
         return (ctr_token) {
             .tt = ex.ok,
             .value = value,
@@ -130,11 +135,9 @@ ctr_token ctr_scanidentifier(ctr_scanner *s) {
             .len = len - 1,
         };
     } else {
-        char *s2 = calloc(1, len + 1);
-        memcpy(s2, str, len);
         return (ctr_token){
             .tt = TK_IDENTIFIER,
-            .value = ctr_dnewstr(sf_own(s2)),
+            .value = ctr_dnewstr(sf_str_cdup(str)),
             .line = s->current.line,
             .column = s->current.column,
             .len = len - 1,
@@ -152,6 +155,10 @@ ctr_scan_ex ctr_scan(sf_str src) {
     };
     ctr_error eval = CTR_ERRP_UNEXPECTED_TOKEN;
 
+    for (ctr_opcode o = 0; o < CTR_OP_COUNT; ++o)
+        ctr_keywords_set(&s.keywords, sf_ref(ctr_op_info(o)->mnemonic), TK_OPCODE);
+
+    ctr_keywords_set(&s.keywords, sf_lit("asm"), TK_ASM);
     ctr_keywords_set(&s.keywords, sf_lit("and"), TK_AND);
     ctr_keywords_set(&s.keywords, sf_lit("or"), TK_OR);
     ctr_keywords_set(&s.keywords, sf_lit("return"), TK_RETURN);
@@ -272,7 +279,10 @@ ctr_scan_ex ctr_scan(sf_str src) {
     return ctr_scan_ex_ok(tks);
 }
 
-typedef struct { ctr_token *tok; } ctr_parser;
+typedef struct {
+    ctr_token *tok;
+    bool asm;
+} ctr_parser;
 
 void ctr_node_free(ctr_node *tree) {
     switch (tree->tt) {
@@ -334,6 +344,14 @@ void ctr_node_free(ctr_node *tree) {
             if (tree->n_fun.block)
                 ctr_node_free(tree->n_fun.block);
             break;
+        case CTR_ND_ASM:
+            ctr_node_free(tree->n_asm.n_fun);
+            break;
+        case CTR_ND_INS:
+            ctr_ddel(tree->n_ins.opa[0]);
+            ctr_ddel(tree->n_ins.opa[1]);
+            ctr_ddel(tree->n_ins.opa[2]);
+            break;
         case CTR_ND_WHILE:
             ctr_node_free(tree->n_while.condition);
             ctr_node_free(tree->n_while.block);
@@ -388,6 +406,8 @@ ctr_parse_ex ctr_plet(ctr_parser *p);
 ctr_parse_ex ctr_ppostfix(ctr_parser *p);
 ctr_parse_ex ctr_pblock(ctr_parser *p);
 ctr_parse_ex ctr_pfun(ctr_parser *p);
+ctr_parse_ex ctr_pasm(ctr_parser *p);
+ctr_parse_ex ctr_pins(ctr_parser *p);
 ctr_parse_ex ctr_pobj(ctr_parser *p);
 ctr_parse_ex ctr_pwhile(ctr_parser *p);
 ctr_parse_ex ctr_preturn(ctr_parser *p);
@@ -406,6 +426,7 @@ ctr_parse_ex ctr_pprimary(ctr_parser *p) {
             return ctr_parse_ex_ok(n);
         }
         case TK_LEFT_BRACKET: return ctr_pfun(p);
+        case TK_ASM: return ctr_pasm(p);
         case TK_LEFT_BRACE: return ctr_pobj(p);
         case TK_IDENTIFIER: {
             ctr_node *n = malloc(sizeof(ctr_node));
@@ -707,6 +728,79 @@ ctr_parse_ex ctr_pfun(ctr_parser *p) {
     return ctr_parse_ex_ok(n_fun);
 }
 
+ctr_parse_ex ctr_pasm(ctr_parser *p) {
+    ++p->tok; // Consume asm
+    if (p->tok->tt != TK_LEFT_PAREN)
+        return ctr_perr(CTR_ERRP_EXPECTED_LPAREN);
+    ++p->tok;
+    if (p->tok->tt != TK_INTEGER)
+        return ctr_perr(CTR_ERRP_EXPECTED_INTEGER);
+    uint32_t temps = (uint32_t)p->tok->value.i64;
+    ++p->tok;
+    if (p->tok->tt != TK_RIGHT_PAREN)
+        return ctr_perr(CTR_ERRP_EXPECTED_RPAREN);
+    ++p->tok;
+
+    p->asm = true;
+    ctr_parse_ex fex = ctr_pfun(p);
+    p->asm = false;
+    if (!fex.is_ok) return fex;
+
+    ctr_node *n_asm = malloc(sizeof(ctr_node));
+    *n_asm = (ctr_node){
+        .tt = CTR_ND_ASM,
+        .line = p->tok->line, .column = p->tok->column,
+        .n_asm = {
+            .temps = temps,
+            .n_fun = fex.ok,
+        },
+    };
+    return ctr_parse_ex_ok(n_asm);
+}
+
+ctr_parse_ex ctr_pins(ctr_parser *p) {
+    ctr_opcode op = (ctr_opcode)p->tok->value.i64;
+    ++p->tok;
+    ctr_val opa[3] = {CTR_NIL, CTR_NIL, CTR_NIL};
+    for (int i = 0; i < (int)(ctr_op_info(op)->type) + 1; ++i) {
+        ctr_parse_ex vex = ctr_pprimary(p);
+        if (!vex.is_ok) return vex;
+        switch (vex.ok->tt) {
+            case CTR_ND_IDENTIFIER: opa[i] = ctr_dref(vex.ok->n_identifier); break;
+            case CTR_ND_LITERAL: {
+                if (vex.ok->n_literal.tt != CTR_TI64 && !((op == CTR_OP_LOAD && i == 1) ||
+                    (op == CTR_OP_SUPO && i == 1) ||
+                    (op == CTR_OP_GUPO && i == 2))) {
+                    ctr_node_free(vex.ok);
+                    for (int i = 0; i < 3; ++i) ctr_ddel(opa[i]);
+                    return ctr_perr(CTR_ERRP_EXPECTED_INTEGER);
+                }
+                opa[i] = ctr_dref(vex.ok->n_literal);
+                break;
+            }
+            default: {
+                ctr_node_free(vex.ok);
+                for (int i = 0; i < 3; ++i) ctr_ddel(opa[i]);
+                return ctr_perr(CTR_ERRP_EXPECTED_IDENTIFIER);
+            }
+        }
+    }
+    if (p->tok->tt != TK_SEMICOLON)
+        return ctr_perr(CTR_ERRP_EXPECTED_SEMICOLON);
+    ++p->tok;
+
+    ctr_node *n_ins = malloc(sizeof(ctr_node));
+    *n_ins = (ctr_node){
+        .tt = CTR_ND_INS,
+        .line = p->tok->line, .column = p->tok->column,
+        .n_ins = {
+            .op = op,
+            .opa = {opa[0], opa[1], opa[2]},
+        },
+    };
+    return ctr_parse_ex_ok(n_ins);
+}
+
 ctr_parse_ex ctr_pobj(ctr_parser *p) {
     ++p->tok; // Consume {
     ctr_node *n_obj = malloc(sizeof(ctr_node));
@@ -782,7 +876,13 @@ ctr_parse_ex ctr_preturn(ctr_parser *p) {
 }
 
 ctr_parse_ex ctr_pstmt(ctr_parser *p) {
+    if (p->asm && p->tok->tt != TK_OPCODE)
+        return ctr_perr(CTR_ERRP_EXPECTED_ASM);
     switch (p->tok->tt) {
+        case TK_OPCODE: {
+            if (!p->asm) return ctr_perr(CTR_ERRP_UNEXPECTED_ASM);
+            return ctr_pins(p);
+        }
         case TK_IF: return ctr_pif(p);
         case TK_LET: return ctr_plet(p);
         case TK_WHILE: return ctr_pwhile(p);
@@ -805,6 +905,6 @@ ctr_parse_ex ctr_pstmt(ctr_parser *p) {
 ctr_parse_ex ctr_parse(ctr_tokenvec *tokens) {
     if (tokens->count == 0)
         return ctr_parse_ex_err((ctr_parse_err){CTR_ERRP_NO_TOKENS, 0, 0});
-    ctr_parser p = { tokens->data };
+    ctr_parser p = { tokens->data, false };
     return ctr_pstmt(&p);
 }

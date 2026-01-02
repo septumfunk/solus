@@ -199,6 +199,16 @@ const ctr_inssig CTR_OP_INFO[CTR_OP_COUNT] = {
         .mnemonic = "SUB",
         .type = CTR_INS_ABC,
     },
+    [CTR_OP_DIV] = {
+        .opcode = CTR_OP_DIV,
+        .mnemonic = "DIV",
+        .type = CTR_INS_ABC,
+    },
+    [CTR_OP_MUL] = {
+        .opcode = CTR_OP_MUL,
+        .mnemonic = "MUL",
+        .type = CTR_INS_ABC,
+    },
 
     [CTR_OP_EQ] = {
         .opcode = CTR_OP_EQ,

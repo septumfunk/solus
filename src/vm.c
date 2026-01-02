@@ -522,23 +522,6 @@ ctr_call_ex ctr_call_bc(ctr_state *state, ctr_fproto *proto, const ctr_val *args
             DISPATCH();
         }
 
-        CASE(CTR_OP_GUPO) {
-            ctr_upvalue *upv = proto->upvals + ctr_iabc_b(ins);
-            ctr_val upo = upv->tt == CTR_UP_VAL ? upv->value : ctr_rawget(state, upv->ref, upv->frame);
-            if (!ctr_isdtype(upo, CTR_DOBJ))
-                return ctr_callerr(CTR_ERRV_TYPE_MISMATCH, "Expected obj at u[%d], found %s.", ctr_iabc_b(ins), ctr_typename(upo).c_str);
-            ctr_val kkey = ctr_valvec_get(&proto->constants, ctr_iabc_c(ins));
-            if (!ctr_isdtype(kkey, CTR_DSTR))
-                return ctr_callerr(CTR_ERRV_TYPE_MISMATCH, "Expected str at k[%d], found %s.", ctr_iabc_c(ins), ctr_typename(upo).c_str);
-
-            ctr_dobj_ex ex = ctr_dobj_get((ctr_dobj *)upo.dyn, *(sf_str *)kkey.dyn);
-            if (!ex.is_ok) {
-                ctr_set(state, ctr_iabc_a(ins), ctr_dnewerr(sf_str_fmt("obj u[%d], does not contain member '%s'.", ctr_iabc_b(ins), ((sf_str *)kkey.dyn)->c_str)));
-                DISPATCH();
-            }
-            ctr_set(state, ctr_iabc_a(ins), ctr_dref(ex.ok));
-            DISPATCH();
-        }
         CASE(CTR_OP_SUPO) {
             ctr_upvalue *upv = proto->upvals + ctr_iabc_a(ins);
             ctr_val upo = upv->tt == CTR_UP_VAL ? upv->value : ctr_rawget(state, upv->ref, upv->frame);
@@ -546,13 +529,30 @@ ctr_call_ex ctr_call_bc(ctr_state *state, ctr_fproto *proto, const ctr_val *args
                 return ctr_callerr(CTR_ERRV_TYPE_MISMATCH, "Expected obj at u[%d], found %s.", ctr_iabc_a(ins), ctr_typename(upo).c_str);
             ctr_val kkey = ctr_valvec_get(&proto->constants, ctr_iabc_b(ins));
             if (!ctr_isdtype(kkey, CTR_DSTR))
-                return ctr_callerr(CTR_ERRV_TYPE_MISMATCH, "Expected str at k[%d], found %s.", ctr_iabc_b(ins), ctr_typename(upo).c_str);
+                return ctr_callerr(CTR_ERRV_TYPE_MISMATCH, "Expected str at k[%d], found %s.", ctr_iabc_b(ins), ctr_typename(kkey).c_str);
             ctr_val val = ctr_get(state, ctr_iabc_c(ins));
 
             ctr_dobj_ex ex = ctr_dobj_get((ctr_dobj *)upo.dyn, *(sf_str *)kkey.dyn);
             if (ex.is_ok && ex.ok.tt == CTR_TDYN)
                 ctr_ddel(ex.ok);
             ctr_dobj_set((ctr_dobj *)upo.dyn, sf_str_dup(*(sf_str *)kkey.dyn), ctr_dref(val));
+            DISPATCH();
+        }
+        CASE(CTR_OP_GUPO) {
+            ctr_upvalue *upv = proto->upvals + ctr_iabc_b(ins);
+            ctr_val upo = upv->tt == CTR_UP_VAL ? upv->value : ctr_rawget(state, upv->ref, upv->frame);
+            if (!ctr_isdtype(upo, CTR_DOBJ))
+                return ctr_callerr(CTR_ERRV_TYPE_MISMATCH, "Expected obj at u[%d], found %s.", ctr_iabc_b(ins), ctr_typename(upo).c_str);
+            ctr_val kkey = ctr_valvec_get(&proto->constants, ctr_iabc_c(ins));
+            if (!ctr_isdtype(kkey, CTR_DSTR))
+                return ctr_callerr(CTR_ERRV_TYPE_MISMATCH, "Expected str at k[%d], found %s.", ctr_iabc_c(ins), ctr_typename(kkey).c_str);
+
+            ctr_dobj_ex ex = ctr_dobj_get((ctr_dobj *)upo.dyn, *(sf_str *)kkey.dyn);
+            if (!ex.is_ok) {
+                ctr_set(state, ctr_iabc_a(ins), ctr_dnewerr(sf_str_fmt("obj u[%d], does not contain member '%s'.", ctr_iabc_b(ins), ((sf_str *)kkey.dyn)->c_str)));
+                DISPATCH();
+            }
+            ctr_set(state, ctr_iabc_a(ins), ctr_dref(ex.ok));
             DISPATCH();
         }
 

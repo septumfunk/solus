@@ -20,6 +20,9 @@ X(P, EXPECTED_CONDITION, "Expected condition") \
 X(P, EXPECTED_BLOCK, "Expected block") \
 X(P, EXPECTED_STMT, "Expected statement") \
 X(P, EXPECTED_ARGS, "Expected argument list") \
+X(P, EXPECTED_ASM, "Expected assembly") \
+X(P, EXPECTED_INTEGER, "Expected i64") \
+X(P, UNEXPECTED_ASM, "Unexpected assembly") \
 X(P, UNTERMINATED_ARGS, "Unterminated argument list") \
 X(P, UNTERMINATED_CAPTURES, "Unterminated capture list") \
 \
