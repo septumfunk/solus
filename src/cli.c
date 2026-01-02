@@ -1,6 +1,6 @@
-#include "ctr/bytecode.h"
-#include "ctr/ctrc.h"
-#include "ctr/vm.h"
+#include "sol/bytecode.h"
+#include "sol/solc.h"
+#include "sol/vm.h"
 #include <sf/str.h>
 #include <sf/fs.h>
 #include <stdio.h>
@@ -39,7 +39,7 @@ void cli_highlight_line(sf_str src, sf_str err, uint16_t line, uint16_t column) 
     pointer[sizeof(pointer) - 1] = '\0';
     pointer[sizeof(pointer) - 2] = '^';
 
-    if (err.c_str == ctr_err_string(CTR_ERRP_EXPECTED_SEMICOLON).c_str)
+    if (err.c_str == sol_err_string(SOL_ERRP_EXPECTED_SEMICOLON).c_str)
         fprintf(stderr, TUI_ERR "%s\n" TUI_CLR, err.c_str);
     else fprintf(stderr, TUI_ERR "%s %s\n" TUI_CLR, pointer, err.c_str);
 }
@@ -66,40 +66,40 @@ sf_str cli_load_file(char *name) {
 
 
 int cli_run(char *path, sf_str src) {
-    ctr_state *s = ctr_state_new();
-    ctr_usestd(s);
-    ctr_compile_ex comp_ex = ctr_compile(s, src);
+    sol_state *s = sol_state_new();
+    sol_usestd(s);
+    sol_compile_ex comp_ex = sol_compile(s, src);
     if (!comp_ex.is_ok) {
         fprintf(stderr, TUI_ERR "error: %s:%u:%u\n" TUI_CLR, path, comp_ex.err.line, comp_ex.err.column);
-        cli_highlight_line(src, ctr_err_string(comp_ex.err.tt), comp_ex.err.line, comp_ex.err.column);
-        ctr_state_free(s);
+        cli_highlight_line(src, sol_err_string(comp_ex.err.tt), comp_ex.err.line, comp_ex.err.column);
+        sol_state_free(s);
         return -1;
     }
 
-    ctr_fproto *fun = &comp_ex.ok;
-    ctr_call_ex call_ex = ctr_call(s, fun, NULL);
+    sol_fproto *fun = &comp_ex.ok;
+    sol_call_ex call_ex = sol_call(s, fun, NULL);
     if (!call_ex.is_ok) {
-        uint16_t line = CTR_DBG_LINE(fun->dbg[call_ex.err.pc]), col = CTR_DBG_COL(fun->dbg[call_ex.err.pc]);
+        uint16_t line = SOL_DBG_LINE(fun->dbg[call_ex.err.pc]), col = SOL_DBG_COL(fun->dbg[call_ex.err.pc]);
         fprintf(stderr, TUI_ERR "error: %s:%u:%u\n" TUI_CLR, path, line, col);
 
         if (!sf_isempty(call_ex.err.panic)) {
-            sf_str full = sf_str_fmt("%s: %s", ctr_err_string(call_ex.err.tt).c_str, call_ex.err.panic.c_str);
+            sf_str full = sf_str_fmt("%s: %s", sol_err_string(call_ex.err.tt).c_str, call_ex.err.panic.c_str);
             cli_highlight_line(src, full, line, col);
             sf_str_free(call_ex.err.panic);
             sf_str_free(full);
         } else
-            cli_highlight_line(src, ctr_err_string(call_ex.err.tt), line, col);
+            cli_highlight_line(src, sol_err_string(call_ex.err.tt), line, col);
         return -1;
     }
 
-    sf_str ret = ctr_tostring(call_ex.ok);
-    printf(ctr_isdtype(call_ex.ok, CTR_DSTR) ? TUI_BLD "Returned: (%s) '%s'\n" : TUI_BLD "Returned: (%s) %s\n",
-        ctr_typename(call_ex.ok).c_str, ret.c_str);
+    sf_str ret = sol_tostring(call_ex.ok);
+    printf(sol_isdtype(call_ex.ok, SOL_DSTR) ? TUI_BLD "Returned: (%s) '%s'\n" : TUI_BLD "Returned: (%s) %s\n",
+        sol_typename(call_ex.ok).c_str, ret.c_str);
 
     sf_str_free(ret);
-    ctr_ddel(call_ex.ok);
-    ctr_fproto_free(fun);
-    ctr_state_free(s);
+    sol_ddel(call_ex.ok);
+    sol_fproto_free(fun);
+    sol_state_free(s);
     return 0;
 }
 
@@ -110,21 +110,21 @@ int cli_dbg(char *path, sf_str src) {
 }
 
 int cli_comp(char *path, sf_str src) {
-    ctr_state *s = ctr_state_new();
-    ctr_usestd(s);
+    sol_state *s = sol_state_new();
+    sol_usestd(s);
 
     printf(TUI_UL TUI_BLD "[ LN:COL = OP === A = B = C = ]\n" TUI_CLR);
-    ctr_compile_ex comp_ex = ctr_cproto(src, 0, NULL, 1, (ctr_upvalue[]){
-        (ctr_upvalue){sf_lit("_g"), CTR_UP_VAL, .value = ctr_dref(s->global)}
+    sol_compile_ex comp_ex = sol_cproto(src, 0, NULL, 1, (sol_upvalue[]){
+        (sol_upvalue){sf_lit("_g"), SOL_UP_VAL, .value = sol_dref(s->global)}
     }, true);
 
     if (!comp_ex.is_ok) {
         fprintf(stderr, TUI_ERR "error: %s:%u:%u\n" TUI_CLR, path, comp_ex.err.line, comp_ex.err.column);
-        cli_highlight_line(src, ctr_err_string(comp_ex.err.tt), comp_ex.err.line, comp_ex.err.column);
-        ctr_state_free(s);
+        cli_highlight_line(src, sol_err_string(comp_ex.err.tt), comp_ex.err.line, comp_ex.err.column);
+        sol_state_free(s);
         return -1;
     }
-    ctr_state_free(s);
+    sol_state_free(s);
     return 0;
 }
 

@@ -4,8 +4,8 @@
     {
       "name": "Debug CLI",
       "request": "launch",
-      "program": "${workspaceRoot}/build/ctrc",
-      "args": ["${input:cliMode}", "ctr.tests/${input:scriptName}.ctr"],
+      "program": "${workspaceRoot}/build/solus",
+      "args": ["${input:cliMode}", "sol.tests/${input:scriptName}.sol"],
       "cwd": "${workspaceRoot}",
 
       // Defaults (Linux/macOS)
@@ -38,26 +38,6 @@
         "program": "${workspaceRoot}/build/sanitized/tests/${input:testName}.exe"
       }
     },
-
-    {
-      "name": "Run Script",
-      "request": "launch",
-      "program": "${workspaceRoot}/build/sepscr_cli",
-      "args": ["run", "ss.tests/${input:scriptName}.ss", "-d"],
-
-      // Defaults (Linux/macOS)
-      "type": "lldb",
-      "env": {
-        "ASAN_OPTIONS": "detect_leaks=0:disable_coredump=0",
-        "LSAN_OPTIONS": "detect_leaks=0"
-      },
-
-      // Windows overrides
-      "windows": {
-        "type": "cppvsdbg",
-        "program": "${workspaceRoot}/build/sepscr_cli.exe",
-      }
-    }
   ],
 
   "inputs": [

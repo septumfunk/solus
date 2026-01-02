@@ -5,3 +5,5 @@ build/
 compile_commands.json
 *.ssu
 .DS_Store
+solus
+solus.exe

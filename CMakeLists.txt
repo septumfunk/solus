@@ -6,10 +6,10 @@ set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_C_EXTENSIONS OFF)
 set(LIBRARY_TYPE STATIC)
 
-project(citrus C)
+project(solus C)
 add_library(${PROJECT_NAME} ${LIBRARY_TYPE}
     src/bytecode.c
-    src/ctrc.c
+    src/solc.c
     src/std.c
     src/syntax.c
     src/vm.c
@@ -17,10 +17,11 @@ add_library(${PROJECT_NAME} ${LIBRARY_TYPE}
 target_include_directories(${PROJECT_NAME} PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
 # CLI
-set(CLI_TARGET ctrc)
+set(CLI_TARGET solus_cli)
 add_executable(${CLI_TARGET}
     src/cli.c
 )
+set_target_properties(${CLI_TARGET} PROPERTIES OUTPUT_NAME "solus")
 target_link_libraries(${CLI_TARGET} PRIVATE ${PROJECT_NAME})
 
 option(ENABLE_SANITIZERS "Enable sanitizers" OFF)
