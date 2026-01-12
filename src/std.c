@@ -57,6 +57,57 @@ sol_call_ex sol_std_string(sol_state *s) {
     *(sf_str *)str.dyn = sol_tostring(var);
     return sol_call_ex_ok(str);
 }
+sol_call_ex sol_std_eval(sol_state *s) {
+    sol_val src = sol_get(s, 0);
+    if (!sol_isdtype(src, SOL_DSTR))
+        return sol_call_ex_err((sol_call_err){SOL_ERRV_TYPE_MISMATCH,
+            sf_str_fmt("Arg 'src' expected str, found '%s'", sol_typename(src).c_str),
+        0});
+    sol_compile_ex cm_ex = sol_csrc(s, *(sf_str *)src.dyn);
+    if (!cm_ex.is_ok)
+        return sol_call_ex_ok(sol_dnewerr(sf_str_dup(sol_err_string(cm_ex.err.tt))));
+    sol_call_ex cl_ex = sol_call(s, &cm_ex.ok, NULL);
+    sol_fproto_free(&cm_ex.ok);
+    if (!cl_ex.is_ok)
+            return sol_call_ex_ok(sol_dnewerr(sf_str_dup(cl_ex.err.tt == SOL_ERRV_PANIC ?
+                cl_ex.err.panic :
+                sol_err_string(cm_ex.err.tt))
+            ));
+    return cl_ex;
+}
+sol_call_ex sol_std_import(sol_state *s) {
+    sol_val path = sol_get(s, 0);
+    if (!sol_isdtype(path, SOL_DSTR))
+        return sol_call_ex_err((sol_call_err){SOL_ERRV_TYPE_MISMATCH,
+            sf_str_fmt("Arg 'path' expected str, found '%s'", sol_typename(path).c_str),
+        0});
+
+    sf_str cwd = sol_cwd(s);
+
+    sf_str p = sf_str_fmt("%s%s", cwd.c_str, ((sf_str *)path.dyn)->c_str);
+    if (!sf_file_exists(p)) {
+        sf_str p2 = sf_str_fmt("%s.sol", p.c_str);
+        sf_str_free(p);
+        p = p2;
+    }
+    if (!sf_file_exists(p)) {
+        sf_str p2 = sf_str_fmt("File '%s' not found", p.c_str);
+        sf_str_free(p);
+        return sol_call_ex_ok(sol_dnewerr(p2));
+    }
+
+    sol_compile_ex cm_ex = sol_cfile(s, p);
+    if (!cm_ex.is_ok)
+        return sol_call_ex_ok(sol_dnewerr(sf_str_dup(sol_err_string(cm_ex.err.tt))));
+    sol_call_ex cl_ex = sol_call(s, &cm_ex.ok, NULL);
+    sol_fproto_free(&cm_ex.ok);
+    if (!cl_ex.is_ok)
+            return sol_call_ex_ok(sol_dnewerr(sf_str_dup(cl_ex.err.tt == SOL_ERRV_PANIC ?
+                cl_ex.err.panic :
+                sol_err_string(cm_ex.err.tt))
+            ));
+    return cl_ex;
+}
 
 sol_call_ex sol_std_new(sol_state *s) {
     (void)s;
@@ -266,6 +317,8 @@ void sol_usestd(sol_state *state) {
     sol_dobj_set(_g, sf_lit("panic"), sol_wrapcfun(sol_std_panic, 1, 0));
     sol_dobj_set(_g, sf_lit("assert"), sol_wrapcfun(sol_std_assert, 1, 0));
     sol_dobj_set(_g, sf_lit("type"), sol_wrapcfun(sol_std_type, 1, 0));
+    sol_dobj_set(_g, sf_lit("eval"), sol_wrapcfun(sol_std_eval, 1, 0));
+    sol_dobj_set(_g, sf_lit("import"), sol_wrapcfun(sol_std_import, 1, 0));
 
     sol_dobj_set(_g, sf_lit("io"), io);
     sol_dobj_set(_g, sf_lit("obj"), obj);

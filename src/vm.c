@@ -10,13 +10,16 @@ sol_state *sol_state_new(void) {
     sol_state *s = malloc(sizeof(sol_state));
     *s = (sol_state){
         .stack = sol_valvec_new(),
+        .files = sol_filenames_new(),
         .global = sol_dnew(SOL_DOBJ),
     };
+    sol_filenames_push(&s->files, sf_lit("./"));
     return s;
 }
 
 void sol_state_free(sol_state *state) {
     sol_valvec_free(&state->stack);
+    sol_filenames_free(&state->files);
     sol_ddel(state->global);
     free(state);
 }
@@ -145,6 +148,28 @@ sol_val sol_wrapcfun(sol_cfunction fptr, uint32_t arg_c, uint32_t temp_c) {
     return fun;
 }
 
+#include <string.h>
+#include <stdlib.h>
+
+static sf_str sol_dirname(sf_str path) {
+    const char *slash = strrchr(path.c_str, '/');
+#ifdef _WIN32
+    const char *bslash = strrchr(path, '\\');
+    if (!slash || (bslash && bslash > slash))
+        slash = bslash;
+#endif
+    if (!slash)
+        return sf_str_cdup(".");
+    size_t len = (size_t)(slash - path.c_str);
+    if (len == 0)
+        len = 1;
+    char *out = malloc(len + 2);
+    memcpy(out, path.c_str, len);
+    out[len] = '/';
+    out[len + 1] = '\0';
+    return sf_own(out);
+}
+
 sol_call_ex sol_call_cfun(sol_state *state, sol_fproto *proto, const sol_val *args) {
     sol_pushframe(state, proto->reg_c);
     for (uint32_t i = 0; i < proto->arg_c && args; ++i)
@@ -156,6 +181,8 @@ sol_call_ex sol_call_cfun(sol_state *state, sol_fproto *proto, const sol_val *ar
 }
 
 sol_call_ex sol_call_bc(sol_state *state, sol_fproto *proto, const sol_val *args, bool *bps) {
+    if (proto->tt == SOL_FPROTO_BC && !sf_isempty(proto->file_name))
+        sol_filenames_push(&state->files, sol_dirname(proto->file_name));
     #ifdef COMPUTE_GOTOS
     void *computed[] = {
         LABEL(SOL_OP_LOAD),
@@ -596,6 +623,8 @@ ret: {}
     proto->dbg_res = 0;
     proto->dbg_ll = 0;
     sol_popframe(state);
+    if (proto->tt == SOL_FPROTO_BC && !sf_isempty(proto->file_name))
+        sf_str_free(sol_filenames_pop(&state->files));
     return sol_call_ex_ok(return_val);
 }
 

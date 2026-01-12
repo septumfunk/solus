@@ -13,10 +13,15 @@ typedef struct {
 #define VEC_T sol_stackframe
 #include <sf/containers/vec.h>
 
+#define VEC_NAME sol_filenames
+#define VEC_T sf_str
+#include <sf/containers/vec.h>
+
 /// The main global state for the VM, responsible for the stack and any globals/caching
 typedef struct sol_state {
     sol_valvec stack;
     sol_frames frames;
+    sol_filenames files;
     sol_val global;
     bool dbg;
 } sol_state;
@@ -27,6 +32,10 @@ EXPORT void sol_state_free(sol_state *state);
 EXPORT void sol_usestd(struct sol_state *state);
 EXPORT sol_compile_ex sol_csrc(sol_state *state, sf_str src);
 EXPORT sol_compile_ex sol_cfile(sol_state *state, sf_str path);
+
+static inline sf_str sol_cwd(sol_state *state) {
+    return sf_str_dup(*(state->files.data + (state->files.count - 1)));
+}
 
 /// Converts a value to an owned string.
 EXPORT sf_str sol_tostring(sol_val val);

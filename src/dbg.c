@@ -137,7 +137,9 @@ static int sol_rdcmd(void) {
             sol_cmderr(sf_lit("BREAK"));
         } else {
             uint16_t line = SOL_DBG_LINE(dbg.proto.dbg[e.err.pc]), column = SOL_DBG_COL(dbg.proto.dbg[e.err.pc]);
-            sf_str p = sf_str_fmt(e.err.tt == SOL_ERRV_PANIC ? "panic: %s:%u:%u\n" : "error: %s:%u:%u\n", dbg.path, line, column);
+            sf_str p = sf_str_fmt(e.err.tt == SOL_ERRV_PANIC ? "panic: %s:%u:%u %s\n" : "error: %s:%u:%u %s\n", dbg.path, line, column,
+                (e.err.panic.len > 0 ? e.err.panic : sol_err_string(e.err.tt)).c_str
+            );
             sol_writeout(p);
             dbg.pane = SOL_DBG_OUT;
             sf_str_free(p);

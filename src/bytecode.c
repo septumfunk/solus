@@ -35,6 +35,7 @@ sol_fproto sol_fproto_new(void) {
         .arg_c = 0,
         .entry = 0,
         .dbg_res = 0, .dbg_ll = 0,
+        .file_name = SF_STR_EMPTY,
         .constants = sol_valvec_new(),
         .upvals = NULL,
     };
