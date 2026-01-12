@@ -55,10 +55,10 @@ typedef struct {
 /// Add an instruction to the proto.
 /// Optionally logs every instruction compiled (see SOL_DBG_LOG)
 static inline void sol_cemitraw(sol_compiler *c, sol_instruction ins, uint16_t line, uint16_t column) {
-    c->proto.code = realloc(c->proto.code, ++c->proto.code_s * sizeof(sol_instruction));
-    c->proto.code[c->proto.code_s - 1] = ins;
-    c->proto.dbg = realloc(c->proto.dbg, c->proto.code_s * sizeof(sol_dbg));
-    c->proto.dbg[c->proto.code_s - 1] = SOL_DBG_ENCODE(line, column);
+    c->proto.code = realloc(c->proto.code, ++c->proto.code_c * sizeof(sol_instruction));
+    c->proto.code[c->proto.code_c - 1] = ins;
+    c->proto.dbg = realloc(c->proto.dbg, c->proto.code_c * sizeof(sol_dbg));
+    c->proto.dbg[c->proto.code_c - 1] = SOL_DBG_ENCODE(line, column);
 }
 #define sol_cemit(c, ins) sol_cemitraw(c, ins, node->line, node->column)
 
@@ -137,6 +137,7 @@ sol_compile_ex sol_cfun(sol_node *ast, uint32_t arg_c, sol_val *args, uint32_t u
         .ast = ast,
         .scopes = sol_scopes_new(),
         .locals = arg_c,
+        .max_locals = arg_c,
         .temps = 0, .max_temps = 0,
     };
     c.proto.arg_c = arg_c;
@@ -440,29 +441,29 @@ sol_cnode_ex sol_cnode(sol_compiler *c, sol_node *node, uint32_t t_reg) {
                 if (!ex.is_ok) return ex;
             }
 
-            uint32_t jmp_false = c->proto.code_s;
+            uint32_t jmp_false = c->proto.code_c;
             sol_cemit(c, sol_ins_a(SOL_OP_JMP, 0));
 
             // Then
             sol_cnode_ex ex = sol_cnode(c, node->n_if.then_node, UINT32_MAX);
             if (!ex.is_ok) return ex;
-            uint32_t ofs = c->proto.code_s - (jmp_false + 1);
+            uint32_t ofs = c->proto.code_c - (jmp_false + 1);
 
             if (node->n_if.else_node) {
-                uint32_t jmp_end = c->proto.code_s;
+                uint32_t jmp_end = c->proto.code_c;
                 sol_cemit(c, sol_ins_a(SOL_OP_JMP, 0));
                 ex = sol_cnode(c, node->n_if.else_node, UINT32_MAX);
                 if (!ex.is_ok) return ex;
                 // Patch jump
                 c->proto.code[jmp_false] = sol_ins_a(SOL_OP_JMP, ofs + 1);
-                c->proto.code[jmp_end] = sol_ins_a(SOL_OP_JMP, c->proto.code_s - (jmp_end + 1));
+                c->proto.code[jmp_end] = sol_ins_a(SOL_OP_JMP, c->proto.code_c - (jmp_end + 1));
             } else c->proto.code[jmp_false] = sol_ins_a(SOL_OP_JMP, ofs);
 
             sol_ctemps(c, 1);
             return sol_cnode_ex_ok();
         }
         case SOL_ND_WHILE: {
-            uint32_t jmp_cond = c->proto.code_s - 1;
+            uint32_t jmp_cond = c->proto.code_c - 1;
             uint32_t cr = sol_rtemp(c);
             if (node->n_while.condition->tt == SOL_ND_IDENTIFIER) {
                 sol_local loc;
@@ -498,14 +499,14 @@ sol_cnode_ex sol_cnode(sol_compiler *c, sol_node *node, uint32_t t_reg) {
                 if (!ex.is_ok) return ex;
             }
 
-            uint32_t jmp_break = c->proto.code_s;
+            uint32_t jmp_break = c->proto.code_c;
             sol_cemit(c, sol_ins_a(SOL_OP_JMP, 0));
 
             // Do
             sol_cnode_ex ex = sol_cnode(c, node->n_while.block, UINT32_MAX);
             if (!ex.is_ok) return ex;
-            c->proto.code[jmp_break] = sol_ins_a(SOL_OP_JMP, c->proto.code_s - jmp_break);
-            sol_cemit(c, sol_ins_a(SOL_OP_JMP, jmp_cond - c->proto.code_s));
+            c->proto.code[jmp_break] = sol_ins_a(SOL_OP_JMP, c->proto.code_c - jmp_break);
+            sol_cemit(c, sol_ins_a(SOL_OP_JMP, jmp_cond - c->proto.code_c));
 
             sol_ctemps(c, 1);
             return sol_cnode_ex_ok();

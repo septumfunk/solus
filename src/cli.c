@@ -73,7 +73,7 @@ sf_str cli_load_file(char *name) {
 int cli_run(char *path, sf_str src) {
     sol_state *s = sol_state_new();
     sol_usestd(s);
-    sol_compile_ex comp_ex = sol_compile(s, src);
+    sol_compile_ex comp_ex = sol_cfile(s, sf_ref(path));
     if (!comp_ex.is_ok) {
         fprintf(stderr, TUI_ERR "error: %s:%u:%u\n" TUI_CLR, path, comp_ex.err.line, comp_ex.err.column);
         cli_highlight_line(src, sol_err_string(comp_ex.err.tt), comp_ex.err.line, comp_ex.err.column);

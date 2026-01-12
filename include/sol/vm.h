@@ -18,13 +18,14 @@ typedef struct sol_state {
     sol_valvec stack;
     sol_frames frames;
     sol_val global;
+    bool dbg;
 } sol_state;
 EXPORT sol_state *sol_state_new(void);
 EXPORT void sol_state_free(sol_state *state);
 
 /// Include the standard library defined in std.c into the global namespace
 EXPORT void sol_usestd(struct sol_state *state);
-EXPORT sol_compile_ex sol_compile(sol_state *state, sf_str src);
+EXPORT sol_compile_ex sol_cfile(sol_state *state, sf_str src);
 
 /// Converts a value to an owned string.
 EXPORT sf_str sol_tostring(sol_val val);
@@ -68,6 +69,23 @@ static inline sol_val sol_getg(sol_state *state, sf_str name) {
 static inline void sol_setg(sol_state *state, sf_str name, sol_val value) {
     sol_dobj_set((sol_dobj *)state->global.dyn, sf_str_dup(name), value);
 }
+static inline uint32_t sol_pushframe(sol_state *state, uint32_t reg_c) {
+    sol_frames_push(&state->frames, (sol_stackframe){
+        state->frames.count == 0 ? 0 : state->frames.data[state->frames.count - 1].bottom_o + state->frames.data[state->frames.count - 1].size,
+        reg_c,
+    });
+    for (uint32_t i = 0; i < reg_c; ++i)
+        sol_valvec_push(&state->stack, SOL_NIL);
+    return state->frames.count - 1;
+}
+static inline void sol_popframe(sol_state *state) {
+    sol_stackframe f = sol_frames_pop(&state->frames);
+    for (uint32_t i = 0; i < f.size; ++i) {
+        sol_val v = sol_valvec_pop(&state->stack);
+        if (v.tt == SOL_TDYN)
+            sol_ddel(v);
+    }
+}
 
 /// Wrap a c function into a fun and insert it into a dynamic val
 EXPORT sol_val sol_wrapcfun(sol_cfunction fptr, uint32_t arg_c, uint32_t temp_c);
@@ -82,5 +100,6 @@ typedef struct {
 #define EXPECTED_E sol_call_err
 #include <sf/containers/expected.h>
 EXPORT sol_call_ex sol_call(sol_state *state, sol_fproto *proto, const sol_val *args);
+EXPORT sol_call_ex sol_dcall(sol_state *state, sol_fproto *proto, const sol_val *args, bool *bps);
 
 #endif // VM_H

@@ -30,10 +30,11 @@ sol_fproto sol_fproto_new(void) {
     return (sol_fproto){
         .tt = SOL_FPROTO_BC,
         .code = NULL,
-        .code_s = 0,
+        .code_c = 0,
         .reg_c = 0,
         .arg_c = 0,
         .entry = 0,
+        .dbg_res = 0, .dbg_ll = 0,
         .constants = sol_valvec_new(),
         .upvals = NULL,
     };
@@ -43,7 +44,6 @@ sol_fproto sol_fproto_c(sol_cfunction c_fun, uint32_t arg_c, uint32_t temp_c) {
     return (sol_fproto){
         .tt = SOL_FPROTO_C,
         .c_fun = c_fun,
-        .code_s = 0,
         .reg_c = arg_c + temp_c,
         .arg_c = arg_c,
         .entry = 0,
@@ -296,7 +296,7 @@ sf_str sol_dasmi(sol_instruction ins) {
 
 sf_str sol_dasmp(sol_fproto *p) {
     sf_str final = SF_STR_EMPTY;
-    for (uint32_t pc = 0; pc < p->code_s; ++pc) {
+    for (uint32_t pc = 0; pc < p->code_c; ++pc) {
         sf_str bc = sol_dasmi(p->code[pc]);
         uint16_t line = SOL_DBG_LINE(p->dbg[pc]), column = SOL_DBG_COL(p->dbg[pc]);
         sf_str f = sf_str_fmt("%.2u:%-6.2u%s\n", line, column, bc.c_str);

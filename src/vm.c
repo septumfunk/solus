@@ -1,5 +1,7 @@
 #include <stdio.h>
 #include "sol/vm.h"
+#include "sf/containers/buffer.h"
+#include "sf/fs.h"
 #include "sol/bytecode.h"
 #include "sol/solc.h"
 #include "sf/str.h"
@@ -19,11 +21,32 @@ void sol_state_free(sol_state *state) {
     free(state);
 }
 
-sol_compile_ex sol_compile(sol_state *state, sf_str src) {
-    sol_compile_ex ex = sol_cproto(src, 0, NULL, 1, (sol_upvalue[]){
+sol_compile_ex sol_cfile(sol_state *state, sf_str path) {
+    if (!sf_file_exists(path))
+        return sol_compile_ex_err((sol_compile_err){SOL_ERRC_FILE_NOT_FOUND, 0, 0});
+    sf_fsb_ex fsb = sf_file_buffer(path);
+    if (!fsb.is_ok) {
+        switch (fsb.err) {
+            case SF_FILE_NOT_FOUND: return sol_compile_ex_err((sol_compile_err){SOL_ERRC_FILE_NOT_FOUND, 0, 0}); break;
+            case SF_OPEN_FAILURE:
+            case SF_READ_FAILURE: return sol_compile_ex_err((sol_compile_err){SOL_ERRC_FILE_UNREADABLE, 0, 0}); break;
+        }
+    }
+    fsb.ok.flags = SF_BUFFER_GROW;
+    sf_buffer_autoins(&fsb.ok, ""); // [\0]
+
+    sol_compile_ex ex = sol_cproto(sf_ref((char *)fsb.ok.ptr), 0, NULL, 1, (sol_upvalue[]){
         (sol_upvalue){sf_lit("_g"), SOL_UP_VAL, .value = sol_dref(state->global)}
     });
+
+    ex.ok.line_c = 1;
+    for (char *c = (char *)fsb.ok.ptr; *c != '\0'; ++c)
+        if (*c == '\n') ++ex.ok.line_c;
+
+    sf_buffer_clear(&fsb.ok);
     if (!ex.is_ok) return ex;
+    ex.ok.file_name = sf_str_dup(path);
+
     return sol_compile_ex_ok(ex.ok);
 }
 
@@ -82,33 +105,36 @@ void sol_log_op(sol_instruction ins) {
 
 #define CAT(a, b) a##b
 #define EXPAND(a) a
-#define EXPASOL_ND_CAT(a, b) CAT(a, b)
-#if defined(__GNUC__) || defined(__clang__)
+#define EXPAND_CAT(a, b) CAT(a, b)
+
+//#define SOL_DBG_NOCOMPUTE
+
+#if (defined(__GNUC__) || defined(__clang__)) && !defined(SOL_DBG_NOCOMPUTE)
+#   define LABEL(name) [name] = &&EXPAND_CAT(name, _L)
+#   define CASE(name) EXPAND_CAT(name, _L):
 #   define COMPUTE_GOTOS
-#   ifdef SOL_DBG_LOG
-#       define DISPATCH() do { if (pc >= proto->code_s) goto ret; ins = proto->code[pc++]; sol_log_op(ins); goto *computed[sol_ins_op(ins)]; } while(0)
-#   else
-#       define DISPATCH() do { if (pc >= proto->code_s) goto ret; ins = proto->code[pc++]; goto *computed[sol_ins_op(ins)]; } while(0)
-#   endif
-#   define LABEL(name) [name] = &&EXPASOL_ND_CAT(name, _L)
-#   define CASE(name) EXPASOL_ND_CAT(name, _L):
+#   define DISPATCH() do { \
+        if (pc >= proto->code_c) goto ret; \
+        ins = proto->code[pc]; \
+        if (bps && SOL_DBG_LINE(proto->dbg[pc]) > proto->dbg_ll) { \
+            proto->dbg_ll = SOL_DBG_LINE(proto->dbg[pc]); \
+            if (bps[proto->dbg_ll - 1]) { \
+                proto->dbg_res = pc; \
+                ++bpc; while (!*bpc) ++bpc; \
+                return sol_call_ex_err((sol_call_err){SOL_ERRV_BREAK, SF_STR_EMPTY, pc}); \
+            } \
+        } \
+        ++pc; \
+        goto *computed[sol_ins_op(ins)]; \
+    } while (0)
 #   pragma GCC diagnostic push
 #   pragma GCC diagnostic ignored "-Wpedantic"
 #else
-#   define DISPATCH() continue
+#   define DISPATCH() continue;
 #   define CASE(name) case EXPAND(name):
 #endif
 
 #define sol_callerr(en, fmt, ...) (sol_call_ex_err((sol_call_err){.tt=(en),.panic=sf_str_fmt((fmt), __VA_ARGS__), .pc=pc-1}))
-
-static inline uint32_t sol_pushframe(sol_state *state, uint32_t reg_c) {
-    sol_frames_push(&state->frames, (sol_stackframe){
-        state->frames.count == 0 ? 0 : state->frames.data[state->frames.count - 1].bottom_o + state->frames.data[state->frames.count - 1].size,
-        reg_c,
-    });
-    return state->frames.count - 1;
-}
-static inline void sol_popframe(sol_state *state) { sol_frames_pop(&state->frames); }
 
 sol_val sol_wrapcfun(sol_cfunction fptr, uint32_t arg_c, uint32_t temp_c) {
     sol_val fun = sol_dnew(SOL_DFUN);
@@ -118,24 +144,15 @@ sol_val sol_wrapcfun(sol_cfunction fptr, uint32_t arg_c, uint32_t temp_c) {
 
 sol_call_ex sol_call_cfun(sol_state *state, sol_fproto *proto, const sol_val *args) {
     sol_pushframe(state, proto->reg_c);
-    for (uint32_t i = 0; i < proto->reg_c; ++i)
-        sol_valvec_push(&state->stack, SOL_NIL);
     for (uint32_t i = 0; i < proto->arg_c && args; ++i)
         sol_set(state, i, args[i]);
 
     sol_call_ex ex = proto->c_fun(state);
-
-    for (uint32_t i = 0; i < proto->reg_c; ++i) {
-        sol_val v = sol_valvec_pop(&state->stack);
-        if (v.tt == SOL_TDYN)
-            sol_ddel(v);
-    }
-
     sol_popframe(state);
     return ex;
 }
 
-sol_call_ex sol_call_bc(sol_state *state, sol_fproto *proto, const sol_val *args) {
+sol_call_ex sol_call_bc(sol_state *state, sol_fproto *proto, const sol_val *args, bool *bps) {
     #ifdef COMPUTE_GOTOS
     void *computed[] = {
         LABEL(SOL_OP_LOAD),
@@ -168,21 +185,30 @@ sol_call_ex sol_call_bc(sol_state *state, sol_fproto *proto, const sol_val *args
     #endif
 
     sol_instruction ins;
-    uint32_t pc = proto->entry;
+    uint32_t pc = proto->dbg_res ? proto->dbg_res : proto->entry;
+    if (!proto->dbg_res) {
+        sol_pushframe(state, proto->reg_c);
+        for (uint32_t i = 0; i < proto->reg_c && args; ++i)
+            sol_set(state, i, args[i]);
+    }
+    proto->dbg_res = 0;
     sol_val return_val = SOL_NIL;
-
-    uint32_t t_reg = proto->arg_c + proto->reg_c;
-    sol_pushframe(state, t_reg);
-    for (uint32_t i = 0; i < t_reg; ++i)
-        sol_valvec_push(&state->stack, SOL_NIL);
-    for (uint32_t i = 0; i < t_reg && args; ++i)
-        sol_set(state, i, args[i]);
+    bool *bpc = bps;
 
     #ifdef COMPUTE_GOTOS
     DISPATCH();
     #else
-    while (pc < proto->code_s) {
+    while (pc < proto->code_c) {
         ins = proto->code[pc];
+        if (bps && SOL_DBG_LINE(proto->dbg[pc]) > proto->dbg_ll) {
+            proto->dbg_ll = SOL_DBG_LINE(proto->dbg[pc]);
+            if (bps[proto->dbg_ll - 1]) {
+                proto->dbg_res = pc;
+                ++bpc; while (!*bpc) ++bpc;
+                return sol_call_ex_err((sol_call_err){SOL_ERRV_BREAK, SF_STR_EMPTY, pc});
+            }
+        }
+        ++pc;
         switch (sol_ins_op(ins)) {
     #endif
         CASE(SOL_OP_LOAD) {
@@ -563,21 +589,24 @@ sol_call_ex sol_call_bc(sol_state *state, sol_fproto *proto, const sol_val *args
     #endif
 
 ret: {}
-    for (uint32_t i = 0; i < proto->reg_c; ++i) {
-        sol_val v = sol_valvec_pop(&state->stack);
-        if (v.tt == SOL_TDYN)
-            sol_ddel(v);
-    }
+    proto->dbg_res = 0;
+    proto->dbg_ll = 0;
     sol_popframe(state);
     return sol_call_ex_ok(return_val);
 }
 
 sol_call_ex sol_call(sol_state *state, sol_fproto *proto, const sol_val *args) {
     if (proto->tt == SOL_FPROTO_BC)
-        return sol_call_bc(state, proto, args);
+        return sol_call_bc(state, proto, args, NULL);
     return sol_call_cfun(state, proto, args);
 }
 
-#if defined(__GNUC__) || defined(__clang__)
+sol_call_ex sol_dcall(sol_state *state, sol_fproto *proto, const sol_val *args, bool *bps) {
+    if (proto->tt == SOL_FPROTO_BC)
+        return sol_call_bc(state, proto, args, bps);
+    return sol_call_cfun(state, proto, args);
+}
+
+#if (defined(__GNUC__) || defined(__clang__)) && !defined(SOL_DBG_NOCOMPUTE)
 #pragma GCC diagnostic pop
 #endif

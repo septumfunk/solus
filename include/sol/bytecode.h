@@ -191,12 +191,15 @@ typedef struct {
     } tt;
     union {
         struct {
+            uint16_t line_c;
+            uint32_t code_c, dbg_res, dbg_ll;
+            sf_str file_name;
             sol_instruction *code;
             sol_dbg *dbg;
         };
         sol_cfunction c_fun;
     };
-    uint32_t code_s, reg_c, arg_c, up_c, entry;
+    uint32_t reg_c, arg_c, up_c, entry;
     sol_valvec constants;
     sol_upvalue *upvals;
 } sol_fproto;

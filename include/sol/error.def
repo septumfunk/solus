@@ -1,4 +1,5 @@
 X(V, UNKNOWN_OP, "Corrupt instruction") \
+X(V, BREAK, "Breakpoint") \
 X(V, OOB_ACCESS, "OOB Access") \
 X(V, TYPE_MISMATCH, "Type Mismatch") \
 X(V, MEMBER_NOT_FOUND, "Member Not Found") \
@@ -26,6 +27,8 @@ X(P, UNEXPECTED_ASM, "Unexpected assembly") \
 X(P, UNTERMINATED_ARGS, "Unterminated argument list") \
 X(P, UNTERMINATED_CAPTURES, "Unterminated capture list") \
 \
+X(C, FILE_NOT_FOUND, "File not found") \
+X(C, FILE_UNREADABLE, "File unreadable") \
 X(C, NONE, "You shouldn't be seeing this...") \
 X(C, EXPECTED_BLOCK, "Expected block") \
 X(C, EXPECTED_FUN, "Expected function") \
