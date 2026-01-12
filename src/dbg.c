@@ -11,6 +11,13 @@
 #include <string.h>
 
 #define CMD_MAX 256
+#define DBGOUT_MAX 8192
+
+typedef enum {
+    SOL_DBG_ASM,
+    SOL_DBG_STACK,
+    SOL_DBG_OUT,
+} sol_dbgpane;
 
 typedef struct {
     sf_str src;
@@ -21,8 +28,39 @@ typedef struct {
     sf_str err;
     bool *bp, e, cap_cur, stack_frame;
     int line_o, cmd_len, cur, src_h, _break;
+
+    sol_dbgpane pane;
+    sf_str dbgout; char *path;
 } sol_debugger;
 static sol_debugger dbg;
+
+static void sol_writeout(sf_str s) {
+    sf_str_append(&dbg.dbgout, s);
+    if (dbg.dbgout.len > DBGOUT_MAX) {
+        char *nstr = malloc(DBGOUT_MAX);
+        memcpy(nstr, dbg.dbgout.c_str + (dbg.dbgout.len - DBGOUT_MAX), DBGOUT_MAX);
+        sf_str_free(dbg.dbgout);
+        dbg.dbgout.c_str = nstr;
+        dbg.dbgout.len = DBGOUT_MAX;
+    }
+}
+
+/// Hijack!
+sol_call_ex sol_dbgprint(sol_state *s) {
+    sol_val to_print = sol_get(s, 0);
+    sf_str val = sol_tostring(to_print);
+    sol_writeout(val);
+    sf_str_free(val);
+    return sol_call_ex_ok(SOL_NIL);
+}
+sol_call_ex sol_dbgprintln(sol_state *s) {
+    sol_val to_print = sol_get(s, 0);
+    sf_str val = sol_tostring(to_print);
+    sf_str_append(&val, sf_lit("\n"));
+    sol_writeout(val);
+    sf_str_free(val);
+    return sol_call_ex_ok(SOL_NIL);
+}
 
 static inline void sol_cmdc(void) {
     dbg.e = false;
@@ -30,10 +68,10 @@ static inline void sol_cmdc(void) {
     dbg.cmd_len = 0;
 }
 
-static inline void sol_cmderr(char *s, int len) {
+static inline void sol_cmderr(sf_str s) {
     memset(dbg.cmd, 0, CMD_MAX);
-    memcpy(dbg.cmd, s, len);
-    dbg.cmd_len = len;
+    memcpy(dbg.cmd, s.c_str, s.len);
+    dbg.cmd_len = (int)s.len;
     dbg.e = true;
 }
 
@@ -41,6 +79,27 @@ static void sol_drawstack(void);
 static int sol_rdcmd(void) {
     if (sf_str_eq(sf_ref(dbg.cmd), sf_lit("q")))
         return -1;
+
+    if (sf_str_eq(sf_ref(dbg.cmd), sf_lit("stack"))) {
+        if (!dbg._break) {
+            sol_cmderr(sf_lit("Must be running to show stack"));
+            return 0;
+        }
+        dbg.pane = SOL_DBG_STACK;
+        sol_cmdc();
+        return 0;
+    }
+    if (sf_str_eq(sf_ref(dbg.cmd), sf_lit("asm"))) {
+        dbg.pane = SOL_DBG_ASM;
+        sol_cmdc();
+        return 0;
+    }
+    if (sf_str_eq(sf_ref(dbg.cmd), sf_lit("out"))) {
+        dbg.pane = SOL_DBG_OUT;
+        sol_cmdc();
+        return 0;
+    }
+
     if (sf_str_eq(sf_ref(dbg.cmd), sf_lit("b")) && dbg.bp) {
         dbg.bp[dbg.cur - 1] = !dbg.bp[dbg.cur - 1];
         sol_cmdc();
@@ -63,35 +122,81 @@ static int sol_rdcmd(void) {
         if (e.is_ok) {
             sf_str ret = sol_tostring(e.ok);
             sf_str p = sf_str_fmt(sol_isdtype(e.ok, SOL_DSTR) ?
-                "Returned: (%s) '%s'\n" : "Returned: (%s) %s\n",
+                "return: %s | '%s'\n" : "return: %s | %s\n",
                 sol_typename(e.ok).c_str, ret.c_str
             );
             dbg._break = 0;
-            sol_cmderr(p.c_str, (int)p.len);
+            dbg.pane = SOL_DBG_OUT;
+            sol_writeout(p);
+            sf_str_free(p);
         } else if (e.err.tt == SOL_ERRV_BREAK) {
             dbg.cur = SOL_DBG_LINE(dbg.proto.dbg[e.err.pc]);
             dbg.line_o = dbg.cur;
             dbg._break = dbg.cur;
-            sol_cmderr("BREAK", 5);
+            dbg.pane = SOL_DBG_STACK;
+            sol_cmderr(sf_lit("BREAK"));
         } else {
-            dbg.err = sol_err_string(e.err.tt);
-            return -1;
+            uint16_t line = SOL_DBG_LINE(dbg.proto.dbg[e.err.pc]), column = SOL_DBG_COL(dbg.proto.dbg[e.err.pc]);
+            sf_str p = sf_str_fmt(e.err.tt == SOL_ERRV_PANIC ? "panic: %s:%u:%u\n" : "error: %s:%u:%u\n", dbg.path, line, column);
+            sol_writeout(p);
+            dbg.pane = SOL_DBG_OUT;
+            sf_str_free(p);
         }
+        sol_cmdc();
         return 0;
     }
     if (sf_str_eq(sf_ref(dbg.cmd), sf_lit("cm"))) {
         dbg.cap_cur = !dbg.cap_cur;
-        sol_cmderr((dbg.cap_cur ? "Cursor cap ON " : "Cursor cap OFF"), 14);
+        sol_cmderr(sf_lit(dbg.cap_cur ? "Cursor cap ON" : "Cursor cap OFF"));
         return 0;
     }
     if (sf_str_eq(sf_ref(dbg.cmd), sf_lit("sm"))) {
         dbg.stack_frame = !dbg.stack_frame;
-        sol_cmderr((dbg.cap_cur ? "Stack frame ON " : "Stack frame OFF"), 15);
+        sol_cmderr(sf_lit(dbg.cap_cur ? "Stack frame ON" : "Stack frame OFF"));
+        return 0;
+    }
+
+    if (dbg.cmd[0] == '$') {
+        if (dbg.cmd_len == 1) {
+            sol_cmderr(sf_lit("usage: $<code>"));
+            return 0;
+        }
+        sol_writeout(sf_ref(dbg.cmd));
+        sol_writeout(sf_lit("\n"));
+
+        dbg.pane = SOL_DBG_OUT;
+        sol_compile_ex comp_ex = sol_csrc(dbg.s, sf_ref(dbg.cmd + 1));
+        if (!comp_ex.is_ok) {
+            sf_str e = sf_str_fmt("error: %s\n", sol_err_string(comp_ex.err.tt).c_str);
+            sol_cmderr(e);
+            sf_str_free(e);
+            return 0;
+        }
+        sol_call_ex call_ex = sol_call(dbg.s, &comp_ex.ok, NULL);
+        if (!call_ex.is_ok) {
+            sf_str e = sf_str_fmt(call_ex.err.tt == SOL_ERRV_PANIC ? "panic: %s\n" : "error: %s\n",
+                (call_ex.err.tt == SOL_ERRV_PANIC ? call_ex.err.panic : sol_err_string(call_ex.err.tt)).c_str
+            );
+            sol_cmderr(e);
+            sf_str_free(e);
+        } else {
+            sf_str ret = sol_tostring(call_ex.ok);
+            sf_str p = sf_str_fmt(sol_isdtype(call_ex.ok, SOL_DSTR) ?
+                "return: %s | '%s'\n" : "return: %s | %s\n",
+                sol_typename(call_ex.ok).c_str, ret.c_str
+            );
+            sol_cmderr(p);
+            sf_str_free(p);
+            sol_ddel(call_ex.ok);
+        }
+        sol_fproto_free(&comp_ex.ok);
+        sol_cmdc();
         return 0;
     }
 
     sf_str f = sf_str_fmt("Unknown Command: %s", dbg.cmd);
-    sol_cmderr(f.c_str, (int)f.len);
+    sol_cmderr(f);
+    sf_str_free(f);
     return 0;
 }
 
@@ -128,8 +233,10 @@ static void sol_drawsrc(void) {
 
     if (!dbg.bp)
         dbg.bp = calloc((size_t)dbg.proto.line_c, sizeof(bool));
+    dbg.proto.line_c = line;
 
     box(dbg.src_w, 0, 0);
+    mvwprintw(dbg.src_w, 0, 2, "src");
     wrefresh(dbg.src_w);
 }
 
@@ -141,6 +248,7 @@ static void sol_drawasm(void) {
     if (!db) {
         mvwprintw(dbg.asm_w, 1, 1, "Assembly unavailable.");
         box(dbg.asm_w, 0, 0);
+        mvwprintw(dbg.asm_w, 0, 2, "asm");
         wrefresh(dbg.asm_w);
         return;
     }
@@ -168,6 +276,7 @@ static void sol_drawasm(void) {
     }
 
     box(dbg.asm_w, 0, 0);
+    mvwprintw(dbg.asm_w, 0, 2, "asm");
     wrefresh(dbg.asm_w);
 }
 
@@ -186,6 +295,30 @@ static void sol_drawstack(void) {
     }
 
     box(dbg.asm_w, 0, 0);
+    mvwprintw(dbg.asm_w, 0, 2, "stack");
+    wrefresh(dbg.asm_w);
+}
+
+static void sol_drawout(void) {
+    werase(dbg.asm_w);
+    if (!sf_isempty(dbg.dbgout)) {
+        char *nc = dbg.dbgout.c_str + dbg.dbgout.len - 1;
+        char *ll = NULL;
+        int y = dbg.src_h;
+        while (nc && nc != dbg.dbgout.c_str) {
+            if (y == 0) break;
+            --nc;
+            if (*nc == '\n' || nc == dbg.dbgout.c_str) {
+                if (ll) *ll = '\0';
+                mvwprintw(dbg.asm_w, y--, 2, "%s\n", nc == dbg.dbgout.c_str ? nc : nc + 1);
+                if (ll) *ll = '\n';
+                ll = nc;
+            }
+        }
+    }
+
+    box(dbg.asm_w, 0, 0);
+    mvwprintw(dbg.asm_w, 0, 2, "out");
     wrefresh(dbg.asm_w);
 }
 
@@ -223,8 +356,13 @@ static void sol_drawcmd(void) {
         box(dbg.cmd_w, 0, 0);
 
         sol_drawsrc();
-        dbg._break ? sol_drawstack() : sol_drawasm();
+        switch (dbg.pane) {
+            case SOL_DBG_ASM:   sol_drawasm(); break;
+            case SOL_DBG_STACK: sol_drawstack(); break;
+            case SOL_DBG_OUT:   sol_drawout(); break;
+        }
 
+        mvwprintw(dbg.cmd_w, 0, 2, "cmd");
         mvwprintw(dbg.cmd_w, 1, 2, "> %.*s", dbg.cmd_len, dbg.cmd);
         wmove(dbg.cmd_w, 1, 4 + dbg.cmd_len);
         wrefresh(dbg.cmd_w);
@@ -262,6 +400,13 @@ int sol_cli_cbg(char *path, sf_str src) {
     // Compile
     sol_state *s = sol_state_new();
     sol_usestd(s);
+
+    sol_dobj_ex io = sol_dobj_get(s->global.dyn, sf_lit("io"));
+    if (!io.is_ok)
+        return -1;
+    sol_dobj_set(io.ok.dyn, sf_lit("print"), sol_wrapcfun(sol_dbgprint, 1, 0));
+    sol_dobj_set(io.ok.dyn, sf_lit("println"), sol_wrapcfun(sol_dbgprintln, 1, 0));
+
     sol_compile_ex comp_ex = sol_cfile(s, sf_ref(path));
     if (!comp_ex.is_ok) {
         fprintf(stderr, TUI_ERR "error: %s:%u:%u\n" TUI_CLR, path, comp_ex.err.line, comp_ex.err.column);
@@ -288,6 +433,9 @@ int sol_cli_cbg(char *path, sf_str src) {
         .cap_cur = true, .e = false, .stack_frame = true, ._break = false,
         .line_o = 1, .cmd_len = 0, .cur = 1,
         .src_h = line - 5,
+
+        .dbgout = SF_STR_EMPTY,
+        .path = path,
     };
     if (!dbg.src_w || !dbg.asm_w || !dbg.cmd_w) return -1;
 

@@ -25,7 +25,8 @@ EXPORT void sol_state_free(sol_state *state);
 
 /// Include the standard library defined in std.c into the global namespace
 EXPORT void sol_usestd(struct sol_state *state);
-EXPORT sol_compile_ex sol_cfile(sol_state *state, sf_str src);
+EXPORT sol_compile_ex sol_csrc(sol_state *state, sf_str src);
+EXPORT sol_compile_ex sol_cfile(sol_state *state, sf_str path);
 
 /// Converts a value to an owned string.
 EXPORT sf_str sol_tostring(sol_val val);

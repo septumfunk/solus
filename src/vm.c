@@ -21,6 +21,16 @@ void sol_state_free(sol_state *state) {
     free(state);
 }
 
+sol_compile_ex sol_csrc(sol_state *state, sf_str src) {
+    sol_compile_ex ex = sol_cproto(src, 0, NULL, 1, (sol_upvalue[]){
+        (sol_upvalue){sf_lit("_g"), SOL_UP_VAL, .value = sol_dref(state->global)}
+    });
+    ex.ok.line_c = 1;
+    for (char *c = src.c_str; *c != '\0'; ++c)
+        if (*c == '\n') ++ex.ok.line_c;
+    return ex;
+}
+
 sol_compile_ex sol_cfile(sol_state *state, sf_str path) {
     if (!sf_file_exists(path))
         return sol_compile_ex_err((sol_compile_err){SOL_ERRC_FILE_NOT_FOUND, 0, 0});
@@ -35,19 +45,11 @@ sol_compile_ex sol_cfile(sol_state *state, sf_str path) {
     fsb.ok.flags = SF_BUFFER_GROW;
     sf_buffer_autoins(&fsb.ok, ""); // [\0]
 
-    sol_compile_ex ex = sol_cproto(sf_ref((char *)fsb.ok.ptr), 0, NULL, 1, (sol_upvalue[]){
-        (sol_upvalue){sf_lit("_g"), SOL_UP_VAL, .value = sol_dref(state->global)}
-    });
-
-    ex.ok.line_c = 1;
-    for (char *c = (char *)fsb.ok.ptr; *c != '\0'; ++c)
-        if (*c == '\n') ++ex.ok.line_c;
-
+    sol_compile_ex ex = sol_csrc(state, sf_ref((char *)fsb.ok.ptr));
     sf_buffer_clear(&fsb.ok);
     if (!ex.is_ok) return ex;
     ex.ok.file_name = sf_str_dup(path);
-
-    return sol_compile_ex_ok(ex.ok);
+    return ex;
 }
 
 sf_str sol_tostring(sol_val val) {
@@ -124,6 +126,7 @@ void sol_log_op(sol_instruction ins) {
                 return sol_call_ex_err((sol_call_err){SOL_ERRV_BREAK, SF_STR_EMPTY, pc}); \
             } \
         } \
+        proto->dbg_ll = SOL_DBG_LINE(proto->dbg[pc]); \
         ++pc; \
         goto *computed[sol_ins_op(ins)]; \
     } while (0)
@@ -208,6 +211,7 @@ sol_call_ex sol_call_bc(sol_state *state, sol_fproto *proto, const sol_val *args
                 return sol_call_ex_err((sol_call_err){SOL_ERRV_BREAK, SF_STR_EMPTY, pc});
             }
         }
+        proto->dbg_ll = SOL_DBG_LINE(proto->dbg[pc]);
         ++pc;
         switch (sol_ins_op(ins)) {
     #endif
