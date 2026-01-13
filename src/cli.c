@@ -84,7 +84,7 @@ int cli_run(char *path, sf_str src) {
         fprintf(stderr, TUI_ERR "error: %s:%u:%u\n" TUI_CLR, path, line, col);
 
         if (!sf_isempty(call_ex.err.panic)) {
-            sf_str full = sf_str_fmt("%s: %s", sol_err_string(call_ex.err.tt), call_ex.err.panic.c_str);
+            sf_str full = sf_str_fmt("%s: %s", sol_err_string(call_ex.err.tt).c_str, call_ex.err.panic.c_str);
             cli_highlight_line(src, full, line, col);
             sf_str_free(call_ex.err.panic);
             sf_str_free(full);
