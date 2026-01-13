@@ -13,6 +13,7 @@ sol_state *sol_state_new(void) {
         .files = sol_filenames_new(),
         .global = sol_dnew(SOL_DOBJ),
     };
+    sol_header(s->global)->is_const = true;
     sol_filenames_push(&s->files, sf_lit("./"));
     return s;
 }
