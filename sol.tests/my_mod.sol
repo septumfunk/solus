@@ -1,7 +1,7 @@
 let mod = obj.new();
 
 mod.baby = [](var) {
-    let x = math.randi(0, 3);
+    let x = 0;//math.randi(0, 3);
     if x == 0 {
         io.println("(>OwO)>" + string(var));
     }
