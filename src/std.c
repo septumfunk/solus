@@ -157,9 +157,11 @@ sol_call_ex sol_std_get(sol_state *s) {
 
 sol_call_ex sol_std_err(sol_state *s) {
     sol_val str = sol_get(s, 0);
-    sol_val err = sol_dnew(SOL_DERR);
-    *(sf_str *)err.dyn = sf_str_dup(*(sf_str *)str.dyn);
-    return sol_call_ex_ok(err);
+    if (!sol_isdtype(str, SOL_DSTR))
+        return sol_call_ex_err((sol_call_err){SOL_ERRV_TYPE_MISMATCH,
+            sf_str_fmt("Arg 'str' expected str, found '%s'", sol_typename(str).c_str),
+        0});
+    return sol_call_ex_ok(sol_dnewerr(sf_str_dup(*(sf_str *)str.dyn)));
 }
 sol_call_ex sol_std_panic(sol_state *s) {
     sol_val err = sol_get(s, 0);
