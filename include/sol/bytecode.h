@@ -140,13 +140,18 @@ typedef enum {
 } sol_dtype;
 extern const char *SOL_TYPE_NAMES[(size_t)SOL_TCOUNT + (size_t)SOL_DCOUNT];
 
+typedef enum {
+    SOL_DYN_WHITE,
+    SOL_DYN_BLACK,
+    SOL_DYN_GREEN, // Reference held by C
+} sol_dstate;
 /// Dynamic allocation header including size, type, and gc info
-typedef struct {
+typedef struct sol_dalloc {
+    struct sol_dalloc *next;
     size_t size;
     sol_dtype tt;
-    bool is_const;
-    uint32_t rc;
-} sol_dheader;
+    sol_dstate mark;
+} sol_dalloc;
 
 typedef struct {
     sol_ptype tt;
@@ -228,41 +233,29 @@ typedef struct {
     sol_usrtostring tostring;
 } sol_usrwrap;
 
-/// Allocates a dynamic object, a heap allocated object with an information header
-EXPORT sol_val sol_dnew(sol_dtype tt);
-/// Shorthand for using sol_dnew and assigning a string value.
-/// This function takes ownership of the string passed, so make a copy if needed
-static inline sol_val sol_dnewstr(sf_str str) {
-    sol_val strv = sol_dnew(SOL_DSTR);
-    *(sf_str *)strv.dyn = str;
-    return strv;
+/// Cleanup functions for dynamic types
+void sol_dclean(sol_val val);
+/// Convenience function to get the sol_dalloc of a dyn value
+static inline sol_dalloc *sol_dheader(sol_val val) {
+    if (val.tt != SOL_TDYN)
+        return NULL;
+    return (sol_dalloc *)((char *)val.dyn - sizeof(sol_dalloc));
 }
-/// Shorthand for using sol_dnew and assigning a string value.
-/// This function takes ownership of the string passed, so make a copy if needed
-static inline sol_val sol_dnewerr(sf_str str) {
-    sol_val strv = sol_dnew(SOL_DERR);
-    *(sf_str *)strv.dyn = str;
-    return strv;
+/// Convenience function to get the sol_dtype of a dyn value
+static inline sol_dtype sol_dtypeof(sol_val val) {
+    if (val.tt != SOL_TDYN)
+        return SOL_DCOUNT;
+    return sol_dheader(val)->tt;
 }
-/// Delete a reference to a dynamic object (decrement ref counter)
-EXPORT void sol_ddel(sol_val val);
-/// Return the header pointer of a dynamic value (or NULL)
-static inline sol_dheader *sol_header(sol_val val) {
-    return val.tt == SOL_TDYN ? (sol_dheader *)((char *)val.dyn - sizeof(sol_dheader)) : NULL;
-}
+
 /// Returns whether a value is of the provided dynamic type
 static inline bool sol_isdtype(sol_val value, sol_dtype dtype) {
-    return value.tt == SOL_TDYN && sol_header(value)->tt == dtype;
+    return value.tt == SOL_TDYN && sol_dheader(value)->tt == dtype;
 }
-/// Make a new reference to a dynamic object (increment ref counter)
-static inline sol_val sol_dref(sol_val val) {
-    sol_dheader *dh = sol_header(val);
-    if (dh && !dh->is_const) ++sol_header(val)->rc;
-    return val;
-}
+
 /// Get an inner value reference if it is a reference
 static inline sol_val sol_dval(sol_val val) {
-    sol_dheader *dh = sol_header(val);
+    sol_dalloc *dh = sol_dheader(val);
     if (dh && dh->tt == SOL_DREF)
         return *(sol_val *)val.dyn;
     return val;
@@ -280,7 +273,7 @@ static inline void *sol_uptr(sol_val val) { return (char *)val.dyn + sizeof(sol_
 static inline sf_str sol_typename(sol_val val) {
     if (sol_isdtype(val, SOL_DUSR))
         return sol_uheader(val)->name;
-    return sf_lit(val.tt == SOL_TDYN ? SOL_TYPE_NAMES[(int)SOL_TDYN + 1 + sol_header(val)->tt] : SOL_TYPE_NAMES[val.tt]);
+    return sf_lit(val.tt == SOL_TDYN ? SOL_TYPE_NAMES[(int)SOL_TDYN + 1 + sol_dheader(val)->tt] : SOL_TYPE_NAMES[val.tt]);
 }
 /// Returns whether a usrtype object is of the specified type
 static inline bool sol_isutype(sol_val val, sf_str name) { return sf_str_eq(name, sol_typename(val)); }

@@ -60,6 +60,8 @@ void sol_fproto_free(sol_fproto *proto) {
     }
     proto->code = NULL;
     proto->c_fun = NULL;
+    for (sol_val *v = proto->constants.data; v && v < proto->constants.data + proto->constants.count; ++v)
+        sol_dclean(*v);
     sol_valvec_free(&proto->constants);
     if (proto->upvals) {
         for (uint32_t i = 0; i < proto->up_c; ++i)
@@ -70,92 +72,19 @@ void sol_fproto_free(sol_fproto *proto) {
     proto->reg_c = 0;
 }
 
-
-sol_val sol_dnew(sol_dtype tt) {
-    size_t size;
-    switch (tt) {
-        case SOL_DSTR: size = sizeof(sf_str); break;
-        case SOL_DERR: size = sizeof(sf_str); break;
-        case SOL_DOBJ: size = sizeof(sol_dobj); break;
-        case SOL_DARRAY: size = sizeof(sol_valvec); break;
-        case SOL_DFUN: size = sizeof(sol_fproto); break;
-        case SOL_DREF: size = sizeof(sol_val); break;
-
-        case SOL_DUSR:
-        case SOL_DCOUNT:
-        default: return SOL_NIL;
-    }
-
-    sol_dyn p = calloc(1, sizeof(sol_dheader) + size);
-    *(sol_dheader *)p = (sol_dheader){
-        .size = size,
-        .is_const = false,
-        .tt = tt,
-        .rc = 1,
-    };
-    p = (char *)p + sizeof(sol_dheader);
-
-    switch (tt) {
+void sol_dclean(sol_val val) {
+    sol_dalloc *dh = sol_dheader(val);
+    if (!dh) return;
+    switch (dh->tt) {
         case SOL_DSTR:
-        case SOL_DERR: *(sf_str *)p = SF_STR_EMPTY; break;
-        case SOL_DOBJ: *(sol_dobj *)p = sol_dobj_new(); break;
-        case SOL_DARRAY: *(sol_valvec *)p = sol_valvec_new(); break;
-        case SOL_DFUN: *(sol_fproto *)p = sol_fproto_new(); break;
-        case SOL_DREF: *(sol_val *)p = SOL_NIL; break;
-
-        case SOL_DUSR:
-        case SOL_DCOUNT: return SOL_NIL;
+        case SOL_DERR: sf_str_free(*(sf_str *)val.dyn); break;
+        case SOL_DOBJ: sol_dobj_free(val.dyn); break;
+        case SOL_DARRAY: sol_valvec_free(val.dyn); break;
+        case SOL_DFUN: sol_fproto_free((sol_fproto *)val.dyn); break;
+        default: break;
     }
-    return (sol_val){ .tt = SOL_TDYN, .dyn = p };
+    free(dh);
 }
-
-sol_val sol_dnewusr(size_t size, sf_str name, void *value, sol_usrdel del, sol_usrtostring tostring) {
-    sol_dyn p = calloc(1, sizeof(sol_dheader) + sizeof(sol_usrwrap) + size);
-
-    *(sol_dheader *)p = (sol_dheader){
-        .size = size + sizeof(sol_usrwrap),
-        .is_const = false,
-        .tt = SOL_DUSR,
-        .rc = 1,
-    };
-    p = (char *)p + sizeof(sol_dheader);
-
-    sol_usrwrap *w = p;
-    *w = (sol_usrwrap){
-        name,
-        del,
-        tostring,
-    };
-    p = (char *)p + sizeof(sol_usrwrap);
-
-    memcpy(p, value, size);
-    return (sol_val){ .tt = SOL_TDYN, .dyn = w };
-}
-
-void sol_ddel(sol_val val) {
-    sol_dheader *dh = sol_header(val);
-    if (dh && !dh->is_const && --dh->rc == 0) {
-        switch (dh->tt) {
-            case SOL_DSTR:
-            case SOL_DERR: sf_str_free(*(sf_str *)val.dyn); break;
-            case SOL_DOBJ: sol_dobj_free(val.dyn); break;
-            case SOL_DARRAY: sol_valvec_free(val.dyn); break;
-            case SOL_DREF: sol_ddel(*(sol_val *)val.dyn); break;
-            case SOL_DFUN: sol_fproto_free((sol_fproto *)val.dyn); break;
-
-            case SOL_DUSR: {
-                sol_usrwrap *w = sol_uheader(val);
-                sf_str_free(w->name);
-                if (w->del)
-                    w->del(sol_uptr(val));
-                break;
-            }
-            case SOL_DCOUNT: break;
-        }
-        free(dh);
-    }
-}
-
 
 const char *SOL_ERR_STRINGS[SOL_ERR_COUNT] = {
 #define X(prefix, name, string) string,

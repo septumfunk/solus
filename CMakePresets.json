@@ -8,7 +8,7 @@
   "configurePresets": [
     {
       "name": "release-default",
-      "displayName": "Debug (Default Compiler)",
+      "displayName": "Release (Default Compiler)",
       "generator": "Ninja",
       "binaryDir": "${sourceDir}/build",
       "cacheVariables": {
@@ -28,7 +28,7 @@
     },
     {
       "name": "release-msvc",
-      "displayName": "Debug (MSVC)",
+      "displayName": "Release (MSVC)",
       "generator": "Visual Studio 18 2026",
       "binaryDir": "${sourceDir}/build",
       "cacheVariables": {

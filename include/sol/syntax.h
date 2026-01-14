@@ -38,11 +38,9 @@ typedef struct {
 } sol_scan_err;
 
 struct sol_tokenvec;
-void _sol_tokenvec_cleanup(struct sol_tokenvec *vec);
 #define VEC_NAME sol_tokenvec
 #define VEC_T sol_token
 #define VSIZE_T uint32_t
-#define CLEANUP_FN _sol_tokenvec_cleanup
 #include <sf/containers/vec.h>
 
 struct sol_keywords;
@@ -55,8 +53,12 @@ void _sol_keywords_cleanup(struct sol_keywords *vec);
 #define CLEANUP_FN _sol_keywords_cleanup
 #include <sf/containers/map.h>
 
+typedef struct {
+    sol_tokenvec tv;
+    sol_dalloc *alloc;
+} sol_scan_ok;
 #define EXPECTED_NAME sol_scan_ex
-#define EXPECTED_O sol_tokenvec
+#define EXPECTED_O sol_scan_ok
 #define EXPECTED_E sol_scan_err
 #include <sf/containers/expected.h>
 EXPORT sol_scan_ex sol_scan(sf_str src);

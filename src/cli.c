@@ -27,7 +27,7 @@ void cli_highlight_line(sf_str src, sf_str err, uint16_t line, uint16_t column) 
         if (ln == line + 1 || *c == '\0') {
             cc = c;
             *c = '\0';
-            while (*(c-1) != '\n' && c != src.c_str)
+            while ((c == src.c_str || *(c-1) != '\n') && c != src.c_str)
                 --c;
             break;
         } else ++c;
@@ -98,7 +98,6 @@ int cli_run(char *path, sf_str src) {
         sol_typename(call_ex.ok).c_str, ret.c_str);
 
     sf_str_free(ret);
-    sol_ddel(call_ex.ok);
     sol_fproto_free(fun);
     sol_state_free(s);
     return 0;

@@ -4,13 +4,6 @@
 #include <stdint.h>
 #include <stdlib.h>
 
-void _sol_tokenvec_cleanup(sol_tokenvec *vec) {
-    for (sol_token *t = vec->data; t && t < vec->data + vec->count; ++t) {
-        if (t->tt == TK_STRING || t->tt == TK_IDENTIFIER)
-            sol_ddel(t->value);
-    }
-}
-
 void _keywords_foreach(void *_u, sf_str k, sol_tokentype _v) { (void)_u;(void)_v; sf_str_free(k); }
 void _sol_keywords_cleanup(sol_keywords *map) {
     sol_keywords_foreach(map, _keywords_foreach, NULL);
@@ -21,7 +14,28 @@ typedef struct {
     sol_token current;
     size_t cc;
     sol_keywords keywords;
+    sol_dalloc *alloc;
 } sol_scanner;
+
+static sol_val sol_scan_str(sol_scanner *s, const sf_str str) {
+    sol_dyn p = calloc(1, sizeof(sol_dalloc) + sizeof(sf_str));
+    sol_dalloc *dh = p;
+    *dh = (sol_dalloc){
+        .next = NULL,
+        .size = sizeof(sf_str),
+        .tt = SOL_DSTR,
+        .mark = SOL_DYN_WHITE,
+    };
+    p = (char *)p + sizeof(sol_dalloc);
+    *(sf_str *)p = sf_str_dup(str);
+    sol_dalloc *dd = s->alloc;
+    if (dd == NULL) s->alloc = dh;
+    else {
+        while (dd->next) dd = dd->next;
+        dd->next = dh;
+    }
+    return (sol_val){ .tt = SOL_TDYN, .dyn = p };
+}
 
 #define sol_scancase(_c, _tt) case _c: s.current.tt = _tt; break
 static inline bool sol_scanpeek(sol_scanner *s, char match) {
@@ -57,7 +71,7 @@ sol_token sol_scanstr(sol_scanner *s) {
 
     return (sol_token){
         TK_STRING,
-        sol_dnewstr(sf_own(str)),
+        sol_scan_str(s, sf_own(str)),
         s->current.line,
         s->current.column,
     };
@@ -138,7 +152,7 @@ sol_token sol_scanidentifier(sol_scanner *s) {
         free(str);
         return (sol_token){
             .tt = TK_IDENTIFIER,
-            .value = sol_dnewstr(ds),
+            .value = sol_scan_str(s, ds),
             .line = s->current.line,
             .column = s->current.column,
         };
@@ -271,7 +285,7 @@ sol_scan_ex sol_scan(sf_str src) {
 
     sol_keywords_free(&s.keywords);
     sol_tokenvec_push(&tks, (sol_token){TK_EOF, SOL_NIL, s.current.line, s.current.column});
-    return sol_scan_ex_ok(tks);
+    return sol_scan_ex_ok((sol_scan_ok){tks, s.alloc});
 }
 
 typedef struct {
@@ -283,7 +297,6 @@ void sol_node_free(sol_node *tree) {
     switch (tree->tt) {
         case SOL_ND_MEMBER:
             sol_node_free(tree->n_postfix.expr);
-            sol_ddel(tree->n_postfix.postfix);
             break;
         case SOL_ND_BINARY:
             sol_node_free(tree->n_binary.left);
@@ -294,10 +307,8 @@ void sol_node_free(sol_node *tree) {
             break;
         case SOL_ND_IDENTIFIER:
         case SOL_ND_LITERAL:
-            sol_ddel(tree->n_identifier);
             break;
         case SOL_ND_LET:
-            sol_ddel(tree->n_let.name);
             sol_node_free(tree->n_let.value);
             break;
         case SOL_ND_ASSIGN:
@@ -326,16 +337,8 @@ void sol_node_free(sol_node *tree) {
             }
             break;
         case SOL_ND_FUN:
-            if (tree->n_fun.captures) {
-                for (uint32_t i = 0; i < tree->n_fun.cap_c; ++i)
-                    sol_ddel(tree->n_fun.captures[i]);
-                free(tree->n_fun.captures);
-            }
-            if (tree->n_fun.args) {
-                for (uint32_t i = 0; i < tree->n_fun.arg_c; ++i)
-                    sol_ddel(tree->n_fun.args[i]);
-                free(tree->n_fun.args);
-            }
+            free(tree->n_fun.captures);
+            free(tree->n_fun.args);
             if (tree->n_fun.block)
                 sol_node_free(tree->n_fun.block);
             break;
@@ -343,9 +346,6 @@ void sol_node_free(sol_node *tree) {
             sol_node_free(tree->n_asm.n_fun);
             break;
         case SOL_ND_INS:
-            sol_ddel(tree->n_ins.opa[0]);
-            sol_ddel(tree->n_ins.opa[1]);
-            sol_ddel(tree->n_ins.opa[2]);
             break;
         case SOL_ND_WHILE:
             sol_node_free(tree->n_while.condition);
@@ -415,7 +415,7 @@ sol_parse_ex sol_pprimary(sol_parser *p) {
             *n = (sol_node){
                 p->tok->tt == TK_IDENTIFIER ? SOL_ND_IDENTIFIER : SOL_ND_LITERAL,
                 p->tok->line, p->tok->column,
-                .n_literal = sol_dref(p->tok->value),
+                .n_literal = p->tok->value,
             };
             ++p->tok;
             return sol_parse_ex_ok(n);
@@ -428,7 +428,7 @@ sol_parse_ex sol_pprimary(sol_parser *p) {
             *n = (sol_node){
                 SOL_ND_IDENTIFIER,
                 p->tok->line, p->tok->column,
-                .n_identifier = sol_dref(p->tok->value),
+                .n_identifier = p->tok->value,
             };
             ++p->tok;
             return sol_parse_ex_ok(n);
@@ -553,7 +553,7 @@ sol_parse_ex sol_plet(sol_parser *p) {
         .tt = SOL_ND_LET,
         .line = let->line, .column = let->column,
         .n_let = {
-            .name = sol_dref(name->value),
+            .name = name->value,
             .value = vex.ok,
         }
     };
@@ -613,7 +613,7 @@ sol_parse_ex sol_ppostfix(sol_parser *p) {
                 .column = column,
                 .n_postfix = {
                     .expr = node,
-                    .postfix = sol_dref(p->tok->value),
+                    .postfix = p->tok->value,
                 }
             };
             ++p->tok;
@@ -677,7 +677,7 @@ sol_parse_ex sol_pfun(sol_parser *p) {
             return sol_perr(SOL_ERRP_EXPECTED_IDENTIFIER);
         }
         n_fun->n_fun.captures = realloc(n_fun->n_fun.captures, (++n_fun->n_fun.cap_c) * sizeof(sol_val));
-        n_fun->n_fun.captures[n_fun->n_fun.cap_c - 1] = sol_dref(p->tok->value);
+        n_fun->n_fun.captures[n_fun->n_fun.cap_c - 1] = p->tok->value;
         ++p->tok;
 
         if (p->tok->tt != TK_COMMA && p->tok->tt != TK_RIGHT_BRACKET) {
@@ -699,7 +699,7 @@ sol_parse_ex sol_pfun(sol_parser *p) {
             return sol_perr(SOL_ERRP_EXPECTED_IDENTIFIER);
         }
         n_fun->n_fun.args = realloc(n_fun->n_fun.args, ++n_fun->n_fun.arg_c * sizeof(sol_val));
-        n_fun->n_fun.args[n_fun->n_fun.arg_c - 1] = sol_dref(p->tok->value);
+        n_fun->n_fun.args[n_fun->n_fun.arg_c - 1] = p->tok->value;
         ++p->tok;
 
         if (p->tok->tt != TK_COMMA && p->tok->tt != TK_RIGHT_PAREN) {
@@ -762,21 +762,19 @@ sol_parse_ex sol_pins(sol_parser *p) {
         sol_parse_ex vex = sol_pprimary(p);
         if (!vex.is_ok) return vex;
         switch (vex.ok->tt) {
-            case SOL_ND_IDENTIFIER: opa[i] = sol_dref(vex.ok->n_identifier); break;
+            case SOL_ND_IDENTIFIER: opa[i] = vex.ok->n_identifier; break;
             case SOL_ND_LITERAL: {
                 if (vex.ok->n_literal.tt != SOL_TI64 && !((op == SOL_OP_LOAD && i == 1) ||
                     (op == SOL_OP_SUPO && i == 1) ||
                     (op == SOL_OP_GUPO && i == 2))) {
                     sol_node_free(vex.ok);
-                    for (int j = 0; j < 3; ++j) sol_ddel(opa[j]);
                     return sol_perr(SOL_ERRP_EXPECTED_INTEGER);
                 }
-                opa[i] = sol_dref(vex.ok->n_literal);
+                opa[i] = vex.ok->n_literal;
                 break;
             }
             default: {
                 sol_node_free(vex.ok);
-                for (int j = 0; j < 3; ++j) sol_ddel(opa[j]);
                 return sol_perr(SOL_ERRP_EXPECTED_IDENTIFIER);
             }
         }

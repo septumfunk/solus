@@ -207,7 +207,6 @@ static int sol_rdcmd(void) {
             );
             sol_cmderr(p);
             sf_str_free(p);
-            sol_ddel(call_ex.ok);
         }
         sol_fproto_free(&comp_ex.ok);
         sol_cmdc();
@@ -424,8 +423,8 @@ int sol_cli_cbg(char *path, sf_str src) {
     sol_dobj_ex io = sol_dobj_get(s->global.dyn, sf_lit("io"));
     if (!io.is_ok)
         return -1;
-    sol_dobj_set(io.ok.dyn, sf_lit("print"), sol_wrapcfun(sol_dbgprint, 1, 0));
-    sol_dobj_set(io.ok.dyn, sf_lit("println"), sol_wrapcfun(sol_dbgprintln, 1, 0));
+    sol_dobj_set(io.ok.dyn, sf_lit("print"), sol_wrapcfun(s, sol_dbgprint, 1, 0));
+    sol_dobj_set(io.ok.dyn, sf_lit("println"), sol_wrapcfun(s, sol_dbgprintln, 1, 0));
 
     sol_compile_ex comp_ex = sol_cfile(s, sf_ref(path));
     if (!comp_ex.is_ok) {

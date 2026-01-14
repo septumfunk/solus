@@ -26,6 +26,8 @@ typedef struct sol_state {
     sol_filenames files;
     sol_val global;
     bool dbg;
+
+    sol_dalloc *alloc;
 } sol_state;
 EXPORT sol_state *sol_state_new(void);
 EXPORT void sol_state_free(sol_state *state);
@@ -44,6 +46,36 @@ EXPORT sf_str sol_tostring(sol_val val);
 /// Dumps the current stack frame to an owned string.
 EXPORT sf_str sol_stackdump(sol_state *state);
 
+/// Create a new dynamic value
+EXPORT sol_val sol_dnew(sol_state *state, sol_dtype type);
+EXPORT sol_val sol_dcopy(sol_state *state, sol_val val);
+EXPORT void sol_dcollect(sol_state *state);
+/// Shorthand for using sol_dnew and assigning a string value.
+/// This function takes ownership of the string passed, so make a copy if needed
+static inline sol_val sol_dnstr(sol_state *state, sf_str str) {
+    sol_val strv = sol_dnew(state, SOL_DSTR);
+    *(sf_str *)strv.dyn = str;
+    return strv;
+}
+/// Shorthand for using sol_dnew and assigning a string value.
+/// This function takes ownership of the string passed, so make a copy if needed
+static inline sol_val sol_dnerr(sol_state *state, sf_str str) {
+    sol_val strv = sol_dnew(state, SOL_DERR);
+    *(sf_str *)strv.dyn = str;
+    return strv;
+}
+/// Hold a reference to the a dyn value for the C API.
+/// This marks the object as green, meaning collection is skipped
+static inline void sol_dhold(sol_val val) {
+    if (val.tt != SOL_TDYN) return;
+    sol_dheader(val)->mark = SOL_DYN_GREEN;
+}
+/// Release a reference held to a dyn value in the C API
+static inline void sol_drelease(sol_val val) {
+    if (val.tt != SOL_TDYN || sol_dheader(val)->mark != SOL_DYN_GREEN) return;
+    sol_dheader(val)->mark = SOL_DYN_WHITE;
+}
+
 /// Get the value of a register from a specific stack frame
 static inline sol_val sol_rawget(sol_state *state, uint32_t index, uint32_t frame) {
     sol_val val = sol_valvec_get(&state->stack, state->frames.data[frame].bottom_o + index);
@@ -54,20 +86,10 @@ static inline sol_val sol_rawget(sol_state *state, uint32_t index, uint32_t fram
 /// Get the value of a register from the current stack frame
 static inline sol_val sol_get(sol_state *state, uint32_t index) { return sol_rawget(state, index, state->frames.count - 1); }
 /// Set the value of a register in a specific stack frame.
-/// Note: this may free resources, if it replaces a dynamic value
 static inline void sol_rawset(sol_state *state, uint32_t index, sol_val val, uint32_t frame) {
-    sol_val old = sol_rawget(state, index, frame);
-    if (old.tt == SOL_TDYN) {
-        if (sol_header(old)->tt == SOL_DREF) {
-            *(sol_val *)old.dyn = val;
-            return;
-        }
-        sol_ddel(old);
-    }
     sol_valvec_set(&state->stack, state->frames.data[frame].bottom_o + index, val);
 }
 /// Set the value of a register in the current stack frame.
-/// Note: this may free resources, if it replaces a dynamic value
 static inline void sol_set(sol_state *state, uint32_t index, sol_val val) {
     sol_rawset(state, index, val, state->frames.count - 1);
 }
@@ -92,15 +114,12 @@ static inline uint32_t sol_pushframe(sol_state *state, uint32_t reg_c) {
 }
 static inline void sol_popframe(sol_state *state) {
     sol_stackframe f = sol_frames_pop(&state->frames);
-    for (uint32_t i = 0; i < f.size; ++i) {
-        sol_val v = sol_valvec_pop(&state->stack);
-        if (v.tt == SOL_TDYN)
-            sol_ddel(v);
-    }
+    for (uint32_t i = 0; i < f.size; ++i)
+        sol_valvec_pop(&state->stack);
 }
 
 /// Wrap a c function into a fun and insert it into a dynamic val
-EXPORT sol_val sol_wrapcfun(sol_cfunction fptr, uint32_t arg_c, uint32_t temp_c);
+EXPORT sol_val sol_wrapcfun(sol_state *state, sol_cfunction fptr, uint32_t arg_c, uint32_t temp_c);
 
 typedef struct {
     sol_error tt;

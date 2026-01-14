@@ -28,17 +28,13 @@ typedef struct {
 } sol_local;
 
 struct sol_scope;
-void _sol_scope_fe(void *_u, sf_str key, sol_local _v) { (void)_u; (void)_v; sf_str_free(key); }
-void _sol_scope_cleanup(struct sol_scope *);
 
 #define MAP_NAME sol_scope
 #define MAP_K sf_str
 #define MAP_V sol_local
 #define EQUAL_FN sf_str_eq
 #define HASH_FN sf_str_hash
-#define CLEANUP_FN _sol_scope_cleanup
 #include <sf/containers/map.h>
-void _sol_scope_cleanup(sol_scope *map) { sol_scope_foreach(map, _sol_scope_fe, NULL); }
 
 struct sol_scopes;
 void _sol_scopes_cleanup(struct sol_scopes *);
@@ -58,6 +54,7 @@ typedef struct {
     sol_ast ast;
     sol_scopes scopes;
     uint32_t locals, max_locals, temps, max_temps, frame;
+    sol_dalloc *alloc;
 } sol_compiler;
 
 #define OP_W 10
@@ -124,9 +121,16 @@ bool sol_kfind(sol_compiler *c, sol_val con, uint32_t *idx) {
     return false;
 }
 /// Add a constant to the proto
-void sol_kadd(sol_compiler *c, sol_val con) {
-    if (con.tt == SOL_TDYN)
-        sol_header(con)->is_const = true;
+static void sol_kadd(sol_compiler *c, sol_val con) {
+    if (con.tt == SOL_TDYN) {
+        size_t size = sizeof(sol_dalloc) + sol_dheader(con)->size;
+        sol_dalloc *ac = malloc(size);
+        memcpy(ac, (char *)con.dyn - sizeof(sol_dalloc), size);
+        con = (sol_val){SOL_TDYN, .dyn=ac + 1};
+        sol_dheader(con)->mark = SOL_DYN_GREEN;
+        if (sol_dheader(con)->tt == SOL_DSTR)
+            *(sf_str *)con.dyn = sf_str_dup(*(sf_str *)con.dyn);
+    }
     sol_valvec_push(&c->proto.constants, con);
 }
 
@@ -140,7 +144,7 @@ void sol_kadd(sol_compiler *c, sol_val con) {
 sol_cnode_ex sol_cnode(sol_compiler *c, sol_node *node, uint32_t t_reg);
 
 /// Compile a fun from a block and info
-sol_compile_ex sol_cfun(sol_node *ast, uint32_t arg_c, sol_val *args, uint32_t up_c, sol_upvalue *upvals) {
+sol_compile_ex sol_cfun(sol_dalloc *alloc, sol_node *ast, uint32_t arg_c, sol_val *args, uint32_t up_c, sol_upvalue *upvals) {
     sol_compiler c = {
         .proto = sol_fproto_new(),
         .ast = ast,
@@ -148,13 +152,14 @@ sol_compile_ex sol_cfun(sol_node *ast, uint32_t arg_c, sol_val *args, uint32_t u
         .locals = arg_c,
         .max_locals = arg_c,
         .temps = 0, .max_temps = 0,
+        .alloc = alloc,
     };
     c.proto.arg_c = arg_c;
     sol_scopes_push(&c.scopes, sol_scope_new());
     for (uint32_t i = 0; i < arg_c; ++i)
-        sol_scope_set(c.scopes.data + c.scopes.count - 1, sf_str_dup(*(sf_str *)args[i].dyn), (sol_local){i, 0, false, 0});
+        sol_scope_set(c.scopes.data + c.scopes.count - 1, *(sf_str *)args[i].dyn, (sol_local){i, 0, false, 0});
     for (uint32_t i = 0; i < up_c; ++i)
-        sol_scope_set(c.scopes.data + c.scopes.count - 1, sf_str_dup(upvals[i].name), (sol_local){i, 0, true, upvals[i].frame});
+        sol_scope_set(c.scopes.data + c.scopes.count - 1, upvals[i].name, (sol_local){i, 0, true, upvals[i].frame});
 
     sol_kadd(&c, (sol_val){.tt = SOL_TBOOL, .boolean = false});
     sol_kadd(&c, (sol_val){.tt = SOL_TBOOL, .boolean = true});
@@ -181,7 +186,7 @@ sol_cnode_ex sol_cnode(sol_compiler *c, sol_node *node, uint32_t t_reg) {
 
             uint32_t name_i;
             if (!sol_kfind(c, node->n_postfix.postfix, &name_i)) {
-                sol_kadd(c, sol_dref(node->n_postfix.postfix));
+                sol_kadd(c, node->n_postfix.postfix);
                 name_i = c->proto.constants.count - 1;
             }
 
@@ -212,7 +217,7 @@ sol_cnode_ex sol_cnode(sol_compiler *c, sol_node *node, uint32_t t_reg) {
             if (!sol_lexists(c, *(sf_str *)node->n_identifier.dyn, &loc)) { // Global
                 uint32_t name_i;
                 if (!sol_kfind(c, node->n_identifier, &name_i)) {
-                    sol_kadd(c, sol_dref(node->n_identifier));
+                    sol_kadd(c, node->n_identifier);
                     name_i = c->proto.constants.count - 1;
                 }
                 sol_cemit(c, sol_ins_abc(SOL_OP_GUPO, t_reg, 0, name_i)); // state->global
@@ -227,7 +232,7 @@ sol_cnode_ex sol_cnode(sol_compiler *c, sol_node *node, uint32_t t_reg) {
 
             uint32_t pos;
             if (!sol_kfind(c, node->n_literal, &pos)) {
-                sol_kadd(c, sol_dref(node->n_literal));
+                sol_kadd(c, node->n_literal);
                 pos = c->proto.constants.count - 1;
             }
             sol_cemit(c, sol_ins_ab(SOL_OP_LOAD, t_reg, pos));
@@ -239,7 +244,7 @@ sol_cnode_ex sol_cnode(sol_compiler *c, sol_node *node, uint32_t t_reg) {
             if (exists.is_ok)
                 return sol_cerr(SOL_ERRC_REDEFINED_LOCAL);
             uint32_t rhs = sol_rlocal(c);
-            sol_scope_set(c->scopes.data + c->scopes.count - 1, sf_str_dup(*(sf_str *)node->n_let.name.dyn), (sol_local){rhs, c->scopes.count - 1, false, 0});
+            sol_scope_set(c->scopes.data + c->scopes.count - 1, *(sf_str *)node->n_let.name.dyn, (sol_local){rhs, c->scopes.count - 1, false, 0});
 
             sol_cnode_ex rv_ex = sol_cnode(c, node->n_let.value, rhs);
             if (!rv_ex.is_ok) return rv_ex;
@@ -271,7 +276,7 @@ sol_cnode_ex sol_cnode(sol_compiler *c, sol_node *node, uint32_t t_reg) {
                         else { // Global
                             uint32_t name_i;
                             if (!sol_kfind(c, node->n_binary.left->n_identifier, &name_i)) {
-                                sol_kadd(c, sol_dref(node->n_binary.left->n_identifier));
+                                sol_kadd(c, node->n_binary.left->n_identifier);
                                 name_i = c->proto.constants.count - 1;
                             }
                             sol_cemit(c, sol_ins_abc(SOL_OP_SUPO, 0, name_i, right)); // state->global
@@ -284,7 +289,7 @@ sol_cnode_ex sol_cnode(sol_compiler *c, sol_node *node, uint32_t t_reg) {
                         uint32_t name_i;
                         sf_str *v = node->n_binary.left->n_postfix.postfix.dyn; (void)v;
                         if (!sol_kfind(c, node->n_binary.left->n_postfix.postfix, &name_i)) {
-                            sol_kadd(c, sol_dref(node->n_binary.left->n_postfix.postfix));
+                            sol_kadd(c, node->n_binary.left->n_postfix.postfix);
                             name_i = c->proto.constants.count - 1;
                         }
 
@@ -356,15 +361,16 @@ sol_cnode_ex sol_cnode(sol_compiler *c, sol_node *node, uint32_t t_reg) {
                 if (!sol_lexists(c, name, &loc))
                     return sol_cerr(SOL_ERRC_UNKNOWN_LOCAL);
                 if (loc.upval)
-                    upvals[c->proto.up_c + i] = (sol_upvalue){name, SOL_UP_REF, .ref = loc.reg, .frame = loc.frame};
+                    upvals[c->proto.up_c + i] = (sol_upvalue){sf_str_dup(name), SOL_UP_REF, .ref = loc.reg, .frame = loc.frame};
                 else {
                     sol_cemit(c, sol_ins_a(SOL_OP_REFU, loc.reg));
-                    upvals[c->proto.up_c + i] = (sol_upvalue){name, SOL_UP_REF, .ref = loc.reg, .frame = c->frame};
+                    upvals[c->proto.up_c + i] = (sol_upvalue){sf_str_dup(name), SOL_UP_REF, .ref = loc.reg, .frame = c->frame};
                 }
             }
 
             ++c->frame;
             sol_compile_ex ex = sol_cfun(
+                c->alloc,
                 node->n_fun.block,
                 node->n_fun.arg_c, node->n_fun.args,
                 c->proto.up_c + node->n_fun.cap_c, upvals
@@ -374,7 +380,20 @@ sol_cnode_ex sol_cnode(sol_compiler *c, sol_node *node, uint32_t t_reg) {
 
             if (!ex.is_ok) return sol_cnode_ex_err(ex.err);
             if (r_asm != 0) ex.ok.reg_c += r_asm;
-            sol_val fun = sol_dnew(SOL_DFUN);
+            sol_dyn p = calloc(1, sizeof(sol_dalloc) + sizeof(sol_fproto));
+            sol_dalloc *dh = p, *dd = c->alloc;
+            *dh = (sol_dalloc){
+                .next = NULL,
+                .size = sizeof(sol_fproto),
+                .tt = SOL_DFUN,
+                .mark = SOL_DYN_GREEN,
+            };
+            if (dd == NULL) c->alloc = dh;
+            else {
+                while (dd->next) dd = dd->next;
+                dd->next = dh;
+            }
+            sol_val fun = (sol_val){ .tt = SOL_TDYN, .dyn = (char *)p + sizeof(sol_dalloc) };
             *(sol_fproto *)fun.dyn = ex.ok;
 
             sol_kadd(c, fun);
@@ -390,7 +409,7 @@ sol_cnode_ex sol_cnode(sol_compiler *c, sol_node *node, uint32_t t_reg) {
                     (node->n_ins.op == SOL_OP_GUPO && i == 2)) {
                     uint32_t pos;
                     if (!sol_kfind(c, node->n_literal, &pos)) {
-                        sol_kadd(c, sol_dref(v));
+                        sol_kadd(c, v);
                         pos = c->proto.constants.count - 1;
                     }
                     opa[i] = pos;
@@ -421,7 +440,7 @@ sol_cnode_ex sol_cnode(sol_compiler *c, sol_node *node, uint32_t t_reg) {
                 if (!sol_lexists(c, *(sf_str *)node->n_if.condition->n_identifier.dyn, &loc)) { // Global
                     uint32_t name_i;
                     if (!sol_kfind(c, node->n_if.condition->n_identifier, &name_i)) {
-                        sol_kadd(c, sol_dref(node->n_if.condition->n_identifier));
+                        sol_kadd(c, node->n_if.condition->n_identifier);
                         name_i = c->proto.constants.count - 1;
                     }
 
@@ -479,7 +498,7 @@ sol_cnode_ex sol_cnode(sol_compiler *c, sol_node *node, uint32_t t_reg) {
                 if (!sol_lexists(c, *(sf_str *)node->n_while.condition->n_identifier.dyn, &loc)) { // Global
                     uint32_t name_i;
                     if (!sol_kfind(c, node->n_while.condition->n_identifier, &name_i)) {
-                        sol_kadd(c, sol_dref(node->n_while.condition->n_identifier));
+                        sol_kadd(c, node->n_while.condition->n_identifier);
                         name_i = c->proto.constants.count - 1;
                     }
 
@@ -540,7 +559,7 @@ sol_compile_ex sol_cproto(sf_str src, uint32_t arg_c, sol_val *args, uint32_t up
             .line = scan_ex.err.line,
             .column = scan_ex.err.column,
         });
-    sol_parse_ex par_ex = sol_parse(&scan_ex.ok);
+    sol_parse_ex par_ex = sol_parse(&scan_ex.ok.tv);
     if (!par_ex.is_ok)
         return sol_compile_ex_err((sol_compile_err){
             .tt = par_ex.err.tt,
@@ -548,7 +567,17 @@ sol_compile_ex sol_cproto(sf_str src, uint32_t arg_c, sol_val *args, uint32_t up
             .column = par_ex.err.column,
         });
 
-    sol_compile_ex ex = sol_cfun(par_ex.ok, arg_c, args, up_c, upvals);
+    sol_compile_ex ex = sol_cfun(scan_ex.ok.alloc, par_ex.ok, arg_c, args, up_c, upvals);
     sol_node_free(par_ex.ok);
+
+    for (sol_dalloc *ac = scan_ex.ok.alloc; ac; ) {
+        sol_dalloc *next = ac->next;
+        if (ac->tt == SOL_DSTR) {
+            sf_str *str = (sf_str *)((char *)ac + sizeof(sol_dalloc));
+            sf_str_free(*str);
+        }
+        free(ac);
+        ac = next;
+    }
     return ex;
 }

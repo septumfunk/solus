@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <stdlib.h>
 #include "sol/vm.h"
 #include "sf/containers/buffer.h"
 #include "sf/fs.h"
@@ -7,13 +8,17 @@
 #include "sf/str.h"
 
 sol_state *sol_state_new(void) {
+    sol_dyn p = calloc(1, sizeof(sol_dalloc) + sizeof(sol_dobj));
+    *(sol_dalloc *)p = (sol_dalloc){NULL, sizeof(sol_dobj), SOL_DOBJ, SOL_DYN_GREEN};
+    p = (char *)p + sizeof(sol_dalloc);
+    *(sol_dobj *)p = sol_dobj_new();
+
     sol_state *s = malloc(sizeof(sol_state));
     *s = (sol_state){
         .stack = sol_valvec_new(),
         .files = sol_filenames_new(),
-        .global = sol_dnew(SOL_DOBJ),
+        .global = {SOL_TDYN, .dyn = p},
     };
-    sol_header(s->global)->is_const = true;
     sol_filenames_push(&s->files, sf_lit("./"));
     return s;
 }
@@ -21,13 +26,13 @@ sol_state *sol_state_new(void) {
 void sol_state_free(sol_state *state) {
     sol_valvec_free(&state->stack);
     sol_filenames_free(&state->files);
-    sol_ddel(state->global);
+    sol_dclean(state->global);
     free(state);
 }
 
 sol_compile_ex sol_csrc(sol_state *state, sf_str src) {
     sol_compile_ex ex = sol_cproto(src, 0, NULL, 1, (sol_upvalue[]){
-        (sol_upvalue){sf_lit("_g"), SOL_UP_VAL, .value = sol_dref(state->global)}
+        (sol_upvalue){sf_lit("_g"), SOL_UP_VAL, .value = state->global}
     });
     ex.ok.line_c = 1;
     for (char *c = src.c_str; *c != '\0'; ++c)
@@ -63,7 +68,7 @@ sf_str sol_tostring(sol_val val) {
         case SOL_TI64: return sf_str_fmt("%lld", val.i64);
         case SOL_TBOOL: return sf_str_cdup(val.boolean ? "true" : "false");
         case SOL_TDYN: {
-            switch (sol_header(val)->tt) {
+            switch (sol_dheader(val)->tt) {
                 case SOL_DSTR:
                 case SOL_DERR:
                 return sf_str_dup(*(sf_str *)val.dyn); break;
@@ -89,7 +94,7 @@ sf_str sol_stackdump(sol_state *state) {
         sol_val val = sol_get(state, i);
         sf_str val_s = sol_tostring(val);
         sf_str line = sf_str_fmt(
-            val.tt == SOL_TDYN && sol_header(val)->tt == SOL_DSTR ? "[%llu]: %s = '%s'\n" :
+            val.tt == SOL_TDYN && sol_dheader(val)->tt == SOL_DSTR ? "[%llu]: %s = '%s'\n" :
             "[%llu]: %s = %s\n", i, sol_typename(val).c_str, val_s.c_str
         );
         sf_str_append(&out, line);
@@ -100,6 +105,132 @@ sf_str sol_stackdump(sol_state *state) {
     return out;
 }
 
+sol_val sol_dnew(sol_state *s, sol_dtype tt) {
+    size_t size;
+    switch (tt) {
+        case SOL_DSTR: size = sizeof(sf_str); break;
+        case SOL_DERR: size = sizeof(sf_str); break;
+        case SOL_DOBJ: size = sizeof(sol_dobj); break;
+        case SOL_DARRAY: size = sizeof(sol_valvec); break;
+        case SOL_DFUN: size = sizeof(sol_fproto); break;
+        case SOL_DREF: size = sizeof(sol_val); break;
+
+        case SOL_DUSR:
+        case SOL_DCOUNT: return SOL_NIL;
+    }
+
+    sol_dyn p = calloc(1, sizeof(sol_dalloc) + size);
+    sol_dalloc *dh = p;
+    *dh = (sol_dalloc){
+        .next = NULL,
+        .size = size,
+        .tt = tt,
+        .mark = SOL_DYN_WHITE,
+    };
+    p = (char *)p + sizeof(sol_dalloc);
+
+    switch (tt) {
+        case SOL_DSTR:
+        case SOL_DERR: *(sf_str *)p = SF_STR_EMPTY; break;
+        case SOL_DOBJ: *(sol_dobj *)p = sol_dobj_new(); break;
+        case SOL_DARRAY: *(sol_valvec *)p = sol_valvec_new(); break;
+        case SOL_DFUN: *(sol_fproto *)p = sol_fproto_new(); break;
+        case SOL_DREF: *(sol_val *)p = SOL_NIL; break;
+
+        case SOL_DUSR:
+        case SOL_DCOUNT: {
+            free(dh);
+            return SOL_NIL;
+        }
+    }
+
+    sol_dalloc *dd = s->alloc;
+    if (dd == NULL) s->alloc = dh;
+    else {
+        while (dd->next) dd = dd->next;
+        dd->next = dh;
+    }
+    return (sol_val){ .tt = SOL_TDYN, .dyn = p };
+}
+
+sol_val sol_dcopy(sol_state *state, sol_val val) {
+    if (val.tt == SOL_TDYN) {
+        size_t size = sizeof(sol_dalloc) + sol_dheader(val)->size;
+        sol_dalloc *ac = malloc(size);
+        memcpy(ac, (char *)val.dyn - sizeof(sol_dalloc), size);
+        sol_val nv = (sol_val){SOL_TDYN, .dyn=ac + 1};
+        sol_dheader(nv)->mark = SOL_DYN_WHITE;
+
+        switch (sol_dheader(nv)->tt) {
+            case SOL_DSTR:
+                *(sf_str *)nv.dyn = sf_str_dup(*(sf_str *)nv.dyn);
+                break;
+            case SOL_DFUN: {
+                sol_fproto *fp = val.dyn, *nfp = nv.dyn;
+                nfp->file_name = sf_str_dup(fp->file_name);
+                nfp->constants = sol_valvec_new();
+                nfp->code = malloc(sizeof(sol_instruction) * fp->code_c);
+                nfp->dbg = malloc(sizeof(sol_dbg) * fp->code_c);
+                nfp->upvals = malloc(sizeof(sol_upvalue) * nfp->up_c);
+                memcpy(nfp->code, fp->code, sizeof(sol_instruction) * fp->code_c);
+                memcpy(nfp->dbg, fp->dbg, sizeof(sol_dbg) * fp->code_c);
+                memcpy(nfp->upvals, fp->upvals, sizeof(sol_upvalue) * nfp->up_c);
+                for (sol_val *v = fp->constants.data; v < fp->constants.data + fp->constants.count; ++v)
+                    sol_valvec_push(&nfp->constants, sol_dcopy(state, *v));
+                break;
+            }
+            default: return SOL_NIL; // TODO: THIS
+        }
+        return nv;
+    }
+    return val;
+}
+
+void sol_dcollect_obj(void *ud, sf_str _k, sol_val member) {
+    (void)_k;
+    if (member.tt != SOL_TDYN || sol_dheader(member)->mark != SOL_DYN_WHITE) return;
+    sol_dheader(member)->mark = SOL_DYN_BLACK;
+    if (sol_dtypeof(member) == SOL_DOBJ)
+        sol_dobj_foreach(member.dyn, sol_dcollect_obj, ud);
+}
+
+void sol_dcollect(sol_state *state) {
+    for (sol_val *r = state->stack.data; r < state->stack.data + state->stack.count; ++r) {
+        if (r->tt == SOL_TDYN) {
+            sol_dheader(*r)->mark = SOL_DYN_BLACK;
+
+            if (sol_dtypeof(*r) == SOL_DOBJ)
+                sol_dobj_foreach(r->dyn, sol_dcollect_obj, NULL);
+
+            if (sol_dtypeof(*r) == SOL_DREF) {
+                sol_val inner = sol_dval(*r);
+                while (inner.tt == SOL_TDYN) {
+                    if (sol_dtypeof(inner) == SOL_DOBJ)
+                        sol_dobj_foreach(inner.dyn, sol_dcollect_obj, NULL);
+                    else if (sol_dtypeof(inner) == SOL_DREF)
+                        inner = sol_dval(inner);
+                    else {
+                        sol_dheader(inner)->mark = SOL_DYN_BLACK;
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    sol_dobj_foreach(state->global.dyn, sol_dcollect_obj, NULL);
+
+    sol_dalloc **ac = &state->alloc;
+    while (*ac) {
+        if ((*ac)->mark == SOL_DYN_WHITE) {
+            sol_dalloc *dead = *ac;
+            *ac = dead->next;
+            sol_dclean((sol_val){SOL_TDYN, .dyn = dead + 1});
+            continue;
+        }
+        (*ac)->mark = SOL_DYN_WHITE;
+        ac = &(*ac)->next;
+    }
+}
 
 void sol_log_op(sol_instruction ins) {
     switch (sol_op_info(sol_ins_op(ins))->type) {
@@ -143,8 +274,8 @@ void sol_log_op(sol_instruction ins) {
 
 #define sol_callerr(en, fmt, ...) (sol_call_ex_err((sol_call_err){.tt=(en),.panic=sf_str_fmt((fmt), __VA_ARGS__), .pc=pc-1}))
 
-sol_val sol_wrapcfun(sol_cfunction fptr, uint32_t arg_c, uint32_t temp_c) {
-    sol_val fun = sol_dnew(SOL_DFUN);
+sol_val sol_wrapcfun(sol_state *state, sol_cfunction fptr, uint32_t arg_c, uint32_t temp_c) {
+    sol_val fun = sol_dnew(state, SOL_DFUN);
     *(sol_fproto *)fun.dyn = sol_fproto_c(fptr, arg_c, temp_c);
     return fun;
 }
@@ -181,9 +312,9 @@ sol_call_ex sol_call_cfun(sol_state *state, sol_fproto *proto, const sol_val *ar
     return ex;
 }
 
-sol_call_ex sol_call_bc(sol_state *state, sol_fproto *proto, const sol_val *args, bool *bps) {
+sol_call_ex sol_call_bc(sol_state *s, sol_fproto *proto, const sol_val *args, bool *bps) {
     if (proto->tt == SOL_FPROTO_BC && !sf_isempty(proto->file_name))
-        sol_filenames_push(&state->files, sol_dirname(proto->file_name));
+        sol_filenames_push(&s->files, sol_dirname(proto->file_name));
     #ifdef COMPUTE_GOTOS
     void *computed[] = {
         LABEL(SOL_OP_LOAD),
@@ -218,9 +349,9 @@ sol_call_ex sol_call_bc(sol_state *state, sol_fproto *proto, const sol_val *args
     sol_instruction ins;
     uint32_t pc = proto->dbg_res ? proto->dbg_res : proto->entry;
     if (!proto->dbg_res) {
-        sol_pushframe(state, proto->reg_c);
-        for (uint32_t i = 0; i < proto->reg_c && args; ++i)
-            sol_set(state, i, args[i]);
+        sol_pushframe(s, proto->reg_c);
+        for (uint32_t i = 0; i < proto->arg_c && args; ++i)
+            sol_set(s, i, args[i]);
     }
     proto->dbg_res = 0;
     sol_val return_val = SOL_NIL;
@@ -244,15 +375,15 @@ sol_call_ex sol_call_bc(sol_state *state, sol_fproto *proto, const sol_val *args
         switch (sol_ins_op(ins)) {
     #endif
         CASE(SOL_OP_LOAD) {
-            sol_set(state, sol_iab_a(ins), sol_dref(sol_valvec_get(&proto->constants, sol_iab_b(ins))));
+            sol_set(s, sol_iab_a(ins), sol_dcopy(s, sol_valvec_get(&proto->constants, sol_iab_b(ins))));
             DISPATCH();
         }
         CASE(SOL_OP_MOVE) {
-            sol_set(state, sol_iab_a(ins), sol_dref(sol_get(state, sol_iab_b(ins))));
+            sol_set(s, sol_iab_a(ins), sol_get(s, sol_iab_b(ins)));
             DISPATCH();
         }
         CASE(SOL_OP_RET) {
-            return_val = sol_dref(sol_get(state, (uint32_t)sol_ia_a(ins)));
+            return_val = sol_get(s, (uint32_t)sol_ia_a(ins));
             goto ret;
             DISPATCH();
         }
@@ -261,7 +392,7 @@ sol_call_ex sol_call_bc(sol_state *state, sol_fproto *proto, const sol_val *args
             DISPATCH();
         }
         CASE(SOL_OP_CALL) {
-            sol_val fun = sol_get(state, sol_iabc_b(ins));
+            sol_val fun = sol_get(s, sol_iabc_b(ins));
             if (!sol_isdtype(fun, SOL_DFUN))
                 return sol_callerr(SOL_ERRV_TYPE_MISMATCH, "Expected fun at r[%d], found %s.", sol_iabc_b(ins), sol_typename(fun).c_str);
 
@@ -270,10 +401,10 @@ sol_call_ex sol_call_bc(sol_state *state, sol_fproto *proto, const sol_val *args
             if (f.arg_c > 0) {
                 sol_val *argv = calloc(f.arg_c, sizeof(sol_val));
                 for (uint32_t i = 0; i < f.arg_c; ++i)
-                    argv[i] = sol_dref(sol_get(state, sol_iabc_c(ins) + i));
-                fex = sol_call(state, &f, argv);
+                    argv[i] = sol_get(s, sol_iabc_c(ins) + i);
+                fex = sol_call(s, &f, argv);
                 free(argv);
-            } else fex = sol_call(state, &f, NULL);
+            } else fex = sol_call(s, &f, NULL);
             if (!fex.is_ok) {
                 fex.err.pc = pc - 1;
                 return fex;
@@ -283,13 +414,13 @@ sol_call_ex sol_call_bc(sol_state *state, sol_fproto *proto, const sol_val *args
             printf("[RET] [Type: %s] %s\n", sol_typename(fex.ok).c_str, ret.c_str);
             sf_str_free(ret);
             #endif
-            sol_set(state, sol_iabc_a(ins), fex.ok);
+            sol_set(s, sol_iabc_a(ins), fex.ok);
             DISPATCH();
         }
 
         CASE(SOL_OP_ADD) {
-            sol_val lhs = sol_get(state, sol_iabc_b(ins));
-            sol_val rhs = sol_get(state, sol_iabc_c(ins));
+            sol_val lhs = sol_get(s, sol_iabc_b(ins));
+            sol_val rhs = sol_get(s, sol_iabc_c(ins));
 
             if (lhs.tt != rhs.tt) {
                 if (lhs.tt == SOL_TDYN || rhs.tt == SOL_TDYN)
@@ -303,15 +434,15 @@ sol_call_ex sol_call_bc(sol_state *state, sol_fproto *proto, const sol_val *args
             switch (lhs.tt) {
                 case SOL_TNIL: return sol_callerr(SOL_ERRV_TYPE_MISMATCH, "Cannot perform arithmetic on nil.", NULL); break;
                 case SOL_TF64:
-                    sol_set(state, sol_iabc_a(ins), (sol_val){.tt = SOL_TF64, .f64 = lhs.f64 + rhs.f64});
+                    sol_set(s, sol_iabc_a(ins), (sol_val){.tt = SOL_TF64, .f64 = lhs.f64 + rhs.f64});
                     break;
                 case SOL_TI64:
-                    sol_set(state, sol_iabc_a(ins), (sol_val){.tt = SOL_TI64, .i64 = lhs.i64 + rhs.i64});
+                    sol_set(s, sol_iabc_a(ins), (sol_val){.tt = SOL_TI64, .i64 = lhs.i64 + rhs.i64});
                     break;
                 case SOL_TDYN: {
                     if (!sol_isdtype(lhs, SOL_DSTR))
                         return sol_callerr(SOL_ERRV_TYPE_MISMATCH, "Cannot concatenate str with dynamic type.", NULL);
-                    sol_set(state, sol_iabc_a(ins), sol_dnewstr(sf_str_join(*(sf_str *)lhs.dyn, *(sf_str *)rhs.dyn)));
+                    sol_set(s, sol_iabc_a(ins), sol_dnstr(s, sf_str_join(*(sf_str *)lhs.dyn, *(sf_str *)rhs.dyn)));
                     break;
                 }
                 default: break;
@@ -319,8 +450,8 @@ sol_call_ex sol_call_bc(sol_state *state, sol_fproto *proto, const sol_val *args
             DISPATCH();
         }
         CASE(SOL_OP_SUB) {
-            sol_val lhs = sol_get(state, sol_iabc_b(ins));
-            sol_val rhs = sol_get(state, sol_iabc_c(ins));
+            sol_val lhs = sol_get(s, sol_iabc_b(ins));
+            sol_val rhs = sol_get(s, sol_iabc_c(ins));
 
             if (lhs.tt == SOL_TDYN || rhs.tt == SOL_TDYN)
                 return sol_callerr(SOL_ERRV_TYPE_MISMATCH, "Cannot convert dynamic obj and primitive.", NULL);
@@ -333,18 +464,18 @@ sol_call_ex sol_call_bc(sol_state *state, sol_fproto *proto, const sol_val *args
             }
             switch (lhs.tt) {
                 case SOL_TF64:
-                    sol_set(state, sol_iabc_a(ins), (sol_val){.tt = SOL_TF64, .f64 = lhs.f64 - rhs.f64});
+                    sol_set(s, sol_iabc_a(ins), (sol_val){.tt = SOL_TF64, .f64 = lhs.f64 - rhs.f64});
                     break;
                 case SOL_TI64:
-                    sol_set(state, sol_iabc_a(ins), (sol_val){.tt = SOL_TI64, .i64 = lhs.i64 - rhs.i64});
+                    sol_set(s, sol_iabc_a(ins), (sol_val){.tt = SOL_TI64, .i64 = lhs.i64 - rhs.i64});
                     break;
                 default: return sol_callerr(SOL_ERRV_TYPE_MISMATCH, "Cannot perform arithmetic on nil.", NULL); break;
             }
             DISPATCH();
         }
         CASE(SOL_OP_MUL) {
-            sol_val lhs = sol_get(state, sol_iabc_b(ins));
-            sol_val rhs = sol_get(state, sol_iabc_c(ins));
+            sol_val lhs = sol_get(s, sol_iabc_b(ins));
+            sol_val rhs = sol_get(s, sol_iabc_c(ins));
 
             if (lhs.tt == SOL_TDYN || rhs.tt == SOL_TDYN)
                 return sol_callerr(SOL_ERRV_TYPE_MISMATCH, "Cannot convert dynamic obj and primitive.", NULL);
@@ -357,18 +488,18 @@ sol_call_ex sol_call_bc(sol_state *state, sol_fproto *proto, const sol_val *args
             }
             switch (lhs.tt) {
                 case SOL_TF64:
-                    sol_set(state, sol_iabc_a(ins), (sol_val){.tt = SOL_TF64, .f64 = lhs.f64 * rhs.f64});
+                    sol_set(s, sol_iabc_a(ins), (sol_val){.tt = SOL_TF64, .f64 = lhs.f64 * rhs.f64});
                     break;
                 case SOL_TI64:
-                    sol_set(state, sol_iabc_a(ins), (sol_val){.tt = SOL_TI64, .i64 = lhs.i64 * rhs.i64});
+                    sol_set(s, sol_iabc_a(ins), (sol_val){.tt = SOL_TI64, .i64 = lhs.i64 * rhs.i64});
                     break;
                 default: return sol_callerr(SOL_ERRV_TYPE_MISMATCH, "Cannot perform arithmetic on nil.", NULL); break;
             }
             DISPATCH();
         }
         CASE(SOL_OP_DIV) {
-            sol_val lhs = sol_get(state, sol_iabc_b(ins));
-            sol_val rhs = sol_get(state, sol_iabc_c(ins));
+            sol_val lhs = sol_get(s, sol_iabc_b(ins));
+            sol_val rhs = sol_get(s, sol_iabc_c(ins));
 
             if (lhs.tt == SOL_TDYN || rhs.tt == SOL_TDYN)
                 return sol_callerr(SOL_ERRV_TYPE_MISMATCH, "Cannot convert dynamic obj and primitive.", NULL);
@@ -381,10 +512,10 @@ sol_call_ex sol_call_bc(sol_state *state, sol_fproto *proto, const sol_val *args
             }
             switch (lhs.tt) {
                 case SOL_TF64:
-                    sol_set(state, sol_iabc_a(ins), (sol_val){.tt = SOL_TF64, .f64 = lhs.f64 / rhs.f64});
+                    sol_set(s, sol_iabc_a(ins), (sol_val){.tt = SOL_TF64, .f64 = lhs.f64 / rhs.f64});
                     break;
                 case SOL_TI64:
-                    sol_set(state, sol_iabc_a(ins), (sol_val){.tt = SOL_TI64, .i64 = lhs.i64 / rhs.i64});
+                    sol_set(s, sol_iabc_a(ins), (sol_val){.tt = SOL_TI64, .i64 = lhs.i64 / rhs.i64});
                     break;
                 default: return sol_callerr(SOL_ERRV_TYPE_MISMATCH, "Cannot perform arithmetic on nil.", NULL); break;
             }
@@ -393,8 +524,8 @@ sol_call_ex sol_call_bc(sol_state *state, sol_fproto *proto, const sol_val *args
 
         CASE(SOL_OP_EQ) {
             bool inv = sol_iabc_a(ins) != 0;
-            sol_val lhs = sol_get(state, sol_iabc_b(ins));
-            sol_val rhs = sol_get(state, sol_iabc_c(ins));
+            sol_val lhs = sol_get(s, sol_iabc_b(ins));
+            sol_val rhs = sol_get(s, sol_iabc_c(ins));
             if ((lhs.tt == SOL_TNIL && rhs.tt == SOL_TNIL)) {
                 if (!inv) pc++;
                 DISPATCH();
@@ -428,8 +559,8 @@ sol_call_ex sol_call_bc(sol_state *state, sol_fproto *proto, const sol_val *args
                 case SOL_TBOOL: e = lhs.boolean == rhs.boolean; break;
 
                 case SOL_TDYN: {
-                    sol_dheader *h1 = sol_header(lhs);
-                    sol_dheader *h2 = sol_header(lhs);
+                    sol_dalloc *h1 = sol_dheader(lhs);
+                    sol_dalloc *h2 = sol_dheader(lhs);
                     if (h1->tt != h2->tt) {
                         e = false;
                         break;
@@ -451,8 +582,8 @@ sol_call_ex sol_call_bc(sol_state *state, sol_fproto *proto, const sol_val *args
         }
         CASE(SOL_OP_LT) {
             bool inv = sol_iabc_a(ins) != 0;
-            sol_val lhs = sol_get(state, sol_iabc_b(ins));
-            sol_val rhs = sol_get(state, sol_iabc_c(ins));
+            sol_val lhs = sol_get(s, sol_iabc_b(ins));
+            sol_val rhs = sol_get(s, sol_iabc_c(ins));
             if (lhs.tt == SOL_TDYN || rhs.tt == SOL_TDYN || lhs.tt == SOL_TNIL || rhs.tt == SOL_TNIL ||
                 lhs.tt == SOL_TBOOL || rhs.tt == SOL_TBOOL) {
                 if (inv) pc++;
@@ -477,8 +608,8 @@ sol_call_ex sol_call_bc(sol_state *state, sol_fproto *proto, const sol_val *args
             DISPATCH();
         }
         CASE(SOL_OP_LE) {bool inv = sol_iabc_a(ins) != 0;
-            sol_val lhs = sol_get(state, sol_iabc_b(ins));
-            sol_val rhs = sol_get(state, sol_iabc_c(ins));
+            sol_val lhs = sol_get(s, sol_iabc_b(ins));
+            sol_val rhs = sol_get(s, sol_iabc_c(ins));
             if (lhs.tt == SOL_TDYN || rhs.tt == SOL_TDYN || lhs.tt == SOL_TNIL || rhs.tt == SOL_TNIL ||
                 lhs.tt == SOL_TBOOL || rhs.tt == SOL_TBOOL) {
                 if (inv) pc++;
@@ -503,8 +634,8 @@ sol_call_ex sol_call_bc(sol_state *state, sol_fproto *proto, const sol_val *args
                 case SOL_TF64: e = lhs.f64 <= rhs.f64; break;
 
                 case SOL_TDYN: {
-                    sol_dheader *h1 = sol_header(lhs);
-                    sol_dheader *h2 = sol_header(lhs);
+                    sol_dalloc *h1 = sol_dheader(lhs);
+                    sol_dalloc *h2 = sol_dheader(lhs);
                     if (h1->tt != h2->tt) {
                         e = false;
                         break;
@@ -525,81 +656,72 @@ sol_call_ex sol_call_bc(sol_state *state, sol_fproto *proto, const sol_val *args
         }
 
         CASE(SOL_OP_SETU) {
-            sol_val v = sol_get(state, sol_iab_b(ins));
+            sol_val v = sol_get(s, sol_iab_b(ins));
             sol_upvalue *upv = proto->upvals + sol_iab_a(ins);
             if (upv->tt == SOL_UP_VAL)
-                upv->value = sol_dref(v);
-            else sol_rawset(state, upv->ref, sol_dref(v), upv->frame);
+                upv->value = v;
+            else sol_rawset(s, upv->ref, v, upv->frame);
             DISPATCH();
         }
         CASE(SOL_OP_GETU) {
             sol_upvalue *upv = proto->upvals + sol_iab_b(ins);
             if (upv->tt == SOL_UP_VAL)
-                sol_set(state, sol_iab_a(ins), sol_dref(upv->value));
-            else sol_set(state, sol_iab_a(ins), sol_dref(sol_rawget(state, upv->ref, upv->frame)));
+                sol_set(s, sol_iab_a(ins), upv->value);
+            else sol_set(s, sol_iab_a(ins), sol_rawget(s, upv->ref, upv->frame));
             DISPATCH();
         }
         CASE(SOL_OP_REFU) {
-            sol_val v = sol_get(state, (uint32_t)sol_ia_a(ins));
-            if (sol_isdtype(v, SOL_DREF)) {
-                sol_dref(v);
+            sol_val v = sol_get(s, (uint32_t)sol_ia_a(ins));
+            if (sol_isdtype(v, SOL_DREF))
                 DISPATCH();
-            }
-            sol_val vref = sol_dnew(SOL_DREF);
-            *(sol_val *)vref.dyn = sol_dref(v);
-            sol_set(state, (uint32_t)sol_ia_a(ins), vref);
+            sol_val vref = sol_dnew(s, SOL_DREF);
+            *(sol_val *)vref.dyn = v;
+            sol_set(s, (uint32_t)sol_ia_a(ins), vref);
             DISPATCH();
         }
 
         CASE(SOL_OP_SET) {
-            sol_val obj = sol_get(state, sol_iabc_a(ins));
-            sol_val key = sol_get(state, sol_iabc_b(ins));
-            sol_val val = sol_get(state, sol_iabc_c(ins));
+            sol_val obj = sol_get(s, sol_iabc_a(ins));
+            sol_val key = sol_get(s, sol_iabc_b(ins));
+            sol_val val = sol_get(s, sol_iabc_c(ins));
             if (!sol_isdtype(obj, SOL_DOBJ))
                 return sol_callerr(SOL_ERRV_TYPE_MISMATCH, "Expected obj at r[%d], found %s.", sol_iabc_a(ins), sol_typename(obj).c_str);
             if (!sol_isdtype(key, SOL_DSTR))
                 return sol_callerr(SOL_ERRV_TYPE_MISMATCH, "Expected str at r[%d], found %s.", sol_iabc_b(ins), sol_typename(key).c_str);
-            sol_dobj_ex ex = sol_dobj_get((sol_dobj *)obj.dyn, *(sf_str *)key.dyn);
-            if (ex.is_ok && ex.ok.tt == SOL_TDYN)
-                sol_ddel(ex.ok);
-            sol_dobj_set((sol_dobj *)obj.dyn, sf_str_dup(*(sf_str *)key.dyn), sol_dref(val));
+            sol_dobj_set((sol_dobj *)obj.dyn, sf_str_dup(*(sf_str *)key.dyn), val);
             DISPATCH();
         }
         CASE(SOL_OP_GET) {
-            sol_val obj = sol_get(state, sol_iabc_b(ins));
-            sol_val key = sol_get(state, sol_iabc_c(ins));
+            sol_val obj = sol_get(s, sol_iabc_b(ins));
+            sol_val key = sol_get(s, sol_iabc_c(ins));
             if (!sol_isdtype(obj, SOL_DOBJ))
                 return sol_callerr(SOL_ERRV_TYPE_MISMATCH, "Expected obj at r[%d], found %s.", sol_iabc_b(ins), sol_typename(obj).c_str);
             if (!sol_isdtype(key, SOL_DSTR))
                 return sol_callerr(SOL_ERRV_TYPE_MISMATCH, "Expected str at r[%d], found %s.", sol_iabc_c(ins), sol_typename(key).c_str);
             sol_dobj_ex ex = sol_dobj_get((sol_dobj *)obj.dyn, *(sf_str *)key.dyn);
             if (!ex.is_ok) {
-                sol_set(state, sol_iabc_a(ins), sol_dnewerr(sf_str_fmt("obj r[%d], does not contain member '%s'.", sol_iabc_b(ins), ((sf_str *)key.dyn)->c_str)));
+                sol_set(s, sol_iabc_a(ins), sol_dnerr(s, sf_str_fmt("obj r[%d], does not contain member '%s'.", sol_iabc_b(ins), ((sf_str *)key.dyn)->c_str)));
                 DISPATCH();
             }
-            sol_set(state, sol_iabc_a(ins), sol_dref(ex.ok));
+            sol_set(s, sol_iabc_a(ins), ex.ok);
             DISPATCH();
         }
 
         CASE(SOL_OP_SUPO) {
             sol_upvalue *upv = proto->upvals + sol_iabc_a(ins);
-            sol_val upo = upv->tt == SOL_UP_VAL ? upv->value : sol_rawget(state, upv->ref, upv->frame);
+            sol_val upo = upv->tt == SOL_UP_VAL ? upv->value : sol_rawget(s, upv->ref, upv->frame);
             if (!sol_isdtype(upo, SOL_DOBJ))
                 return sol_callerr(SOL_ERRV_TYPE_MISMATCH, "Expected obj at u[%d], found %s.", sol_iabc_a(ins), sol_typename(upo).c_str);
             sol_val kkey = sol_valvec_get(&proto->constants, sol_iabc_b(ins));
             if (!sol_isdtype(kkey, SOL_DSTR))
                 return sol_callerr(SOL_ERRV_TYPE_MISMATCH, "Expected str at k[%d], found %s.", sol_iabc_b(ins), sol_typename(kkey).c_str);
-            sol_val val = sol_get(state, sol_iabc_c(ins));
-
-            sol_dobj_ex ex = sol_dobj_get((sol_dobj *)upo.dyn, *(sf_str *)kkey.dyn);
-            if (ex.is_ok && ex.ok.tt == SOL_TDYN)
-                sol_ddel(ex.ok);
-            sol_dobj_set((sol_dobj *)upo.dyn, sf_str_dup(*(sf_str *)kkey.dyn), sol_dref(val));
+            sol_val val = sol_get(s, sol_iabc_c(ins));
+            sol_dobj_set((sol_dobj *)upo.dyn, sf_str_dup(*(sf_str *)kkey.dyn), val);
             DISPATCH();
         }
         CASE(SOL_OP_GUPO) {
             sol_upvalue *upv = proto->upvals + sol_iabc_b(ins);
-            sol_val upo = upv->tt == SOL_UP_VAL ? upv->value : sol_rawget(state, upv->ref, upv->frame);
+            sol_val upo = upv->tt == SOL_UP_VAL ? upv->value : sol_rawget(s, upv->ref, upv->frame);
             if (!sol_isdtype(upo, SOL_DOBJ))
                 return sol_callerr(SOL_ERRV_TYPE_MISMATCH, "Expected obj at u[%d], found %s.", sol_iabc_b(ins), sol_typename(upo).c_str);
             sol_val kkey = sol_valvec_get(&proto->constants, sol_iabc_c(ins));
@@ -608,10 +730,10 @@ sol_call_ex sol_call_bc(sol_state *state, sol_fproto *proto, const sol_val *args
 
             sol_dobj_ex ex = sol_dobj_get((sol_dobj *)upo.dyn, *(sf_str *)kkey.dyn);
             if (!ex.is_ok) {
-                sol_set(state, sol_iabc_a(ins), sol_dnewerr(sf_str_fmt("obj u[%d], does not contain member '%s'.", sol_iabc_b(ins), ((sf_str *)kkey.dyn)->c_str)));
+                sol_set(s, sol_iabc_a(ins), sol_dnerr(s, sf_str_fmt("obj u[%d], does not contain member '%s'.", sol_iabc_b(ins), ((sf_str *)kkey.dyn)->c_str)));
                 DISPATCH();
             }
-            sol_set(state, sol_iabc_a(ins), sol_dref(ex.ok));
+            sol_set(s, sol_iabc_a(ins), ex.ok);
             DISPATCH();
         }
 
@@ -624,10 +746,9 @@ sol_call_ex sol_call_bc(sol_state *state, sol_fproto *proto, const sol_val *args
 ret: {}
     proto->dbg_res = 0;
     proto->dbg_ll = 0;
-    sol_popframe(state);
-    sol_dheader *dh = sol_header(return_val); (void)dh;
+    sol_popframe(s);
     if (proto->tt == SOL_FPROTO_BC && !sf_isempty(proto->file_name))
-        sf_str_free(sol_filenames_pop(&state->files));
+        sf_str_free(sol_filenames_pop(&s->files));
     return sol_call_ex_ok(return_val);
 }
 
