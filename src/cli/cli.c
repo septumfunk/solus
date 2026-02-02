@@ -1,0 +1,238 @@
+#include "sf/containers/buffer.h"
+#include "solus/bytecode.h"
+#include "solus/compiler.h"
+#include "solus/vm.h"
+#include "cli/cli.h"
+#include <sf/str.h>
+#include <sf/fs.h>
+#include <stdio.h>
+#include <string.h>
+
+#ifdef _WIN32
+//TODO: pdcurses
+#else
+#include <ncurses.h>
+#endif
+
+typedef enum {
+    CLI_RUN,
+    CLI_DBG,
+    CLI_TEST,
+} cli_mode;
+
+void cli_highlight_line(sf_str src, sf_str err, uint16_t line, uint16_t column) {
+    char *c = src.c_str, *cc = c;
+    uint16_t ln = 1;
+    while (true) {
+        if (*c == '\n')
+            ++ln;
+        if (ln == line + 1 || *c == '\0') {
+            cc = c;
+            *c = '\0';
+            while ((c == src.c_str || *(c-1) != '\n') && c != src.c_str)
+                --c;
+            break;
+        } else ++c;
+    }
+    fprintf(stderr, "%u | %s\n", line, c);
+    *cc = '\n';
+
+    char *pointer = malloc(column);
+    memset(pointer, '~', column);
+    pointer[sizeof(pointer) - 1] = '\0';
+    pointer[sizeof(pointer) - 2] = '^';
+
+    // TODO: Column fix
+    //if (err.c_str == solu_err_string(SOLU_ERRP_EXPECTED_SEMICOLON).c_str)
+        fprintf(stderr, TUI_ERR "%s\n" TUI_CLR, err.c_str);
+    //else fprintf(stderr, TUI_ERR "%s %s\n" TUI_CLR, pointer, err.c_str);
+    free(pointer);
+}
+
+sf_str cli_load_file(char *name) {
+    sf_str f = sf_lit(name);
+    if (!sf_file_exists(f)) {
+        fprintf(stderr, TUI_ERR "error: file '%s' not found.", name);
+        return SF_STR_EMPTY;
+    }
+    sf_fsb_ex fsb = sf_file_buffer(f);
+    if (!fsb.is_ok) {
+        switch (fsb.err) {
+            case SF_FILE_NOT_FOUND: fprintf(stderr, TUI_ERR "error: file '%s' not found" TUI_CLR, name); break;
+            case SF_OPEN_FAILURE: fprintf(stderr, TUI_ERR "error: file '%s' failed to open" TUI_CLR, name); break;
+            case SF_READ_FAILURE: fprintf(stderr, TUI_ERR "error: file '%s' failed to read" TUI_CLR, name); break;
+        }
+        return SF_STR_EMPTY;
+    }
+    fsb.ok.flags = SF_BUFFER_GROW;
+    sf_buffer_autoins(&fsb.ok, ""); // [\0]
+    return sf_own((char *)fsb.ok.ptr);
+}
+
+int cli_run(char *path, sf_str src) {
+    solu_state *s = solu_state_new();
+    solu_usestd(s);
+    solu_compile_ex comp_ex = solu_cfile(s, path);
+    if (!comp_ex.is_ok) {
+        fprintf(stderr, TUI_ERR "error: %s:%u:%u\n" TUI_CLR, path, comp_ex.err.line, comp_ex.err.column);
+        cli_highlight_line(src, solu_err_string(comp_ex.err.tt), comp_ex.err.line, comp_ex.err.column);
+        solu_state_free(s);
+        return -1;
+    }
+
+    solu_fproto *fun = &comp_ex.ok;
+    solu_call_ex call_ex = solu_call(s, fun, NULL, 0);
+    if (!call_ex.is_ok) {
+        uint16_t line = SOLU_DBG_LINE(fun->dbg[call_ex.err.pc]), col = SOLU_DBG_COL(fun->dbg[call_ex.err.pc]);
+        fprintf(stderr, TUI_ERR "error: %s:%u:%u\n" TUI_CLR, path, line, col);
+
+        if (call_ex.err.panic) {
+            sf_str full = sf_str_fmt("%s: %s", solu_err_string(call_ex.err.tt).c_str, call_ex.err.panic);
+            cli_highlight_line(src, full, line, col);
+            free(call_ex.err.panic);
+            sf_str_free(full);
+        } else
+            cli_highlight_line(src, solu_err_string(call_ex.err.tt), line, col);
+        return -1;
+    }
+
+    char *ret = solu_tostring(call_ex.ok);
+    printf(solu_isdtype(call_ex.ok, SOLU_DSTR) ? TUI_BLD "Returned: (%s) '%s'\n" : TUI_BLD "Returned: (%s) %s\n",
+        solu_typename(call_ex.ok).c_str, ret);
+
+    free(ret);
+    solu_fproto_free(fun);
+    solu_state_free(s);
+    return 0;
+}
+
+int cli_tf(char *path, sf_str src) {
+    printf(TUI_BLD TUI_UL "Test '%s'\n" TUI_CLR, path);
+    double start = solu_timesec();
+    int ret = cli_run(path, src);
+    printf( ret == 0 ? (TUI_BLD "Success: %fs\n" TUI_CLR) : (TUI_BLD "Failure: %fs\n" TUI_CLR), solu_timesec() - start);
+    return ret;
+}
+
+static int has_suffix_solu(const char *s) {
+    size_t n = strlen(s);
+    return (n >= 5 && memcmp(s + (n - 5), ".solu", 5) == 0) ||
+           (n >= 6 && memcmp(s + (n - 6), ".solus", 6) == 0);
+}
+#if defined(_WIN32) || defined(_WIN64)
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+int cli_test(char *dirpath) {
+    char pattern[MAX_PATH];
+    snprintf(pattern, sizeof(pattern), "%s\\*", dirpath);
+    WIN32_FIND_DATAA fd;
+    HANDLE h = FindFirstFileA(pattern, &fd);
+    if (h == INVALID_HANDLE_VALUE) {
+        fprintf(stderr, "FindFirstFileA failed for '%s'\n", pattern);
+        return 1;
+    }
+
+    int printed_any = 0;
+    do {
+        if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
+            continue;
+        if (!has_suffix_solu(fd.cFileName))
+            continue;
+        char full[MAX_PATH];
+        snprintf(full, sizeof(full), "%s\\%s", dirpath, fd.cFileName);
+        if (printed_any++) printf("\n");
+
+        sf_fsb_ex fsb = sf_file_buffer(sf_ref(full));
+        if (!fsb.is_ok) {
+            fprintf(stderr, TUI_ERR TUI_UL "Test %s failed to open!\n" TUI_CLR, full);
+            continue;
+        }
+        cli_tf(full, sf_ref((char *)fsb.ok.ptr));
+        sf_buffer_clear(&fsb.ok);
+
+    } while (FindNextFileA(h, &fd));
+
+    FindClose(h);
+    return 0;
+}
+#else
+#include <dirent.h>
+int cli_test(char *dirpath) {
+    DIR *dir = opendir(dirpath);
+    if (!dir) {
+        perror("opendir");
+        return 1;
+    }
+
+    struct dirent *ent;
+    int printed_any = 0;
+    while ((ent = readdir(dir)) != NULL) {
+        if (strcmp(ent->d_name, ".") == 0 || strcmp(ent->d_name, "..") == 0)
+            continue;
+        if (!has_suffix_solu(ent->d_name))
+            continue;
+
+        char full[1024];
+        snprintf(full, sizeof(full), "%s/%s", dirpath, ent->d_name);
+        if (printed_any++) printf("\n");
+
+        sf_fsb_ex fsb = sf_file_buffer(sf_ref(full));
+        if (!fsb.is_ok) {
+            fprintf(stderr, TUI_ERR TUI_UL "Test %s failed to open!\n" TUI_CLR, full);
+            continue;
+        }
+        cli_tf(full, sf_ref((char *)fsb.ok.ptr));
+        sf_buffer_clear(&fsb.ok);
+    }
+
+    closedir(dir);
+    return 0;
+}
+#endif
+
+int main(int argc, char **argv) {
+    if (argc == 1) {
+        printf("Usage: %s [run|dbg|test] <file>\n", argv[0]);
+        return 1;
+    }
+
+    cli_mode mode;
+    if (!strcmp(argv[1], "run")) {
+        if (argc == 2) {
+            printf("Usage: %s run <file>\n", argv[0]);
+            return 1;
+        }
+        mode = CLI_RUN;
+    } else if (!strcmp(argv[1], "dbg")) {
+        if (argc == 2) {
+            printf("Usage: %s dbg <file>\n", argv[0]);
+            return 1;
+        }
+        mode = CLI_DBG;
+    } else if (!strcmp(argv[1], "test")) {
+        if (argc == 2) {
+            printf("Usage: %s test <dir>\n", argv[0]);
+            return 1;
+        }
+        mode = CLI_TEST;
+    } else {
+        printf("Unknown option '%s'.\nUsage: %s [run|dbg|test] <file|dir>\n", argv[1], argv[0]);
+        return 1;
+    }
+
+    if (mode == CLI_TEST)
+        return cli_test(argv[2]);
+
+    sf_str src = cli_load_file(argv[2]);
+    if (sf_isempty(src))
+        return 1;
+
+    int ret = 0;
+    switch (mode) {
+        case CLI_RUN: ret = cli_run(argv[2], src); break;
+        case CLI_DBG: ret = solu_cli_cbg(argv[2], src); break;
+        default: ret = -1; break;
+    }
+    sf_str_free(src);
+    return ret;
+}

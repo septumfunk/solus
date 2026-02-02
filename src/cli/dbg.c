@@ -1,7 +1,7 @@
 #include "sf/math.h"
-#include "sol/bytecode.h"
-#include "sol/vm.h"
-#include "sol/cli.h"
+#include "solus/bytecode.h"
+#include "solus/vm.h"
+#include "cli/cli.h"
 #include <limits.h>
 #include <ctype.h>
 
@@ -20,27 +20,27 @@
 #define DBGOUT_MAX 8192
 
 typedef enum {
-    SOL_DBG_ASM,
-    SOL_DBG_STACK,
-    SOL_DBG_OUT,
-} sol_dbgpane;
+    SOLU_DBG_ASM,
+    SOLU_DBG_STACK,
+    SOLU_DBG_OUT,
+} solu_dbgpane;
 
 typedef struct {
     sf_str src;
-    sol_state *s;
-    sol_fproto proto;
+    solu_state *s;
+    solu_fproto proto;
     WINDOW *src_w, *asm_w, *cmd_w;
     char cmd[CMD_MAX];
     sf_str err;
     bool *bp, e, cap_cur, stack_frame;
     int line_o, cmd_len, cur, src_h, _break;
 
-    sol_dbgpane pane;
+    solu_dbgpane pane;
     sf_str dbgout; char *path;
-} sol_debugger;
-static sol_debugger dbg;
+} solu_debugger;
+static solu_debugger dbg;
 
-static void sol_writeout(sf_str s) {
+static void solu_writeout(sf_str s) {
     sf_str_append(&dbg.dbgout, s);
     if (dbg.dbgout.len > DBGOUT_MAX) {
         char *nstr = malloc(DBGOUT_MAX);
@@ -52,63 +52,63 @@ static void sol_writeout(sf_str s) {
 }
 
 /// Hijack!
-sol_call_ex sol_dbgprint(sol_state *s) {
-    sol_val to_print = sol_get(s, 0);
-    sf_str val = sol_tostring(to_print);
-    sol_writeout(val);
-    sf_str_free(val);
-    return sol_call_ex_ok(SOL_NIL);
+solu_call_ex solu_dbgprint(solu_state *s) {
+    solu_val to_print = solu_get(s, 0);
+    char *val = solu_tostring(to_print);
+    solu_writeout(sf_ref(val));
+    free(val);
+    return solu_call_ex_ok(SOLU_NIL);
 }
-sol_call_ex sol_dbgprintln(sol_state *s) {
-    sol_val to_print = sol_get(s, 0);
-    sf_str val = sol_tostring(to_print);
+solu_call_ex solu_dbgprintln(solu_state *s) {
+    solu_val to_print = solu_get(s, 0);
+    sf_str val = sf_own(solu_tostring(to_print));
     sf_str_append(&val, sf_lit("\n"));
-    sol_writeout(val);
+    solu_writeout(val);
     sf_str_free(val);
-    return sol_call_ex_ok(SOL_NIL);
+    return solu_call_ex_ok(SOLU_NIL);
 }
 
-static inline void sol_cmdc(void) {
+static inline void solu_cmdc(void) {
     dbg.e = false;
     memset(dbg.cmd, 0, CMD_MAX);
     dbg.cmd_len = 0;
 }
 
-static inline void sol_cmderr(sf_str s) {
+static inline void solu_cmderr(sf_str s) {
     memset(dbg.cmd, 0, CMD_MAX);
     memcpy(dbg.cmd, s.c_str, s.len);
     dbg.cmd_len = (int)s.len;
     dbg.e = true;
 }
 
-static void sol_drawstack(void);
-static int sol_rdcmd(void) {
+static void solu_drawstack(void);
+static int solu_rdcmd(void) {
     if (sf_str_eq(sf_ref(dbg.cmd), sf_lit("q")))
         return -1;
 
     if (sf_str_eq(sf_ref(dbg.cmd), sf_lit("stack"))) {
         if (!dbg._break) {
-            sol_cmderr(sf_lit("Must be running to show stack"));
+            solu_cmderr(sf_lit("Must be running to show stack"));
             return 0;
         }
-        dbg.pane = SOL_DBG_STACK;
-        sol_cmdc();
+        dbg.pane = SOLU_DBG_STACK;
+        solu_cmdc();
         return 0;
     }
     if (sf_str_eq(sf_ref(dbg.cmd), sf_lit("asm"))) {
-        dbg.pane = SOL_DBG_ASM;
-        sol_cmdc();
+        dbg.pane = SOLU_DBG_ASM;
+        solu_cmdc();
         return 0;
     }
     if (sf_str_eq(sf_ref(dbg.cmd), sf_lit("out"))) {
-        dbg.pane = SOL_DBG_OUT;
-        sol_cmdc();
+        dbg.pane = SOLU_DBG_OUT;
+        solu_cmdc();
         return 0;
     }
 
     if (sf_str_eq(sf_ref(dbg.cmd), sf_lit("b")) && dbg.bp) {
         dbg.bp[dbg.cur - 1] = !dbg.bp[dbg.cur - 1];
-        sol_cmdc();
+        solu_cmdc();
         return 0;
     }
 
@@ -118,9 +118,9 @@ static int sol_rdcmd(void) {
         dbg.proto.dbg_res = 0;
         dbg.proto.dbg_ll = 0;
         dbg._break = 0;
-        sol_popframe(dbg.s);
+        solu_popframe(dbg.s);
         if (!rs) {
-            sol_cmdc();
+            solu_cmdc();
             return 0;
         }
     }
@@ -132,89 +132,89 @@ static int sol_rdcmd(void) {
             memset(dbg.bp, 1, dbg.proto.line_c * sizeof(bool));
         }
 
-        sol_call_ex e = sol_dcall(dbg.s, &dbg.proto, NULL, 0, dbg.bp);
+        solu_call_ex e = solu_dcall(dbg.s, &dbg.proto, NULL, 0, dbg.bp);
         if (e.is_ok) {
-            sf_str ret = sol_tostring(e.ok);
-            sf_str p = sf_str_fmt(sol_isdtype(e.ok, SOL_DSTR) ?
+            sf_str ret = sf_own(solu_tostring(e.ok));
+            sf_str p = sf_str_fmt(solu_isdtype(e.ok, SOLU_DSTR) ?
                 "return: %s | '%s'\n" : "return: %s | %s\n",
-                sol_typename(e.ok).c_str, ret.c_str
+                solu_typename(e.ok).c_str, ret.c_str
             );
             dbg._break = 0;
-            dbg.pane = SOL_DBG_OUT;
-            sol_writeout(p);
+            dbg.pane = SOLU_DBG_OUT;
+            solu_writeout(p);
             sf_str_free(p);
-        } else if (e.err.tt == SOL_ERRV_BREAK) {
-            dbg.cur = SOL_DBG_LINE(dbg.proto.dbg[e.err.pc]);
+        } else if (e.err.tt == SOLU_ERRV_BREAK) {
+            dbg.cur = SOLU_DBG_LINE(dbg.proto.dbg[e.err.pc]);
             dbg.line_o = dbg.cur;
             dbg._break = dbg.cur;
-            dbg.pane = SOL_DBG_STACK;
-            sol_cmderr(sf_lit("BREAK"));
+            dbg.pane = SOLU_DBG_STACK;
+            solu_cmderr(sf_lit("BREAK"));
         } else {
-            uint16_t line = SOL_DBG_LINE(dbg.proto.dbg[e.err.pc]), column = SOL_DBG_COL(dbg.proto.dbg[e.err.pc]);
-            sf_str p = sf_str_fmt(e.err.tt == SOL_ERRV_PANIC ? "panic: %s:%u:%u %s\n" : "error: %s:%u:%u %s\n", dbg.path, line, column,
-                (e.err.panic.len > 0 ? e.err.panic : sol_err_string(e.err.tt)).c_str
+            uint16_t line = SOLU_DBG_LINE(dbg.proto.dbg[e.err.pc]), column = SOLU_DBG_COL(dbg.proto.dbg[e.err.pc]);
+            sf_str p = sf_str_fmt(e.err.tt == SOLU_ERRV_PANIC ? "panic: %s:%u:%u %s\n" : "error: %s:%u:%u %s\n", dbg.path, line, column,
+                e.err.panic ? e.err.panic : solu_err_string(e.err.tt).c_str
             );
-            sol_writeout(p);
-            dbg.pane = SOL_DBG_OUT;
+            solu_writeout(p);
+            dbg.pane = SOLU_DBG_OUT;
             sf_str_free(p);
         }
         if (n) {
             free(dbg.bp);
             dbg.bp = o;
         }
-        sol_cmdc();
+        solu_cmdc();
         return 0;
     }
     if (sf_str_eq(sf_ref(dbg.cmd), sf_lit("cm"))) {
         dbg.cap_cur = !dbg.cap_cur;
-        sol_cmderr(sf_ref(dbg.cap_cur ? "Cursor cap ON" : "Cursor cap OFF"));
+        solu_cmderr(sf_ref(dbg.cap_cur ? "Cursor cap ON" : "Cursor cap OFF"));
         return 0;
     }
     if (sf_str_eq(sf_ref(dbg.cmd), sf_lit("sm"))) {
         dbg.stack_frame = !dbg.stack_frame;
-        sol_cmderr(sf_ref(dbg.cap_cur ? "Stack frame ON" : "Stack frame OFF"));
+        solu_cmderr(sf_ref(dbg.cap_cur ? "Stack frame ON" : "Stack frame OFF"));
         return 0;
     }
 
     if (dbg.cmd[0] == '$') {
         if (dbg.cmd_len == 1) {
-            sol_cmderr(sf_lit("usage: $<code>"));
+            solu_cmderr(sf_lit("usage: $<code>"));
             return 0;
         }
-        sol_writeout(sf_ref(dbg.cmd));
-        sol_writeout(sf_lit("\n"));
+        solu_writeout(sf_ref(dbg.cmd));
+        solu_writeout(sf_lit("\n"));
 
-        dbg.pane = SOL_DBG_OUT;
-        sol_compile_ex comp_ex = sol_csrc(dbg.s, sf_ref(dbg.cmd + 1));
+        dbg.pane = SOLU_DBG_OUT;
+        solu_compile_ex comp_ex = solu_csrc(dbg.s, dbg.cmd + 1);
         if (!comp_ex.is_ok) {
-            sf_str e = sf_str_fmt("error: %s\n", sol_err_string(comp_ex.err.tt).c_str);
-            sol_cmderr(e);
+            sf_str e = sf_str_fmt("error: %s\n", solu_err_string(comp_ex.err.tt).c_str);
+            solu_cmderr(e);
             sf_str_free(e);
             return 0;
         }
-        sol_call_ex call_ex = sol_call(dbg.s, &comp_ex.ok, NULL, 0);
+        solu_call_ex call_ex = solu_call(dbg.s, &comp_ex.ok, NULL, 0);
         if (!call_ex.is_ok) {
-            sf_str e = sf_str_fmt(call_ex.err.tt == SOL_ERRV_PANIC ? "panic: %s\n" : "error: %s\n",
-                (call_ex.err.tt == SOL_ERRV_PANIC ? call_ex.err.panic : sol_err_string(call_ex.err.tt)).c_str
+            sf_str e = sf_str_fmt(call_ex.err.tt == SOLU_ERRV_PANIC ? "panic: %s\n" : "error: %s\n",
+                call_ex.err.tt == SOLU_ERRV_PANIC ? call_ex.err.panic : solu_err_string(call_ex.err.tt).c_str
             );
-            sol_cmderr(e);
+            solu_cmderr(e);
             sf_str_free(e);
         } else {
-            sf_str ret = sol_tostring(call_ex.ok);
-            sf_str p = sf_str_fmt(sol_isdtype(call_ex.ok, SOL_DSTR) ?
+            sf_str ret = sf_own(solu_tostring(call_ex.ok));
+            sf_str p = sf_str_fmt(solu_isdtype(call_ex.ok, SOLU_DSTR) ?
                 "return: %s | '%s'\n" : "return: %s | %s\n",
-                sol_typename(call_ex.ok).c_str, ret.c_str
+                solu_typename(call_ex.ok).c_str, ret.c_str
             );
-            sol_cmderr(p);
+            solu_cmderr(p);
             sf_str_free(p);
         }
-        sol_fproto_free(&comp_ex.ok);
-        sol_cmdc();
+        solu_fproto_free(&comp_ex.ok);
+        solu_cmdc();
         return 0;
     }
 
     sf_str f = sf_str_fmt("Unknown Command: %s", dbg.cmd);
-    sol_cmderr(f);
+    solu_cmderr(f);
     sf_str_free(f);
     return 0;
 }
@@ -222,7 +222,7 @@ static int sol_rdcmd(void) {
 #define fmt  (dbg.cur == dbg.proto.line_c ?  : "o%4u  %.*s\n") : \
                                             ( ? " %4u > %.*s\n" : " %4u | %.*s\n")
 
-static void sol_drawsrc(void) {
+static void solu_drawsrc(void) {
     werase(dbg.src_w);
     wmove(dbg.src_w, 1, 0);
     uint16_t line = 1;
@@ -259,10 +259,10 @@ static void sol_drawsrc(void) {
     wrefresh(dbg.src_w);
 }
 
-static void sol_drawasm(void) {
+static void solu_drawasm(void) {
     werase(dbg.asm_w);
 
-    sol_dbg *db = dbg.proto.dbg,
+    solu_dbg *db = dbg.proto.dbg,
             *end = dbg.proto.dbg + dbg.proto.code_c;
     if (!db) {
         mvwprintw(dbg.asm_w, 1, 1, "Assembly unavailable.");
@@ -272,25 +272,25 @@ static void sol_drawasm(void) {
         return;
     }
 
-    sol_dbg *cur_db = db;  // start with first entry
-    for (sol_dbg *it = db; it < end; ++it) {
-        int line = (int)SOL_DBG_LINE(*it);
+    solu_dbg *cur_db = db;  // start with first entry
+    for (solu_dbg *it = db; it < end; ++it) {
+        int line = (int)SOLU_DBG_LINE(*it);
         if (line <= dbg.cur) {
-            if ((int)SOL_DBG_LINE(*cur_db) < line)
+            if ((int)SOLU_DBG_LINE(*cur_db) < line)
                 cur_db = it;
         } else
             break;
     }
 
     int y = 1;
-    for (sol_dbg *it = cur_db; it < end && ((int)SOL_DBG_LINE(*it) <= dbg.cur || !dbg.cap_cur); ++it, ++y) {
-        sol_instruction ins = dbg.proto.code[it - dbg.proto.dbg];
-        const char *op = sol_op_info(sol_ins_op(ins))->mnemonic;
-        uint16_t line = SOL_DBG_LINE(*it), column = SOL_DBG_COL(*it);
-        switch (sol_op_info(sol_ins_op(ins))->type) {
-            case SOL_INS_A: mvwprintw(dbg.asm_w, y, 1, "%4u:%-3u %-7s %-8d", line, column, op, sol_ia_a(ins)); break;
-            case SOL_INS_AB: mvwprintw(dbg.asm_w, y, 1, "%4u:%-3u %-7s %-4u %-4u", line, column, op, sol_iab_a(ins), sol_iab_b(ins)); break;
-            case SOL_INS_ABC: mvwprintw(dbg.asm_w, y, 1, "%4u:%-3u %-7s %-4u %-4u %-4u", line, column, op, sol_iabc_a(ins), sol_iabc_b(ins), sol_iabc_c(ins)); break;
+    for (solu_dbg *it = cur_db; it < end && ((int)SOLU_DBG_LINE(*it) <= dbg.cur || !dbg.cap_cur); ++it, ++y) {
+        solu_instruction ins = dbg.proto.code[it - dbg.proto.dbg];
+        const char *op = solu_op_info(solu_ins_op(ins))->mnemonic;
+        uint16_t line = SOLU_DBG_LINE(*it), column = SOLU_DBG_COL(*it);
+        switch (solu_op_info(solu_ins_op(ins))->type) {
+            case SOLU_INS_A: mvwprintw(dbg.asm_w, y, 1, "%4u:%-3u %-7s %-8d", line, column, op, solu_ia_a(ins)); break;
+            case SOLU_INS_AB: mvwprintw(dbg.asm_w, y, 1, "%4u:%-3u %-7s %-4u %-4u", line, column, op, solu_iab_a(ins), solu_iab_b(ins)); break;
+            case SOLU_INS_ABC: mvwprintw(dbg.asm_w, y, 1, "%4u:%-3u %-7s %-4u %-4u %-4u", line, column, op, solu_iabc_a(ins), solu_iabc_bx(ins), solu_iabc_cx(ins)); break;
         }
     }
 
@@ -299,15 +299,15 @@ static void sol_drawasm(void) {
     wrefresh(dbg.asm_w);
 }
 
-static void sol_drawstack(void) {
+static void solu_drawstack(void) {
     werase(dbg.asm_w);
 
     uint32_t s_reg = dbg.stack_frame ? (dbg.s->frames.data + dbg.s->frames.count - 1)->bottom_o : 0;
     int y = 1;
     for (uint32_t r = s_reg; r < dbg.s->stack.count; ++r) {
-        sol_val v = sol_valvec_get(&dbg.s->stack, r);
-        sf_str type = sol_typename(v);
-        sf_str val = sol_tostring(v);
+        solu_val v = solu_valvec_get(&dbg.s->stack, r);
+        sf_str type = solu_typename(v);
+        sf_str val = sf_own(solu_tostring(v));
         mvwprintw(dbg.asm_w, y, 1, "  [%03u]: %-4s | %s", r, type.c_str, val.c_str);
         sf_str_free(val);
         ++y;
@@ -318,7 +318,7 @@ static void sol_drawstack(void) {
     wrefresh(dbg.asm_w);
 }
 
-static void sol_drawout(void) {
+static void solu_drawout(void) {
     werase(dbg.asm_w);
     if (!sf_isempty(dbg.dbgout)) {
         char *nc = dbg.dbgout.c_str + dbg.dbgout.len - 1;
@@ -341,7 +341,7 @@ static void sol_drawout(void) {
     wrefresh(dbg.asm_w);
 }
 
-static void sol_drawcmd(void) {
+static void solu_drawcmd(void) {
     nodelay(dbg.cmd_w, FALSE);
     keypad(dbg.cmd_w, true);
 
@@ -374,11 +374,11 @@ static void sol_drawcmd(void) {
         werase(dbg.cmd_w);
         box(dbg.cmd_w, 0, 0);
 
-        sol_drawsrc();
+        solu_drawsrc();
         switch (dbg.pane) {
-            case SOL_DBG_ASM:   sol_drawasm(); break;
-            case SOL_DBG_STACK: sol_drawstack(); break;
-            case SOL_DBG_OUT:   sol_drawout(); break;
+            case SOLU_DBG_ASM:   solu_drawasm(); break;
+            case SOLU_DBG_STACK: solu_drawstack(); break;
+            case SOLU_DBG_OUT:   solu_drawout(); break;
         }
 
         mvwprintw(dbg.cmd_w, 0, 2, "cmd");
@@ -388,13 +388,13 @@ static void sol_drawcmd(void) {
 
         ch = wgetch(dbg.cmd_w);
         if (dbg.e)
-            sol_cmdc();
+            solu_cmdc();
 
         if (ch == '\n') {
             if (dbg.cmd_len == 0)
                 continue;
             dbg.cmd[dbg.cmd_len] = '\0';
-            if (sol_rdcmd() == -1)
+            if (solu_rdcmd() == -1)
                 break;
         } else if (ch == KEY_BACKSPACE || ch == 127) {
             if (dbg.cmd_len > 0) dbg.cmd_len--;
@@ -412,25 +412,25 @@ static void sol_drawcmd(void) {
     }
 }
 
-int sol_cli_cbg(char *path, sf_str src) {
+int solu_cli_cbg(char *path, sf_str src) {
 #ifndef _WIN32
     (void)path;
 
     // Compile
-    sol_state *s = sol_state_new();
-    sol_usestd(s);
+    solu_state *s = solu_state_new();
+    solu_usestd(s);
 
-    sol_dobj_ex io = sol_dobj_get(s->global.dyn, sf_lit("io"));
+    solu_dobj_ex io = solu_dobj_get(s->global.dyn, sf_lit("io"));
     if (!io.is_ok)
         return -1;
-    sol_dobj_set(io.ok.dyn, sf_lit("print"), sol_wrapcfun(s, sol_dbgprint, 1, 0));
-    sol_dobj_set(io.ok.dyn, sf_lit("println"), sol_wrapcfun(s, sol_dbgprintln, 1, 0));
+    solu_dobj_set(io.ok.dyn, sf_lit("print"), solu_wrapcfun(s, solu_dbgprint, 1, 0));
+    solu_dobj_set(io.ok.dyn, sf_lit("println"), solu_wrapcfun(s, solu_dbgprintln, 1, 0));
 
-    sol_compile_ex comp_ex = sol_cfile(s, sf_ref(path));
+    solu_compile_ex comp_ex = solu_cfile(s, path);
     if (!comp_ex.is_ok) {
         fprintf(stderr, TUI_ERR "error: %s:%u:%u\n" TUI_CLR, path, comp_ex.err.line, comp_ex.err.column);
-        cli_highlight_line(src, sol_err_string(comp_ex.err.tt), comp_ex.err.line, comp_ex.err.column);
-        sol_state_free(s);
+        cli_highlight_line(src, solu_err_string(comp_ex.err.tt), comp_ex.err.line, comp_ex.err.column);
+        solu_state_free(s);
         return -1;
     }
 
@@ -442,7 +442,7 @@ int sol_cli_cbg(char *path, sf_str src) {
     int line, col, w;
     getmaxyx(stdscr, line, col);
     w = col / 2;
-    dbg = (sol_debugger){
+    dbg = (solu_debugger){
         .src = src, .proto = comp_ex.ok,
         .s = s,
         .err = SF_STR_EMPTY,
@@ -458,14 +458,14 @@ int sol_cli_cbg(char *path, sf_str src) {
     };
     if (!dbg.src_w || !dbg.asm_w || !dbg.cmd_w) return -1;
 
-    sol_drawcmd();
+    solu_drawcmd();
 
     delwin(dbg.src_w);
     delwin(dbg.asm_w);
     delwin(dbg.cmd_w);
     free(dbg.bp);
-    sol_fproto_free(&dbg.proto);
-    sol_state_free(s);
+    solu_fproto_free(&dbg.proto);
+    solu_state_free(s);
     endwin();
     if (!sf_isempty(dbg.err)) {
         fprintf(stderr, "%s\n", dbg.err.c_str);

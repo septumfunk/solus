@@ -1,9 +1,9 @@
-let cat = unwrap(import("class.sol"));
+let cat = unwrap(import("class.solu"));
 let meow = unwrap_or(cat.meow, "meeeow!"); // Non existent member
 io.println(meow);
 
 let mod = attempt(
-    []() { return import("doesnt-exist.sol"); },
+    []() { return import("doesnt-exist.solu"); },
     [](err) { io.println(err); return {}; }
 );
 

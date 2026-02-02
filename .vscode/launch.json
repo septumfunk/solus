@@ -5,7 +5,7 @@
       "name": "Debug CLI",
       "request": "launch",
       "program": "${workspaceRoot}/build/solus",
-      "args": ["${input:cliMode}", "sol.tests/${input:scriptName}.sol"],
+      "args": ["${input:cliMode}", "solus.tests/${input:scriptName}.solu"],
       "cwd": "${workspaceRoot}",
 
       // Defaults (Linux/macOS)
@@ -18,36 +18,34 @@
       // Windows overrides
       "windows": {
         "type": "cppvsdbg",
-        "program": "${workspaceRoot}/build/tests/${input:testName}.exe",
+        "program": "${workspaceRoot}/build/solus.exe",
+        "args": ["${input:cliMode}", "solus.tests/${input:scriptName}.solu"],
       }
     },
-
     {
-      "name": "Sanitize Test",
+      "name": "Run Tests",
       "request": "launch",
-      "program": "${workspaceRoot}/build/sanitized/tests/${input:testName}",
-      "args": [],
+      "program": "${workspaceRoot}/build/solus",
+      "args": ["test", "solus.tests"],
       "cwd": "${workspaceRoot}",
 
-      // Defaults for Linux/macOS
+      // Defaults (Linux/macOS)
       "type": "lldb",
+      "env": {
+        "ASAN_OPTIONS": "detect_leaks=0:disable_coredump=0",
+        "LSAN_OPTIONS": "detect_leaks=0"
+      },
 
-      // Windows: sanitized builds usually not supported
+      // Windows overrides
       "windows": {
         "type": "cppvsdbg",
-        "program": "${workspaceRoot}/build/sanitized/tests/${input:testName}.exe"
+        "program": "${workspaceRoot}/build/solus.exe",
+        "args": ["test", "solus.tests"],
       }
-    },
+    }
   ],
 
   "inputs": [
-    {
-      "id": "testName",
-      "type": "promptString",
-      "description": "Test Name",
-      "default": "default"
-    },
-
     {
       "id": "cliMode",
       "type": "promptString",
