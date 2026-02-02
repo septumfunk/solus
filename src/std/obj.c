@@ -1,6 +1,5 @@
 #include "solus/bytecode.h"
 #include "std.h"
-#include <_stdio.h>
 #include <setjmp.h>
 
 static solu_call_ex obj_new(solu_state *s) {

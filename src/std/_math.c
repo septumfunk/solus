@@ -1,4 +1,5 @@
 #include "std.h"
+#include <time.h>
 
 static solu_call_ex math_mini(solu_state *s) {
     solu_val a = solu_get(s, 0);

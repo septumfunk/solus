@@ -8,6 +8,10 @@
 #include <stdlib.h>
 #include <string.h>
 
+#ifndef _WIN32
+#define _strdup strdup
+#endif
+
 /// Bytecode version
 #define SOLU_VERSION "0.6"
 /// Git repository, hosted on GitHub for now
