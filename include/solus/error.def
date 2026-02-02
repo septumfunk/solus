@@ -1,0 +1,46 @@
+X(V, CORRUPT, "Corrupt bytecode") \
+X(V, BREAK, "Breakpoint") \
+X(V, OOB_ACCESS, "OOB Access") \
+X(V, TYPE_MISMATCH, "Type Mismatch") \
+X(V, MEMBER_NOT_FOUND, "Member Not Found") \
+X(V, PANIC, "Runtime Panic") \
+\
+X(P, UNEXPECTED_TOKEN, "Unexpected token") \
+X(P, UNTERMINATED_STR, "Unterminated string") \
+X(P, NUMBER_FORMAT, "Ill-formatted number") \
+X(P, NO_TOKENS, "Parser expected to recieve tokens from scanner") \
+X(P, EXPECTED_EXPRESSION, "Expected expression") \
+X(P, EXPECTED_IDENTIFIER, "Expected identifier") \
+X(P, EXPECTED_LPAREN, "Expected '('") \
+X(P, EXPECTED_RPAREN, "Expected ')'") \
+X(P, EXPECTED_RBRACE, "Expected ']'") \
+X(P, EXPECTED_EQUAL, "Expected '='") \
+X(P, EXPECTED_COLON, "Expected ':'") \
+X(P, EXPECTED_SEMICOLON, "Expected ';'") \
+X(P, UNEXPECTED_SEMICOLON, "Unexpected ';'") \
+X(P, UNEXPECTED_SEMICOLON_OBJ, "Unexpected ';', did you mean (optionally) ','?") \
+X(P, EXPECTED_CONDITION, "Expected condition") \
+X(P, EXPECTED_BLOCK, "Expected block") \
+X(P, EXPECTED_ELSE, "Expected else or ';'") \
+X(P, EXPECTED_STMT, "Expected statement") \
+X(P, EXPECTED_ARGS, "Expected argument list") \
+X(P, EXPECTED_ASM, "Expected assembly") \
+X(P, EXPECTED_INTEGER, "Expected i64") \
+X(P, UNEXPECTED_ASM, "Unexpected assembly") \
+X(P, UNREACHABLE_CODE, "Early return causes unreachable code") \
+X(P, UNEXPECTED_IMPL_RETURN, "Unexpected implicit return causes unreachable code. Missing ';'?") \
+X(P, UNTERMINATED_ARGS, "Unterminated argument list") \
+X(P, UNTERMINATED_CAPTURES, "Unterminated capture list") \
+\
+X(C, FILE_NOT_FOUND, "File not found") \
+X(C, FILE_UNREADABLE, "File unreadable") \
+X(C, NONE, "You shouldn't be seeing this...") \
+X(C, EXPECTED_BLOCK, "Expected block") \
+X(C, EXPECTED_FUN, "Expected function") \
+X(C, EXPECTED_EXPRESSION, "Expected expression") \
+X(C, UNKNOWN_LOCAL, "Unknown local variable") \
+X(C, REDEFINED_LOCAL, "Redefined local variable") \
+X(C, UNKNOWN_OPERATION, "Unknown operation") \
+X(C, UNUSED_EVALUATION, "Unused (discarded) evaluation") \
+X(C, INVALID_ASSIGN, "Malformed assignment") \
+X(C, UNKNOWN, "Unimplemented")
