@@ -1,31 +1,31 @@
 #include "std.h"
 
-static sol_call_ex io_print(sol_state *s) {
-    sol_val to_print = sol_get(s, 0);
-    char *val = sol_tostring(to_print);
+static solu_call_ex io_print(solu_state *s) {
+    solu_val to_print = solu_get(s, 0);
+    char *val = solu_tostring(to_print);
     printf("%s", val);
     free(val);
-    return sol_call_ex_ok(SOL_NIL);
+    return solu_call_ex_ok(SOLU_NIL);
 }
-static sol_call_ex io_println(sol_state *s) {
-    sol_val to_print = sol_get(s, 0);
-    char *val = sol_tostring(to_print);
+static solu_call_ex io_println(solu_state *s) {
+    solu_val to_print = solu_get(s, 0);
+    char *val = solu_tostring(to_print);
     printf("%s\n", val);
     free(val);
-    return sol_call_ex_ok(SOL_NIL);
+    return solu_call_ex_ok(SOLU_NIL);
 }
-static sol_call_ex io_time(sol_state *s) {
+static solu_call_ex io_time(solu_state *s) {
     (void)s;
-    return sol_call_ex_ok((sol_val){.tt = SOL_TF64, .f64 = sol_timesec()});
+    return solu_call_ex_ok((solu_val){.tt = SOLU_TF64, .f64 = solu_timesec()});
 }
-static sol_call_ex io_fread(sol_state *s) {
-    sol_val path = sol_get(s, 0);
-    expect_dtype(SOL_DSTR, path);
+static solu_call_ex io_fread(solu_state *s) {
+    solu_val path = solu_get(s, 0);
+    expect_dtype(SOLU_DSTR, path);
 
     sf_str p = sf_ref(path.dyn);
     if (!sf_file_exists(p)) {
         sf_str e = sf_str_fmt("File '%s' not found", p.c_str);
-        sol_call_ex ex = sol_call_ex_ok(sol_dnerr(s, e.c_str));
+        solu_call_ex ex = solu_call_ex_ok(solu_dnerr(s, e.c_str));
         sf_str_free(e);
         return ex;
     }
@@ -37,20 +37,20 @@ static sol_call_ex io_fread(sol_state *s) {
             case SF_OPEN_FAILURE: errs = sf_str_fmt("File '%s' failed to open", p.c_str); break;
             case SF_READ_FAILURE: errs = sf_str_fmt("File '%s' failed to read", p.c_str); break;
         }
-        sol_call_ex ex = sol_call_ex_ok(sol_dnerr(s, errs.c_str));
+        solu_call_ex ex = solu_call_ex_ok(solu_dnerr(s, errs.c_str));
         sf_str_free(errs);
         return ex;
     }
     fsb.ok.flags = SF_BUFFER_GROW;
     sf_buffer_autoins(&fsb.ok, ""); // [\0]
 
-    return sol_call_ex_ok(sol_dnstr(s, (char *)fsb.ok.ptr));
+    return solu_call_ex_ok(solu_dnstr(s, (char *)fsb.ok.ptr));
 }
-static sol_call_ex io_fwrite(sol_state *s) {
-    sol_val path = sol_get(s, 0);
-    expect_dtype(SOL_DSTR, path);
-    sol_val content = sol_get(s, 1);
-    expect_dtype(SOL_DSTR, content);
+static solu_call_ex io_fwrite(solu_state *s) {
+    solu_val path = solu_get(s, 0);
+    expect_dtype(SOLU_DSTR, path);
+    solu_val content = solu_get(s, 1);
+    expect_dtype(SOLU_DSTR, content);
 
     sf_str p = sf_ref(path.dyn);
     sf_str cont = sf_ref(content.dyn);
@@ -58,22 +58,22 @@ static sol_call_ex io_fwrite(sol_state *s) {
     FILE *f = fopen(p.c_str, "w");
     if (!f) {
         sf_str e = sf_str_fmt("File '%s' failed to open", p.c_str);
-        sol_call_ex ex = sol_call_ex_ok(sol_dnerr(s, e.c_str));
+        solu_call_ex ex = solu_call_ex_ok(solu_dnerr(s, e.c_str));
         sf_str_free(e);
         return ex;
     }
     fwrite(cont.c_str, 1, cont.len, f);
     fclose(f);
 
-    return sol_call_ex_ok(SOL_NIL);
+    return solu_call_ex_ok(SOLU_NIL);
 }
 
-void sol_mod_io(sol_state *s) {
-    sol_val io = sol_dnew(s, SOL_DOBJ);
-    sol_dobj_set(io.dyn, sf_lit("print"), sol_wrapcfun(s, io_print, 1, 0));
-    sol_dobj_set(io.dyn, sf_lit("println"), sol_wrapcfun(s, io_println, 1, 0));
-    sol_dobj_set(io.dyn, sf_lit("time"), sol_wrapcfun(s, io_time, 0, 0));
-    sol_dobj_set(io.dyn, sf_lit("fread"), sol_wrapcfun(s, io_fread, 1, 0));
-    sol_dobj_set(io.dyn, sf_lit("fwrite"), sol_wrapcfun(s, io_fwrite, 2, 0));
-    sol_dobj_set(s->global.dyn, sf_lit("io"), io);
+void solu_mod_io(solu_state *s) {
+    solu_val io = solu_dnew(s, SOLU_DOBJ);
+    solu_dobj_set(io.dyn, sf_lit("print"), solu_wrapcfun(s, io_print, 1, 0));
+    solu_dobj_set(io.dyn, sf_lit("println"), solu_wrapcfun(s, io_println, 1, 0));
+    solu_dobj_set(io.dyn, sf_lit("time"), solu_wrapcfun(s, io_time, 0, 0));
+    solu_dobj_set(io.dyn, sf_lit("fread"), solu_wrapcfun(s, io_fread, 1, 0));
+    solu_dobj_set(io.dyn, sf_lit("fwrite"), solu_wrapcfun(s, io_fwrite, 2, 0));
+    solu_dobj_set(s->global.dyn, sf_lit("io"), io);
 }

@@ -5,7 +5,7 @@
       "name": "Debug CLI",
       "request": "launch",
       "program": "${workspaceRoot}/build/solus",
-      "args": ["${input:cliMode}", "sol.tests/${input:scriptName}.sol"],
+      "args": ["${input:cliMode}", "solus.tests/${input:scriptName}.solu"],
       "cwd": "${workspaceRoot}",
 
       // Defaults (Linux/macOS)
@@ -19,14 +19,14 @@
       "windows": {
         "type": "cppvsdbg",
         "program": "${workspaceRoot}/build/solus.exe",
-        "args": ["${input:cliMode}", "sol.tests/${input:scriptName}.sol"],
+        "args": ["${input:cliMode}", "solus.tests/${input:scriptName}.solu"],
       }
     },
     {
       "name": "Run Tests",
       "request": "launch",
       "program": "${workspaceRoot}/build/solus",
-      "args": ["test", "sol.tests"],
+      "args": ["test", "solus.tests"],
       "cwd": "${workspaceRoot}",
 
       // Defaults (Linux/macOS)
@@ -40,7 +40,7 @@
       "windows": {
         "type": "cppvsdbg",
         "program": "${workspaceRoot}/build/solus.exe",
-        "args": ["test", "sol.tests"],
+        "args": ["test", "solus.tests"],
       }
     }
   ],

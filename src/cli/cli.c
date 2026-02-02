@@ -1,7 +1,7 @@
 #include "sf/containers/buffer.h"
-#include "sol/bytecode.h"
-#include "sol/solc.h"
-#include "sol/vm.h"
+#include "solus/bytecode.h"
+#include "solus/compiler.h"
+#include "solus/vm.h"
 #include "cli/cli.h"
 #include <sf/str.h>
 #include <sf/fs.h>
@@ -43,7 +43,7 @@ void cli_highlight_line(sf_str src, sf_str err, uint16_t line, uint16_t column) 
     pointer[sizeof(pointer) - 2] = '^';
 
     // TODO: Column fix
-    //if (err.c_str == sol_err_string(SOL_ERRP_EXPECTED_SEMICOLON).c_str)
+    //if (err.c_str == solu_err_string(SOLU_ERRP_EXPECTED_SEMICOLON).c_str)
         fprintf(stderr, TUI_ERR "%s\n" TUI_CLR, err.c_str);
     //else fprintf(stderr, TUI_ERR "%s %s\n" TUI_CLR, pointer, err.c_str);
     free(pointer);
@@ -70,53 +70,54 @@ sf_str cli_load_file(char *name) {
 }
 
 int cli_run(char *path, sf_str src) {
-    sol_state *s = sol_state_new();
-    sol_usestd(s);
-    sol_compile_ex comp_ex = sol_cfile(s, path);
+    solu_state *s = solu_state_new();
+    solu_usestd(s);
+    solu_compile_ex comp_ex = solu_cfile(s, path);
     if (!comp_ex.is_ok) {
         fprintf(stderr, TUI_ERR "error: %s:%u:%u\n" TUI_CLR, path, comp_ex.err.line, comp_ex.err.column);
-        cli_highlight_line(src, sol_err_string(comp_ex.err.tt), comp_ex.err.line, comp_ex.err.column);
-        sol_state_free(s);
+        cli_highlight_line(src, solu_err_string(comp_ex.err.tt), comp_ex.err.line, comp_ex.err.column);
+        solu_state_free(s);
         return -1;
     }
 
-    sol_fproto *fun = &comp_ex.ok;
-    sol_call_ex call_ex = sol_call(s, fun, NULL, 0);
+    solu_fproto *fun = &comp_ex.ok;
+    solu_call_ex call_ex = solu_call(s, fun, NULL, 0);
     if (!call_ex.is_ok) {
-        uint16_t line = SOL_DBG_LINE(fun->dbg[call_ex.err.pc]), col = SOL_DBG_COL(fun->dbg[call_ex.err.pc]);
+        uint16_t line = SOLU_DBG_LINE(fun->dbg[call_ex.err.pc]), col = SOLU_DBG_COL(fun->dbg[call_ex.err.pc]);
         fprintf(stderr, TUI_ERR "error: %s:%u:%u\n" TUI_CLR, path, line, col);
 
         if (call_ex.err.panic) {
-            sf_str full = sf_str_fmt("%s: %s", sol_err_string(call_ex.err.tt).c_str, call_ex.err.panic);
+            sf_str full = sf_str_fmt("%s: %s", solu_err_string(call_ex.err.tt).c_str, call_ex.err.panic);
             cli_highlight_line(src, full, line, col);
             free(call_ex.err.panic);
             sf_str_free(full);
         } else
-            cli_highlight_line(src, sol_err_string(call_ex.err.tt), line, col);
+            cli_highlight_line(src, solu_err_string(call_ex.err.tt), line, col);
         return -1;
     }
 
-    char *ret = sol_tostring(call_ex.ok);
-    printf(sol_isdtype(call_ex.ok, SOL_DSTR) ? TUI_BLD "Returned: (%s) '%s'\n" : TUI_BLD "Returned: (%s) %s\n",
-        sol_typename(call_ex.ok).c_str, ret);
+    char *ret = solu_tostring(call_ex.ok);
+    printf(solu_isdtype(call_ex.ok, SOLU_DSTR) ? TUI_BLD "Returned: (%s) '%s'\n" : TUI_BLD "Returned: (%s) %s\n",
+        solu_typename(call_ex.ok).c_str, ret);
 
     free(ret);
-    sol_fproto_free(fun);
-    sol_state_free(s);
+    solu_fproto_free(fun);
+    solu_state_free(s);
     return 0;
 }
 
 int cli_tf(char *path, sf_str src) {
     printf(TUI_BLD TUI_UL "Test '%s'\n" TUI_CLR, path);
-    double start = sol_timesec();
+    double start = solu_timesec();
     int ret = cli_run(path, src);
-    printf( ret == 0 ? (TUI_BLD "Success: %fs\n" TUI_CLR) : (TUI_BLD "Failure: %fs\n" TUI_CLR), sol_timesec() - start);
+    printf( ret == 0 ? (TUI_BLD "Success: %fs\n" TUI_CLR) : (TUI_BLD "Failure: %fs\n" TUI_CLR), solu_timesec() - start);
     return ret;
 }
 
-static int has_suffix_sol(const char *s) {
+static int has_suffix_solu(const char *s) {
     size_t n = strlen(s);
-    return n >= 4 && memcmp(s + (n - 4), ".sol", 4) == 0;
+    return (n >= 5 && memcmp(s + (n - 5), ".solu", 5) == 0) ||
+           (n >= 6 && memcmp(s + (n - 6), ".solus", 6) == 0);
 }
 #if defined(_WIN32) || defined(_WIN64)
 #define WIN32_LEAN_AND_MEAN
@@ -135,7 +136,7 @@ int cli_test(char *dirpath) {
     do {
         if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
             continue;
-        if (!has_suffix_sol(fd.cFileName))
+        if (!has_suffix_solu(fd.cFileName))
             continue;
         char full[MAX_PATH];
         snprintf(full, sizeof(full), "%s\\%s", dirpath, fd.cFileName);
@@ -168,7 +169,7 @@ int cli_test(char *dirpath) {
     while ((ent = readdir(dir)) != NULL) {
         if (strcmp(ent->d_name, ".") == 0 || strcmp(ent->d_name, "..") == 0)
             continue;
-        if (!has_suffix_sol(ent->d_name))
+        if (!has_suffix_solu(ent->d_name))
             continue;
 
         char full[1024];
@@ -229,7 +230,7 @@ int main(int argc, char **argv) {
     int ret = 0;
     switch (mode) {
         case CLI_RUN: ret = cli_run(argv[2], src); break;
-        case CLI_DBG: ret = sol_cli_cbg(argv[2], src); break;
+        case CLI_DBG: ret = solu_cli_cbg(argv[2], src); break;
         default: ret = -1; break;
     }
     sf_str_free(src);

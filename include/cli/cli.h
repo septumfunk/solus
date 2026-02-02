@@ -15,7 +15,7 @@
 #define TUI_CLR ""
 #endif
 
-int sol_cli_cbg(char *path, sf_str src);
+int solu_cli_cbg(char *path, sf_str src);
 void cli_highlight_line(sf_str src, sf_str err, uint16_t line, uint16_t column);
 
 #endif // CLI_H

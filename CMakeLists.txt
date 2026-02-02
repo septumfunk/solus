@@ -10,7 +10,7 @@ set(LIBRARY_TYPE STATIC)
 project(solus C)
 add_library(${PROJECT_NAME} ${LIBRARY_TYPE}
     src/bytecode.c
-    src/solc.c
+    src/compiler.c
     src/syntax.c
     src/vm.c
 

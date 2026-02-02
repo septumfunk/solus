@@ -5,11 +5,11 @@ let default = {
 };
 
 let cfg = attempt([]() {
-    let f = io.fread("sol.tests/test.cfg");
+    let f = io.fread("solus.tests/test.cfg");
     if type(f) == "err": f
     else: eval(f)
 }, [default]() {
-    unwrap(io.fwrite("sol.tests/test.cfg", obj.stringify(default, false)));
+    unwrap(io.fwrite("solus.tests/test.cfg", obj.stringify(default, false)));
     default
 });
 

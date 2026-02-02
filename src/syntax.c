@@ -1,46 +1,46 @@
-#include "sol/syntax.h"
-#include "sol/bytecode.h"
+#include "solus/syntax.h"
+#include "solus/bytecode.h"
 #include "sf/str.h"
 #include <stdint.h>
 #include <stdlib.h>
 
-void _keywords_foreach(void *_u, sf_str k, sol_tokentype _v) { (void)_u;(void)_v; sf_str_free(k); }
-void _sol_keywords_cleanup(sol_keywords *map) {
-    sol_keywords_foreach(map, _keywords_foreach, NULL);
+void _keywords_foreach(void *_u, sf_str k, solu_tokentype _v) { (void)_u;(void)_v; sf_str_free(k); }
+void _solu_keywords_cleanup(solu_keywords *map) {
+    solu_keywords_foreach(map, _keywords_foreach, NULL);
 }
 
 typedef struct {
     sf_str src;
-    sol_token current;
+    solu_token current;
     size_t cc;
-    sol_keywords keywords;
-    sol_dalloc *alloc;
-} sol_scanner;
+    solu_keywords keywords;
+    solu_dalloc *alloc;
+} solu_scanner;
 
 // Scan string
-static sol_val sol_scan_str(sol_scanner *s, const sf_str str) {
-    sol_dyn p = calloc(1, sizeof(sol_dalloc) + str.len + 1);
-    sol_dalloc *dh = p;
-    *dh = (sol_dalloc){
+static solu_val solu_scan_str(solu_scanner *s, const sf_str str) {
+    solu_dyn p = calloc(1, sizeof(solu_dalloc) + str.len + 1);
+    solu_dalloc *dh = p;
+    *dh = (solu_dalloc){
         .next = NULL,
         .size = str.len + 1,
-        .tt = SOL_DSTR,
-        .mark = SOL_DYN_WHITE,
+        .tt = SOLU_DSTR,
+        .mark = SOLU_DYN_WHITE,
     };
-    p = (char *)p + sizeof(sol_dalloc);
+    p = (char *)p + sizeof(solu_dalloc);
     memcpy(p, str.c_str, str.len);
-    sol_dalloc *dd = s->alloc;
+    solu_dalloc *dd = s->alloc;
     if (dd == NULL) s->alloc = dh;
     else {
         while (dd->next) dd = dd->next;
         dd->next = dh;
     }
-    return (sol_val){ .tt = SOL_TDYN, .dyn = p };
+    return (solu_val){ .tt = SOLU_TDYN, .dyn = p };
 }
 // Shortcut for simple char cases
-#define sol_scancase(_c, _tt) case _c: s.current.tt = _tt; break
+#define solu_scancase(_c, _tt) case _c: s.current.tt = _tt; break
 // Peek the next char
-static inline bool sol_scanpeek(sol_scanner *s, char match) {
+static inline bool solu_scanpeek(solu_scanner *s, char match) {
     if (s->cc + 1 >= s->src.len || s->src.c_str[s->cc+1] != match)
         return false;
     ++s->cc;
@@ -48,10 +48,10 @@ static inline bool sol_scanpeek(sol_scanner *s, char match) {
     return true;
 }
 
-static inline bool sol_isnumber(char c) { return c >= '0' && c <= '9'; }
-static inline bool sol_isalphan(char c) { return (c >= 'A' && c <= 'Z')|| (c >= 'a' && c <= 'z') || c == '_' || sol_isnumber(c); }
+static inline bool solu_isnumber(char c) { return c >= '0' && c <= '9'; }
+static inline bool solu_isalphan(char c) { return (c >= 'A' && c <= 'Z')|| (c >= 'a' && c <= 'z') || c == '_' || solu_isnumber(c); }
 
-sol_token sol_scanstr(sol_scanner *s) {
+solu_token solu_scanstr(solu_scanner *s) {
     size_t cc = s->cc + 1;
     size_t cap = 16;
     size_t len = 0;
@@ -87,27 +87,27 @@ sol_token sol_scanstr(sol_scanner *s) {
     s->cc = cc;
     s->current.column += (cc - s->cc);
 
-    return (sol_token){
+    return (solu_token){
         TK_STRING,
-        sol_scan_str(s, sf_own(buf)),
+        solu_scan_str(s, sf_own(buf)),
         s->current.line,
         s->current.column,
     };
 
 error:
     free(buf);
-    return (sol_token){TK_NIL, SOL_NIL, 0, 0};
+    return (solu_token){TK_NIL, SOLU_NIL, 0, 0};
 }
 
-sol_token sol_scannum(sol_scanner *s) {
+solu_token solu_scannum(solu_scanner *s) {
     bool is_number = false;
     uint16_t len = 1;
     for (size_t cc = s->cc + 1; cc < s->src.len; ++cc) {
         if (s->src.c_str[cc] == '.') {
             if (is_number)
-                return (sol_token){TK_NIL, SOL_NIL, 0, 0};
+                return (solu_token){TK_NIL, SOLU_NIL, 0, 0};
             is_number = true;
-        } else if (!sol_isnumber(s->src.c_str[cc]))
+        } else if (!solu_isnumber(s->src.c_str[cc]))
             break;
         ++len;
     }
@@ -117,18 +117,18 @@ sol_token sol_scannum(sol_scanner *s) {
     s->cc += len - 1;
     s->current.column += len - 1;
 
-    sol_token tok;
+    solu_token tok;
     if (is_number)
-        tok = (sol_token) {
+        tok = (solu_token) {
             .tt = TK_NUMBER,
-            .value = (sol_val){.f64 = atof(str), .tt = SOL_TF64},
+            .value = (solu_val){.f64 = atof(str), .tt = SOLU_TF64},
             .line = s->current.line,
             .column = s->current.column,
         };
     else
-        tok = (sol_token) {
+        tok = (solu_token) {
             .tt = TK_INTEGER,
-            .value = (sol_val){.i64 = atoll(str), .tt = SOL_TI64},
+            .value = (solu_val){.i64 = atoll(str), .tt = SOLU_TI64},
             .line = s->current.line,
             .column = s->current.column,
         };
@@ -136,10 +136,10 @@ sol_token sol_scannum(sol_scanner *s) {
     return tok;
 }
 
-sol_token sol_scanidentifier(sol_scanner *s) {
+solu_token solu_scanidentifier(solu_scanner *s) {
     uint16_t len = 1;
     for (size_t cc = s->cc + 1; cc < s->src.len; ++cc) {
-        if (!sol_isalphan(s->src.c_str[cc]))
+        if (!solu_isalphan(s->src.c_str[cc]))
             break;
         ++len;
     }
@@ -150,20 +150,20 @@ sol_token sol_scanidentifier(sol_scanner *s) {
     s->cc += len - 1;
     s->current.column += len - 1;
 
-    sol_keywords_ex ex = sol_keywords_get(&s->keywords, sf_ref(str));
+    solu_keywords_ex ex = solu_keywords_get(&s->keywords, sf_ref(str));
     if (ex.is_ok) {
-        sol_val value = SOL_NIL;
+        solu_val value = SOLU_NIL;
         if (ex.ok == TK_TRUE)
-            value = SOL_TRUE;
+            value = SOLU_TRUE;
         if (ex.ok == TK_FALSE)
-            value = SOL_FALSE;
+            value = SOLU_FALSE;
         if (ex.ok == TK_OPCODE) {
-            for (sol_opcode o = 0; o < SOL_OP_COUNT; ++o)
-                value = sf_str_eq(sf_lit(sol_op_info(o)->mnemonic), sf_ref(str)) ?
-                    (sol_val){.tt = SOL_TI64, .i64 = o} : value;
+            for (solu_opcode o = 0; o < SOLU_OP_COUNT; ++o)
+                value = sf_str_eq(sf_lit(solu_op_info(o)->mnemonic), sf_ref(str)) ?
+                    (solu_val){.tt = SOLU_TI64, .i64 = o} : value;
         }
         free(str);
-        return (sol_token) {
+        return (solu_token) {
             .tt = ex.ok,
             .value = value,
             .line = s->current.line,
@@ -172,80 +172,80 @@ sol_token sol_scanidentifier(sol_scanner *s) {
     } else {
         sf_str ds = sf_str_cdup(str);
         free(str);
-        return (sol_token){
+        return (solu_token){
             .tt = TK_IDENTIFIER,
-            .value = sol_scan_str(s, ds),
+            .value = solu_scan_str(s, ds),
             .line = s->current.line,
             .column = s->current.column,
         };
     }
 }
 
-sol_scan_ex sol_scan(sf_str src) {
-    sol_tokenvec tks = sol_tokenvec_new();
-    sol_scanner s = {
+solu_scan_ex solu_scan(sf_str src) {
+    solu_tokenvec tks = solu_tokenvec_new();
+    solu_scanner s = {
         .src = src,
-        .current = {TK_EOF, SOL_NIL, 1, 1},
+        .current = {TK_EOF, SOLU_NIL, 1, 1},
         .cc = 0,
-        .keywords = sol_keywords_new(),
+        .keywords = solu_keywords_new(),
     };
-    sol_error eval = SOL_ERRP_UNEXPECTED_TOKEN;
+    solu_error eval = SOLU_ERRP_UNEXPECTED_TOKEN;
 
-    for (sol_opcode o = 0; o < SOL_OP_COUNT; ++o)
-        sol_keywords_set(&s.keywords, sf_ref(sol_op_info(o)->mnemonic), TK_OPCODE);
+    for (solu_opcode o = 0; o < SOLU_OP_COUNT; ++o)
+        solu_keywords_set(&s.keywords, sf_ref(solu_op_info(o)->mnemonic), TK_OPCODE);
 
     // statements
-    sol_keywords_set(&s.keywords, sf_lit("let"), TK_LET);
-    sol_keywords_set(&s.keywords, sf_lit("do"), TK_DO);
-    sol_keywords_set(&s.keywords, sf_lit("if"), TK_IF);
-    sol_keywords_set(&s.keywords, sf_lit("else"), TK_ELSE);
-    sol_keywords_set(&s.keywords, sf_lit("while"), TK_WHILE);
-    sol_keywords_set(&s.keywords, sf_lit("return"), TK_RETURN);
+    solu_keywords_set(&s.keywords, sf_lit("let"), TK_LET);
+    solu_keywords_set(&s.keywords, sf_lit("do"), TK_DO);
+    solu_keywords_set(&s.keywords, sf_lit("if"), TK_IF);
+    solu_keywords_set(&s.keywords, sf_lit("else"), TK_ELSE);
+    solu_keywords_set(&s.keywords, sf_lit("while"), TK_WHILE);
+    solu_keywords_set(&s.keywords, sf_lit("return"), TK_RETURN);
     // operators
-    sol_keywords_set(&s.keywords, sf_lit("and"), TK_AND);
-    sol_keywords_set(&s.keywords, sf_lit("or"), TK_OR);
+    solu_keywords_set(&s.keywords, sf_lit("and"), TK_AND);
+    solu_keywords_set(&s.keywords, sf_lit("or"), TK_OR);
     // literals
-    sol_keywords_set(&s.keywords, sf_lit("nil"), TK_NIL);
-    sol_keywords_set(&s.keywords, sf_lit("true"), TK_TRUE);
-    sol_keywords_set(&s.keywords, sf_lit("false"), TK_FALSE);
+    solu_keywords_set(&s.keywords, sf_lit("nil"), TK_NIL);
+    solu_keywords_set(&s.keywords, sf_lit("true"), TK_TRUE);
+    solu_keywords_set(&s.keywords, sf_lit("false"), TK_FALSE);
 
-    sol_keywords_set(&s.keywords, sf_lit("asm"), TK_ASM);
+    solu_keywords_set(&s.keywords, sf_lit("asm"), TK_ASM);
 
 
-    sol_tokenvec_push(&tks, (sol_token){TK_SOF, SOL_NIL, s.current.line, s.current.column});
+    solu_tokenvec_push(&tks, (solu_token){TK_SOF, SOLU_NIL, s.current.line, s.current.column});
     for (; s.cc < src.len; ++s.cc) {
-        s.current = (sol_token){TK_EOF, SOL_NIL, s.current.line, s.current.column};
+        s.current = (solu_token){TK_EOF, SOLU_NIL, s.current.line, s.current.column};
         char c = src.c_str[s.cc];
         size_t pcc = s.cc;
         switch (c) {
-            sol_scancase('(', TK_LEFT_PAREN);
-            sol_scancase(')', TK_RIGHT_PAREN);
-            sol_scancase('{', TK_LEFT_BRACE);
-            sol_scancase('}', TK_RIGHT_BRACE);
-            sol_scancase('[', TK_LEFT_BRACKET);
-            sol_scancase(']', TK_RIGHT_BRACKET);
-            sol_scancase(',', TK_COMMA);
-            sol_scancase('.', TK_PERIOD);
-            sol_scancase(':', TK_COLON);
-            sol_scancase(';', TK_SEMICOLON);
-            sol_scancase('*', TK_ASTERISK);
-            sol_scancase('+', sol_scanpeek(&s, '=') ? TK_PLUS_EQUAL : TK_PLUS);
-            sol_scancase('-', sol_scanpeek(&s, '=') ? TK_MINUS_EQUAL : TK_MINUS);
-            sol_scancase('!', sol_scanpeek(&s, '=') ? TK_NOT_EQUAL : TK_BANG);
-            sol_scancase('<', sol_scanpeek(&s, '=') ? TK_LESS_EQUAL : TK_LESS);
-            sol_scancase('>', sol_scanpeek(&s, '=') ? TK_GREATER_EQUAL : TK_GREATER);
-            sol_scancase('=', sol_scanpeek(&s, '=') ? TK_DOUBLE_EQUAL : TK_EQUAL);
+            solu_scancase('(', TK_LEFT_PAREN);
+            solu_scancase(')', TK_RIGHT_PAREN);
+            solu_scancase('{', TK_LEFT_BRACE);
+            solu_scancase('}', TK_RIGHT_BRACE);
+            solu_scancase('[', TK_LEFT_BRACKET);
+            solu_scancase(']', TK_RIGHT_BRACKET);
+            solu_scancase(',', TK_COMMA);
+            solu_scancase('.', TK_PERIOD);
+            solu_scancase(':', TK_COLON);
+            solu_scancase(';', TK_SEMICOLON);
+            solu_scancase('*', TK_ASTERISK);
+            solu_scancase('+', solu_scanpeek(&s, '=') ? TK_PLUS_EQUAL : TK_PLUS);
+            solu_scancase('-', solu_scanpeek(&s, '=') ? TK_MINUS_EQUAL : TK_MINUS);
+            solu_scancase('!', solu_scanpeek(&s, '=') ? TK_NOT_EQUAL : TK_BANG);
+            solu_scancase('<', solu_scanpeek(&s, '=') ? TK_LESS_EQUAL : TK_LESS);
+            solu_scancase('>', solu_scanpeek(&s, '=') ? TK_GREATER_EQUAL : TK_GREATER);
+            solu_scancase('=', solu_scanpeek(&s, '=') ? TK_DOUBLE_EQUAL : TK_EQUAL);
 
             case '&': {
-                if (sol_scanpeek(&s, '&')) { s.current.tt = TK_AND; break; }
+                if (solu_scanpeek(&s, '&')) { s.current.tt = TK_AND; break; }
                 goto err;
             }
             case '|': {
-                if (sol_scanpeek(&s, '|')) { s.current.tt = TK_OR; break; }
+                if (solu_scanpeek(&s, '|')) { s.current.tt = TK_OR; break; }
                 goto err;
             }
             case '/': {
-                if (sol_scanpeek(&s, '/')) {
+                if (solu_scanpeek(&s, '/')) {
                     for (; s.cc < src.len && src.c_str[s.cc] != '\n'; ++s.cc){};
                     continue;
                 }
@@ -261,32 +261,32 @@ sol_scan_ex sol_scan(sf_str src) {
             case ' ': ++s.current.column; continue;
             case '\r': case '\t': continue;
             case '"': {
-                s.current = sol_scanstr(&s);
+                s.current = solu_scanstr(&s);
                 if (s.current.tt != TK_STRING) {
-                    eval = SOL_ERRP_UNTERMINATED_STR;
+                    eval = SOLU_ERRP_UNTERMINATED_STR;
                     goto err;
                 }
-                sol_tokenvec_push(&tks, s.current);
+                solu_tokenvec_push(&tks, s.current);
                 continue;
             }
 
             default:
-                if (sol_isnumber(c)) { // Number
-                    s.current = sol_scannum(&s);
+                if (solu_isnumber(c)) { // Number
+                    s.current = solu_scannum(&s);
                     if (s.current.tt != TK_NUMBER && s.current.tt != TK_INTEGER) {
-                        eval = SOL_ERRP_NUMBER_FORMAT;
+                        eval = SOLU_ERRP_NUMBER_FORMAT;
                         goto err;
                     }
-                    sol_tokenvec_push(&tks, s.current);
+                    solu_tokenvec_push(&tks, s.current);
                     continue;
-                } else if (sol_isalphan(c)) { // Identifier
-                    s.current = sol_scanidentifier(&s);
-                    sol_tokenvec_push(&tks, s.current);
+                } else if (solu_isalphan(c)) { // Identifier
+                    s.current = solu_scanidentifier(&s);
+                    solu_tokenvec_push(&tks, s.current);
                     continue;
                 }
             err: {
-                sol_tokenvec_free(&tks);
-                sol_keywords_free(&s.keywords);
+                solu_tokenvec_free(&tks);
+                solu_keywords_free(&s.keywords);
                 size_t tk_len = s.cc - pcc + 1;
                 for (size_t cc2 = s.cc; cc2 < s.src.len; ++cc2) {
                     char ws = s.src.c_str[cc2];
@@ -296,94 +296,94 @@ sol_scan_ex sol_scan(sf_str src) {
                 }
                 char *str = calloc(1, tk_len + 1);
                 memcpy(str, s.src.c_str + pcc, tk_len);
-                return sol_scan_ex_err((sol_scan_err){eval, sf_own(str), s.current.line, s.current.column});
+                return solu_scan_ex_err((solu_scan_err){eval, sf_own(str), s.current.line, s.current.column});
             }
         }
-        sol_tokenvec_push(&tks, s.current);
+        solu_tokenvec_push(&tks, s.current);
     }
 
-    sol_keywords_free(&s.keywords);
-    sol_tokenvec_push(&tks, (sol_token){TK_EOF, SOL_NIL, s.current.line, s.current.column});
-    return sol_scan_ex_ok((sol_scan_ok){tks, s.alloc});
+    solu_keywords_free(&s.keywords);
+    solu_tokenvec_push(&tks, (solu_token){TK_EOF, SOLU_NIL, s.current.line, s.current.column});
+    return solu_scan_ex_ok((solu_scan_ok){tks, s.alloc});
 }
 
 typedef struct {
-    sol_token *tok;
+    solu_token *tok;
     bool asm, impli;
-} sol_parser;
+} solu_parser;
 
-void sol_node_free(sol_node *tree) {
+void solu_node_free(solu_node *tree) {
     if (!tree) return;
     switch (tree->tt) {
         // statements
-        case SOL_ND_LET:
-            sol_node_free(tree->n_let.value);
+        case SOLU_ND_LET:
+            solu_node_free(tree->n_let.value);
             break;
-        case SOL_ND_IF:
-            sol_node_free(tree->n_if.condition);
-            sol_node_free(tree->n_if.then_node);
+        case SOLU_ND_IF:
+            solu_node_free(tree->n_if.condition);
+            solu_node_free(tree->n_if.then_node);
             if (tree->n_if.else_node)
-                sol_node_free(tree->n_if.else_node);
+                solu_node_free(tree->n_if.else_node);
             break;
-        case SOL_ND_WHILE:
-            sol_node_free(tree->n_while.condition);
-            sol_node_free(tree->n_while.stmt);
+        case SOLU_ND_WHILE:
+            solu_node_free(tree->n_while.condition);
+            solu_node_free(tree->n_while.stmt);
             break;
-        case SOL_ND_INS:
+        case SOLU_ND_INS:
             break;
-        case SOL_ND_RETURN:
-            sol_node_free(tree->n_return.expr);
+        case SOLU_ND_RETURN:
+            solu_node_free(tree->n_return.expr);
             break;
         // operators
-        case SOL_ND_UNARY:
-            sol_node_free(tree->n_unary.right);
+        case SOLU_ND_UNARY:
+            solu_node_free(tree->n_unary.right);
             break;
-        case SOL_ND_BINARY:
-            sol_node_free(tree->n_binary.left);
-            sol_node_free(tree->n_binary.right);
+        case SOLU_ND_BINARY:
+            solu_node_free(tree->n_binary.left);
+            solu_node_free(tree->n_binary.right);
             break;
-        case SOL_ND_MEMBER:
-            sol_node_free(tree->n_postfix.expr);
+        case SOLU_ND_MEMBER:
+            solu_node_free(tree->n_postfix.expr);
             break;
-        case SOL_ND_CALL:
-            sol_node_free(tree->n_call.identifier);
+        case SOLU_ND_CALL:
+            solu_node_free(tree->n_call.identifier);
             if (tree->n_call.args) {
                 for (size_t i = 0; i < tree->n_call.arg_c; ++i)
-                    sol_node_free(tree->n_call.args[i]);
+                    solu_node_free(tree->n_call.args[i]);
                 free(tree->n_call.args);
             }
             break;
         // literals
-        case SOL_ND_IDENTIFIER:
-        case SOL_ND_LITERAL:
+        case SOLU_ND_IDENTIFIER:
+        case SOLU_ND_LITERAL:
             break;
-        case SOL_ND_OBJ:
+        case SOLU_ND_OBJ:
             for (uint32_t i = 0; i < tree->n_obj.mem_c; ++i)
-                sol_node_free(tree->n_obj.members[i]);
+                solu_node_free(tree->n_obj.members[i]);
             free(tree->n_obj.members);
             break;
         // functions
-        case SOL_ND_BLOCK:
+        case SOLU_ND_BLOCK:
             if (tree->n_block.stmts) {
                 for (uint32_t i = 0; i < tree->n_block.count; ++i)
-                    sol_node_free(tree->n_block.stmts[i]);
+                    solu_node_free(tree->n_block.stmts[i]);
                 free(tree->n_block.stmts);
             }
             break;
-        case SOL_ND_FUN:
+        case SOLU_ND_FUN:
             free(tree->n_fun.captures);
             free(tree->n_fun.args);
             if (tree->n_fun.block)
-                sol_node_free(tree->n_fun.block);
+                solu_node_free(tree->n_fun.block);
             break;
-        case SOL_ND_ASM:
-            sol_node_free(tree->n_asm.n_fun);
+        case SOLU_ND_ASM:
+            solu_node_free(tree->n_asm.n_fun);
             break;
     }
     free(tree);
 }
 
-size_t sol_precedence(sol_tokentype tt) {
+size_t solu_precedence(solu_tokentype tt) {
     switch (tt) {
         case TK_EQUAL: case TK_PLUS_EQUAL: case TK_MINUS_EQUAL: return 0;
         case TK_OR: return 1;
@@ -397,13 +397,13 @@ size_t sol_precedence(sol_tokentype tt) {
         default: return SIZE_MAX;
     }
 }
-bool sol_niscondition(sol_node *node) {
-    if (node->tt == SOL_ND_IDENTIFIER ||
-        node->tt == SOL_ND_CALL ||
-        (node->tt == SOL_ND_UNARY && node->n_unary.op == TK_BANG) ||
-       (node->tt == SOL_ND_LITERAL && node->n_literal.tt == SOL_TBOOL))
+bool solu_niscondition(solu_node *node) {
+    if (node->tt == SOLU_ND_IDENTIFIER ||
+        node->tt == SOLU_ND_CALL ||
+        (node->tt == SOLU_ND_UNARY && node->n_unary.op == TK_BANG) ||
+       (node->tt == SOLU_ND_LITERAL && node->n_literal.tt == SOLU_TBOOL))
         return true;
-    if (node->tt != SOL_ND_BINARY)
+    if (node->tt != SOLU_ND_BINARY)
         return false;
     switch (node->n_binary.op) {
         case TK_OR: case TK_AND: case TK_DOUBLE_EQUAL: case TK_NOT_EQUAL:
@@ -413,7 +413,7 @@ bool sol_niscondition(sol_node *node) {
     }
 }
 
-static inline bool sol_parpeek(sol_parser *p, sol_tokentype match) {
+static inline bool solu_parpeek(solu_parser *p, solu_tokentype match) {
     if (p->tok->tt != match)
         return false;
     ++p->tok;
@@ -421,109 +421,109 @@ static inline bool sol_parpeek(sol_parser *p, sol_tokentype match) {
 }
 
 // Convenience err macro
-#define sol_perr(type) sol_parse_ex_err((sol_parse_err){(type), p->tok->line, p->tok->column})
+#define solu_perr(type) solu_parse_ex_err((solu_parse_err){(type), p->tok->line, p->tok->column})
 
-sol_parse_ex sol_pprimary(sol_parser *p);
-sol_parse_ex sol_punary(sol_parser *p);
-sol_parse_ex sol_pexpr(sol_parser *p, size_t prec);
-sol_parse_ex sol_pif(sol_parser *p);
-sol_parse_ex sol_plet(sol_parser *p);
-sol_parse_ex sol_ppostfix(sol_parser *p);
-sol_parse_ex sol_pblock(sol_parser *p);
-sol_parse_ex sol_pfun(sol_parser *p);
-sol_parse_ex sol_pasm(sol_parser *p);
-sol_parse_ex sol_pins(sol_parser *p);
-sol_parse_ex sol_pobj(sol_parser *p);
-sol_parse_ex sol_pwhile(sol_parser *p);
-sol_parse_ex sol_preturn(sol_parser *p);
-sol_parse_ex sol_pstmt(sol_parser *p);
+solu_parse_ex solu_pprimary(solu_parser *p);
+solu_parse_ex solu_punary(solu_parser *p);
+solu_parse_ex solu_pexpr(solu_parser *p, size_t prec);
+solu_parse_ex solu_pif(solu_parser *p);
+solu_parse_ex solu_plet(solu_parser *p);
+solu_parse_ex solu_ppostfix(solu_parser *p);
+solu_parse_ex solu_pblock(solu_parser *p);
+solu_parse_ex solu_pfun(solu_parser *p);
+solu_parse_ex solu_pasm(solu_parser *p);
+solu_parse_ex solu_pins(solu_parser *p);
+solu_parse_ex solu_pobj(solu_parser *p);
+solu_parse_ex solu_pwhile(solu_parser *p);
+solu_parse_ex solu_preturn(solu_parser *p);
+solu_parse_ex solu_pstmt(solu_parser *p);
 
-sol_parse_ex sol_pprimary(sol_parser *p) {
+solu_parse_ex solu_pprimary(solu_parser *p) {
     switch (p->tok->tt) {
         case TK_INTEGER: case TK_NUMBER: case TK_STRING: case TK_TRUE: case TK_FALSE: case TK_NIL: {
-            sol_node *n = malloc(sizeof(sol_node));
-            *n = (sol_node){
-                p->tok->tt == TK_IDENTIFIER ? SOL_ND_IDENTIFIER : SOL_ND_LITERAL,
+            solu_node *n = malloc(sizeof(solu_node));
+            *n = (solu_node){
+                p->tok->tt == TK_IDENTIFIER ? SOLU_ND_IDENTIFIER : SOLU_ND_LITERAL,
                 p->tok->line, p->tok->column,
                 .n_literal = p->tok->value,
             };
             ++p->tok;
-            return sol_parse_ex_ok(n);
+            return solu_parse_ex_ok(n);
         }
         case TK_IF:
             p->impli = true;
-            return sol_pif(p);
+            return solu_pif(p);
         case TK_DO:
             ++p->tok;
             if (p->tok->tt != TK_LEFT_BRACE)
-                return sol_perr(SOL_ERRP_EXPECTED_BLOCK);
-            return sol_pblock(p);
+                return solu_perr(SOLU_ERRP_EXPECTED_BLOCK);
+            return solu_pblock(p);
         case TK_BANG:
         case TK_MINUS:
-            return sol_punary(p);
-        case TK_LEFT_BRACKET: return sol_pfun(p);
-        case TK_ASM: return sol_pasm(p);
-        case TK_LEFT_BRACE: return sol_pobj(p);
+            return solu_punary(p);
+        case TK_LEFT_BRACKET: return solu_pfun(p);
+        case TK_ASM: return solu_pasm(p);
+        case TK_LEFT_BRACE: return solu_pobj(p);
         case TK_IDENTIFIER: {
-            sol_node *n = malloc(sizeof(sol_node));
-            *n = (sol_node){
-                SOL_ND_IDENTIFIER,
+            solu_node *n = malloc(sizeof(solu_node));
+            *n = (solu_node){
+                SOLU_ND_IDENTIFIER,
                 p->tok->line, p->tok->column,
                 .n_identifier = p->tok->value,
             };
             ++p->tok;
-            return sol_parse_ex_ok(n);
+            return solu_parse_ex_ok(n);
         }
         case TK_LEFT_PAREN: {
             ++p->tok;
-            sol_parse_ex ex = sol_pexpr(p, 0);
+            solu_parse_ex ex = solu_pexpr(p, 0);
             if (!ex.is_ok) return ex;
             if (p->tok->tt != TK_RIGHT_PAREN)
-                return sol_perr(SOL_ERRP_EXPECTED_RPAREN);
+                return solu_perr(SOLU_ERRP_EXPECTED_RPAREN);
             ++p->tok;
-            return sol_parse_ex_ok(ex.ok);
+            return solu_parse_ex_ok(ex.ok);
         }
         case TK_SEMICOLON:
-            return sol_perr(SOL_ERRP_UNEXPECTED_SEMICOLON);
+            return solu_perr(SOLU_ERRP_UNEXPECTED_SEMICOLON);
         default:
-            return sol_perr(SOL_ERRP_EXPECTED_EXPRESSION);
+            return solu_perr(SOLU_ERRP_EXPECTED_EXPRESSION);
     }
 }
 
-sol_parse_ex sol_punary(sol_parser *p) {
-    sol_tokentype tt = (p->tok++)->tt;
-    sol_parse_ex expr = sol_pexpr(p, 0);
+solu_parse_ex solu_punary(solu_parser *p) {
+    solu_tokentype tt = (p->tok++)->tt;
+    solu_parse_ex expr = solu_pexpr(p, 0);
     if (!expr.ok) return expr;
 
-    sol_node *n_unary = malloc(sizeof(sol_node));
-    *n_unary = (sol_node){
-        SOL_ND_UNARY,
+    solu_node *n_unary = malloc(sizeof(solu_node));
+    *n_unary = (solu_node){
+        SOLU_ND_UNARY,
         (p->tok-1)->line, (p->tok-1)->column,
         .n_unary = { tt, expr.ok }
     };
-    return sol_parse_ex_ok(n_unary);
+    return solu_parse_ex_ok(n_unary);
 }
 
-sol_parse_ex sol_pexpr(sol_parser *p, size_t prec) {
-    sol_parse_ex ex = sol_ppostfix(p);
+solu_parse_ex solu_pexpr(solu_parser *p, size_t prec) {
+    solu_parse_ex ex = solu_ppostfix(p);
     if (!ex.is_ok) return ex;
 
-    sol_node *left = ex.ok;
+    solu_node *left = ex.ok;
     while (true) {
-        sol_token *op = p->tok;
-        size_t op_prec = sol_precedence(op->tt);
+        solu_token *op = p->tok;
+        size_t op_prec = solu_precedence(op->tt);
         if (op_prec == SIZE_MAX || op_prec < prec)
             break;
         ++p->tok;
 
-        ex = sol_pexpr(p, (op->tt == TK_EQUAL) ? op_prec : op_prec + 1);
+        ex = solu_pexpr(p, (op->tt == TK_EQUAL) ? op_prec : op_prec + 1);
         if (!ex.is_ok) {
-            sol_node_free(left);
+            solu_node_free(left);
             return ex;
         }
-        sol_node *bin = malloc(sizeof(sol_node));
-        *bin = (sol_node){
-            .tt = SOL_ND_BINARY,
+        solu_node *bin = malloc(sizeof(solu_node));
+        *bin = (solu_node){
+            .tt = SOLU_ND_BINARY,
             .line = op->line, .column = op->column,
             .n_binary = {
                 .op = op->tt,
@@ -533,61 +533,61 @@ sol_parse_ex sol_pexpr(sol_parser *p, size_t prec) {
         };
         left = bin;
     }
-    return sol_parse_ex_ok(left);
+    return solu_parse_ex_ok(left);
 }
 
-sol_parse_ex sol_pif(sol_parser *p) {
-    sol_token *tk_if = p->tok++;
-    sol_parse_ex cex = sol_pexpr(p, 0);
+solu_parse_ex solu_pif(solu_parser *p) {
+    solu_token *tk_if = p->tok++;
+    solu_parse_ex cex = solu_pexpr(p, 0);
     if (!cex.is_ok) return cex;
-    if (!sol_niscondition(cex.ok)) {
+    if (!solu_niscondition(cex.ok)) {
         uint16_t line = cex.ok->line;
         uint16_t column = cex.ok->column;
-        sol_node_free(cex.ok);
-        return sol_parse_ex_err((sol_parse_err){SOL_ERRP_EXPECTED_CONDITION, line, column});
+        solu_node_free(cex.ok);
+        return solu_parse_ex_err((solu_parse_err){SOLU_ERRP_EXPECTED_CONDITION, line, column});
     }
     if (p->tok->tt != TK_COLON) {
         uint16_t line = cex.ok->line;
         uint16_t column = cex.ok->column;
-        sol_node_free(cex.ok);
-        return sol_parse_ex_err((sol_parse_err){SOL_ERRP_EXPECTED_COLON, line, column});
+        solu_node_free(cex.ok);
+        return solu_parse_ex_err((solu_parse_err){SOLU_ERRP_EXPECTED_COLON, line, column});
     }
     ++p->tok;
 
-    sol_parse_ex tex = p->tok->tt == TK_LEFT_BRACE ? sol_pblock(p) : sol_pstmt(p);
-    p->impli = tex.ok->tt == SOL_ND_RETURN;
+    solu_parse_ex tex = p->tok->tt == TK_LEFT_BRACE ? solu_pblock(p) : solu_pstmt(p);
+    p->impli = tex.ok->tt == SOLU_ND_RETURN;
     if (!tex.is_ok) {
-        sol_node_free(cex.ok);
+        solu_node_free(cex.ok);
         return tex;
     }
-    sol_parse_ex eex = (sol_parse_ex){.is_ok = false};
+    solu_parse_ex eex = (solu_parse_ex){.is_ok = false};
     if (p->tok->tt == TK_ELSE) {
         ++p->tok;
         if (p->tok->tt != TK_COLON) {
             uint16_t line = (p->tok-1)->line;
             uint16_t column = (p->tok-1)->column;
-            sol_node_free(cex.ok);
-            sol_node_free(eex.ok);
-            return sol_parse_ex_err((sol_parse_err){SOL_ERRP_EXPECTED_COLON, line, column});
+            solu_node_free(cex.ok);
+            solu_node_free(eex.ok);
+            return solu_parse_ex_err((solu_parse_err){SOLU_ERRP_EXPECTED_COLON, line, column});
         }
         ++p->tok;
 
-        eex = p->tok->tt == TK_LEFT_BRACE ? sol_pblock(p) : sol_pstmt(p);
+        eex = p->tok->tt == TK_LEFT_BRACE ? solu_pblock(p) : solu_pstmt(p);
         if (!eex.is_ok) {
-            sol_node_free(cex.ok);
-            sol_node_free(tex.ok);
+            solu_node_free(cex.ok);
+            solu_node_free(tex.ok);
             return eex;
         }
     } else if (p->impli) {
-        sol_node_free(cex.ok);
-        sol_node_free(tex.ok);
+        solu_node_free(cex.ok);
+        solu_node_free(tex.ok);
         --p->tok;
-        return sol_perr(SOL_ERRP_EXPECTED_ELSE);
+        return solu_perr(SOLU_ERRP_EXPECTED_ELSE);
     }
 
-    sol_node *n_if = malloc(sizeof(sol_node));
-    *n_if = (sol_node){
-        .tt = SOL_ND_IF,
+    solu_node *n_if = malloc(sizeof(solu_node));
+    *n_if = (solu_node){
+        .tt = SOLU_ND_IF,
         .line = tk_if->line, .column = tk_if->column,
         .n_if = {
             .condition = cex.ok,
@@ -595,52 +595,52 @@ sol_parse_ex sol_pif(sol_parser *p) {
             .else_node = eex.is_ok ? eex.ok : NULL,
         },
     };
-    return sol_parse_ex_ok(n_if);
+    return solu_parse_ex_ok(n_if);
 }
 
-sol_parse_ex sol_plet(sol_parser *p) {
-    sol_token *let = p->tok++;
+solu_parse_ex solu_plet(solu_parser *p) {
+    solu_token *let = p->tok++;
 
     if (p->tok->tt != TK_IDENTIFIER)
-        return sol_perr(SOL_ERRP_EXPECTED_IDENTIFIER);
-    sol_token *name = p->tok++;
+        return solu_perr(SOLU_ERRP_EXPECTED_IDENTIFIER);
+    solu_token *name = p->tok++;
 
     if (p->tok->tt != TK_EQUAL)
-        return sol_perr(SOL_ERRP_EXPECTED_EQUAL);
+        return solu_perr(SOLU_ERRP_EXPECTED_EQUAL);
     ++p->tok;
 
-    sol_parse_ex vex = sol_pexpr(p, 0);
+    solu_parse_ex vex = solu_pexpr(p, 0);
     if (!vex.is_ok) return vex;
     if (p->tok->tt != TK_SEMICOLON) {
         --p->tok;
-        sol_node_free(vex.ok);
-        return sol_perr(SOL_ERRP_EXPECTED_SEMICOLON);
+        solu_node_free(vex.ok);
+        return solu_perr(SOLU_ERRP_EXPECTED_SEMICOLON);
     }
     ++p->tok;
 
-    sol_node *n_let = malloc(sizeof(sol_node));
-    *n_let = (sol_node){
-        .tt = SOL_ND_LET,
+    solu_node *n_let = malloc(sizeof(solu_node));
+    *n_let = (solu_node){
+        .tt = SOLU_ND_LET,
         .line = let->line, .column = let->column,
         .n_let = {
             .name = name->value,
             .value = vex.ok,
         }
     };
-    return sol_parse_ex_ok(n_let);
+    return solu_parse_ex_ok(n_let);
 }
 
-sol_parse_ex sol_ppostfix(sol_parser *p) {
+solu_parse_ex solu_ppostfix(solu_parser *p) {
     uint16_t line = p->tok->line, column = p->tok->column;
-    sol_parse_ex ex = sol_pprimary(p);
+    solu_parse_ex ex = solu_pprimary(p);
     if (!ex.is_ok) return ex;
-    sol_node *node = ex.ok;
+    solu_node *node = ex.ok;
 
     while (true) {
         if (p->tok->tt == TK_LEFT_PAREN) {
-            sol_node *call = malloc(sizeof(sol_node));
-            *call = (sol_node){
-                .tt = SOL_ND_CALL,
+            solu_node *call = malloc(sizeof(solu_node));
+            *call = (solu_node){
+                .tt = SOLU_ND_CALL,
                 .line = line,
                 .column = column,
                 .n_call = {
@@ -652,19 +652,19 @@ sol_parse_ex sol_ppostfix(sol_parser *p) {
             ++p->tok;
 
             while (p->tok->tt != TK_RIGHT_PAREN && p->tok->tt != TK_EOF) {
-                sol_parse_ex arg = sol_pexpr(p, 0);
+                solu_parse_ex arg = solu_pexpr(p, 0);
                 if (!arg.is_ok) {
-                    sol_node_free(call);
+                    solu_node_free(call);
                     return arg;
                 }
-                call->n_call.args = realloc(call->n_call.args, sizeof(sol_node*) * (++call->n_call.arg_c));
+                call->n_call.args = realloc(call->n_call.args, sizeof(solu_node*) * (++call->n_call.arg_c));
                 call->n_call.args[call->n_call.arg_c - 1] = arg.ok;
                 if (p->tok->tt == TK_COMMA)
                     ++p->tok;
                 else break;
             }
             if (p->tok->tt != TK_RIGHT_PAREN)
-                return sol_perr(SOL_ERRP_UNTERMINATED_ARGS);
+                return solu_perr(SOLU_ERRP_UNTERMINATED_ARGS);
 
             ++p->tok;
             node = call;
@@ -674,11 +674,11 @@ sol_parse_ex sol_ppostfix(sol_parser *p) {
         if (p->tok->tt == TK_PERIOD) {
             ++p->tok;
             if (p->tok->tt != TK_IDENTIFIER)
-                return sol_perr(SOL_ERRP_EXPECTED_IDENTIFIER);
+                return solu_perr(SOLU_ERRP_EXPECTED_IDENTIFIER);
 
-            sol_node *member = malloc(sizeof(sol_node));
-            *member = (sol_node){
-                .tt = SOL_ND_MEMBER,
+            solu_node *member = malloc(sizeof(solu_node));
+            *member = (solu_node){
+                .tt = SOLU_ND_MEMBER,
                 .line = line,
                 .column = column,
                 .n_postfix = {
@@ -693,55 +693,55 @@ sol_parse_ex sol_ppostfix(sol_parser *p) {
         break;
     }
 
-    return sol_parse_ex_ok(node);
+    return solu_parse_ex_ok(node);
 }
 
-sol_parse_ex sol_pblock(sol_parser *p) {
-    sol_node *n_block = malloc(sizeof(sol_node));
-    *n_block = (sol_node){
-        .tt = SOL_ND_BLOCK,
+solu_parse_ex solu_pblock(solu_parser *p) {
+    solu_node *n_block = malloc(sizeof(solu_node));
+    *n_block = (solu_node){
+        .tt = SOLU_ND_BLOCK,
         .line = p->tok->line, .column = p->tok->column,
         .n_block = {
             .stmts = NULL,
             .count = 0,
         },
     };
-    sol_tokentype st = p->tok->tt;
+    solu_tokentype st = p->tok->tt;
     ++p->tok;
     while (p->tok->tt != TK_RIGHT_BRACE && p->tok->tt != TK_EOF) {
-        sol_parse_ex sex = sol_pstmt(p); // HHAHAHAHHAHHAHAHHAH
+        solu_parse_ex sex = solu_pstmt(p); // HHAHAHAHHAHHAHAHHAH
         if (!sex.is_ok) {
-            sol_node_free(n_block);
+            solu_node_free(n_block);
             return sex;
         }
-        if (sex.ok->tt == SOL_ND_RETURN && p->tok->tt != TK_RIGHT_BRACE && p->tok->tt != TK_EOF) {
-            sol_node_free(n_block);
-            sol_error e = sex.ok->n_return.implicit ? SOL_ERRP_UNEXPECTED_IMPL_RETURN : SOL_ERRP_UNREACHABLE_CODE;
+        if (sex.ok->tt == SOLU_ND_RETURN && p->tok->tt != TK_RIGHT_BRACE && p->tok->tt != TK_EOF) {
+            solu_node_free(n_block);
+            solu_error e = sex.ok->n_return.implicit ? SOLU_ERRP_UNEXPECTED_IMPL_RETURN : SOLU_ERRP_UNREACHABLE_CODE;
             uint16_t line = sex.ok->line, column = sex.ok->column;
             if (p->tok->tt == TK_SEMICOLON) {
                 line = p->tok->line; column = p->tok->column;
-                e = SOL_ERRP_UNEXPECTED_SEMICOLON;
+                e = SOLU_ERRP_UNEXPECTED_SEMICOLON;
             }
-            return sol_parse_ex_err((sol_parse_err){ e, line, column });
+            return solu_parse_ex_err((solu_parse_err){ e, line, column });
         }
-        n_block->n_block.stmts = realloc(n_block->n_block.stmts, ++n_block->n_block.count * sizeof(sol_node *));
+        n_block->n_block.stmts = realloc(n_block->n_block.stmts, ++n_block->n_block.count * sizeof(solu_node *));
         n_block->n_block.stmts[n_block->n_block.count - 1] = sex.ok;
     }
 
     if (st == TK_LEFT_BRACE && p->tok->tt != TK_RIGHT_BRACE) {
-        sol_node_free(n_block);
-        return sol_perr(SOL_ERRP_EXPECTED_RBRACE);
+        solu_node_free(n_block);
+        return solu_perr(SOLU_ERRP_EXPECTED_RBRACE);
     }
     ++p->tok;
 
-    return sol_parse_ex_ok(n_block);
+    return solu_parse_ex_ok(n_block);
 }
 
-sol_parse_ex sol_pfun(sol_parser *p) {
+solu_parse_ex solu_pfun(solu_parser *p) {
     ++p->tok; // Consume [
-    sol_node *n_fun = malloc(sizeof(sol_node));
-    *n_fun = (sol_node){
-        .tt = SOL_ND_FUN,
+    solu_node *n_fun = malloc(sizeof(solu_node));
+    *n_fun = (solu_node){
+        .tt = SOLU_ND_FUN,
         .line = p->tok->line, .column = p->tok->column,
         .n_fun = {
             .captures = NULL,
@@ -753,133 +753,133 @@ sol_parse_ex sol_pfun(sol_parser *p) {
 
     while (p->tok->tt != TK_RIGHT_BRACKET && p->tok->tt != TK_EOF) {
         if (p->tok->tt != TK_IDENTIFIER) {
-            sol_node_free(n_fun);
-            return sol_perr(SOL_ERRP_EXPECTED_IDENTIFIER);
+            solu_node_free(n_fun);
+            return solu_perr(SOLU_ERRP_EXPECTED_IDENTIFIER);
         }
-        n_fun->n_fun.captures = realloc(n_fun->n_fun.captures, (++n_fun->n_fun.cap_c) * sizeof(sol_val));
+        n_fun->n_fun.captures = realloc(n_fun->n_fun.captures, (++n_fun->n_fun.cap_c) * sizeof(solu_val));
         n_fun->n_fun.captures[n_fun->n_fun.cap_c - 1] = p->tok->value;
         ++p->tok;
 
         if (p->tok->tt != TK_COMMA && p->tok->tt != TK_RIGHT_BRACKET) {
-            sol_node_free(n_fun);
-            return sol_perr(SOL_ERRP_UNTERMINATED_CAPTURES);
+            solu_node_free(n_fun);
+            return solu_perr(SOLU_ERRP_UNTERMINATED_CAPTURES);
         }
         if (p->tok->tt == TK_COMMA) ++p->tok;
     }
     ++p->tok;
 
     if (p->tok->tt != TK_LEFT_PAREN) {
-        sol_node_free(n_fun);
-        return sol_perr(SOL_ERRP_EXPECTED_ARGS);
+        solu_node_free(n_fun);
+        return solu_perr(SOLU_ERRP_EXPECTED_ARGS);
     }
     ++p->tok;
     while (p->tok->tt != TK_RIGHT_PAREN && p->tok->tt != TK_EOF) {
         if (p->tok->tt != TK_IDENTIFIER) {
-            sol_node_free(n_fun);
-            return sol_perr(SOL_ERRP_EXPECTED_IDENTIFIER);
+            solu_node_free(n_fun);
+            return solu_perr(SOLU_ERRP_EXPECTED_IDENTIFIER);
         }
-        n_fun->n_fun.args = realloc(n_fun->n_fun.args, ++n_fun->n_fun.arg_c * sizeof(sol_val));
+        n_fun->n_fun.args = realloc(n_fun->n_fun.args, ++n_fun->n_fun.arg_c * sizeof(solu_val));
         n_fun->n_fun.args[n_fun->n_fun.arg_c - 1] = p->tok->value;
         ++p->tok;
 
         if (p->tok->tt != TK_COMMA && p->tok->tt != TK_RIGHT_PAREN) {
-            sol_node_free(n_fun);
-            return sol_perr(SOL_ERRP_UNTERMINATED_ARGS);
+            solu_node_free(n_fun);
+            return solu_perr(SOLU_ERRP_UNTERMINATED_ARGS);
         }
         if (p->tok->tt == TK_COMMA) ++p->tok;
     }
     ++p->tok;
 
     if (p->tok->tt != TK_LEFT_BRACE) {
-        sol_node_free(n_fun);
-        return sol_perr(SOL_ERRP_EXPECTED_BLOCK);
+        solu_node_free(n_fun);
+        return solu_perr(SOLU_ERRP_EXPECTED_BLOCK);
     }
-    sol_parse_ex bex = sol_pblock(p);
+    solu_parse_ex bex = solu_pblock(p);
     if (!bex.is_ok) {
-        sol_node_free(n_fun);
+        solu_node_free(n_fun);
         return bex;
     }
     n_fun->n_fun.block = bex.ok;
 
-    return sol_parse_ex_ok(n_fun);
+    return solu_parse_ex_ok(n_fun);
 }
 
-sol_parse_ex sol_pasm(sol_parser *p) {
+solu_parse_ex solu_pasm(solu_parser *p) {
     ++p->tok; // Consume asm
     if (p->tok->tt != TK_LEFT_PAREN)
-        return sol_perr(SOL_ERRP_EXPECTED_LPAREN);
+        return solu_perr(SOLU_ERRP_EXPECTED_LPAREN);
     ++p->tok;
     if (p->tok->tt != TK_INTEGER)
-        return sol_perr(SOL_ERRP_EXPECTED_INTEGER);
+        return solu_perr(SOLU_ERRP_EXPECTED_INTEGER);
     uint32_t temps = (uint32_t)p->tok->value.i64;
     ++p->tok;
     if (p->tok->tt != TK_RIGHT_PAREN)
-        return sol_perr(SOL_ERRP_EXPECTED_RPAREN);
+        return solu_perr(SOLU_ERRP_EXPECTED_RPAREN);
     ++p->tok;
 
     p->asm = true;
-    sol_parse_ex fex = sol_pfun(p);
+    solu_parse_ex fex = solu_pfun(p);
     p->asm = false;
     if (!fex.is_ok) return fex;
 
-    sol_node *n_asm = malloc(sizeof(sol_node));
-    *n_asm = (sol_node){
-        .tt = SOL_ND_ASM,
+    solu_node *n_asm = malloc(sizeof(solu_node));
+    *n_asm = (solu_node){
+        .tt = SOLU_ND_ASM,
         .line = p->tok->line, .column = p->tok->column,
         .n_asm = {
             .temps = temps,
             .n_fun = fex.ok,
         },
     };
-    return sol_parse_ex_ok(n_asm);
+    return solu_parse_ex_ok(n_asm);
 }
 
-sol_parse_ex sol_pins(sol_parser *p) {
-    sol_opcode op = (sol_opcode)p->tok->value.i64;
+solu_parse_ex solu_pins(solu_parser *p) {
+    solu_opcode op = (solu_opcode)p->tok->value.i64;
     ++p->tok;
-    sol_val opa[3] = {SOL_NIL, SOL_NIL, SOL_NIL};
-    for (int i = 0; i < (int)(sol_op_info(op)->type) + 1; ++i) {
-        sol_parse_ex vex = sol_pprimary(p);
+    solu_val opa[3] = {SOLU_NIL, SOLU_NIL, SOLU_NIL};
+    for (int i = 0; i < (int)(solu_op_info(op)->type) + 1; ++i) {
+        solu_parse_ex vex = solu_pprimary(p);
         if (!vex.is_ok) return vex;
         switch (vex.ok->tt) {
-            case SOL_ND_IDENTIFIER: opa[i] = vex.ok->n_identifier; break;
-            case SOL_ND_LITERAL: {
-                if (vex.ok->n_literal.tt != SOL_TI64 && !((op == SOL_OP_LOAD && i == 1) ||
-                    (op == SOL_OP_SUPO && i == 1) ||
-                    (op == SOL_OP_GUPO && i == 2))) {
-                    sol_node_free(vex.ok);
-                    return sol_perr(SOL_ERRP_EXPECTED_INTEGER);
+            case SOLU_ND_IDENTIFIER: opa[i] = vex.ok->n_identifier; break;
+            case SOLU_ND_LITERAL: {
+                if (vex.ok->n_literal.tt != SOLU_TI64 && !((op == SOLU_OP_LOAD && i == 1) ||
+                    (op == SOLU_OP_SUPO && i == 1) ||
+                    (op == SOLU_OP_GUPO && i == 2))) {
+                    solu_node_free(vex.ok);
+                    return solu_perr(SOLU_ERRP_EXPECTED_INTEGER);
                 }
                 opa[i] = vex.ok->n_literal;
                 break;
             }
             default: {
-                sol_node_free(vex.ok);
-                return sol_perr(SOL_ERRP_EXPECTED_IDENTIFIER);
+                solu_node_free(vex.ok);
+                return solu_perr(SOLU_ERRP_EXPECTED_IDENTIFIER);
             }
         }
     }
     if (p->tok->tt != TK_SEMICOLON)
-        return sol_perr(SOL_ERRP_EXPECTED_SEMICOLON);
+        return solu_perr(SOLU_ERRP_EXPECTED_SEMICOLON);
     ++p->tok;
 
-    sol_node *n_ins = malloc(sizeof(sol_node));
-    *n_ins = (sol_node){
-        .tt = SOL_ND_INS,
+    solu_node *n_ins = malloc(sizeof(solu_node));
+    *n_ins = (solu_node){
+        .tt = SOLU_ND_INS,
         .line = p->tok->line, .column = p->tok->column,
         .n_ins = {
             .op = op,
             .opa = {opa[0], opa[1], opa[2]},
         },
     };
-    return sol_parse_ex_ok(n_ins);
+    return solu_parse_ex_ok(n_ins);
 }
 
-sol_parse_ex sol_pobj(sol_parser *p) {
+solu_parse_ex solu_pobj(solu_parser *p) {
     ++p->tok; // {
-    sol_node *n_obj = malloc(sizeof(sol_node));
-    *n_obj = (sol_node){
-        .tt = SOL_ND_OBJ,
+    solu_node *n_obj = malloc(sizeof(solu_node));
+    *n_obj = (solu_node){
+        .tt = SOLU_ND_OBJ,
         .line = p->tok->line, .column = p->tok->column,
         .n_obj = {
             .members = NULL,
@@ -888,72 +888,72 @@ sol_parse_ex sol_pobj(sol_parser *p) {
     };
 
     while (p->tok->tt != TK_RIGHT_BRACE) {
-        sol_token *name = p->tok;
+        solu_token *name = p->tok;
         if (name->tt == TK_SEMICOLON) {
-            sol_node_free(n_obj);
-            return sol_perr(SOL_ERRP_UNEXPECTED_SEMICOLON_OBJ);
+            solu_node_free(n_obj);
+            return solu_perr(SOLU_ERRP_UNEXPECTED_SEMICOLON_OBJ);
         }
         if (name->tt != TK_IDENTIFIER) {
-            sol_node_free(n_obj);
-            return sol_perr(SOL_ERRP_EXPECTED_IDENTIFIER);
+            solu_node_free(n_obj);
+            return solu_perr(SOLU_ERRP_EXPECTED_IDENTIFIER);
         }
         ++p->tok;
         if ((p->tok++)->tt != TK_EQUAL) {
-            sol_node_free(n_obj);
-            return sol_perr(SOL_ERRP_EXPECTED_EQUAL);
+            solu_node_free(n_obj);
+            return solu_perr(SOLU_ERRP_EXPECTED_EQUAL);
         }
-        sol_parse_ex right = sol_pexpr(p, 0);
+        solu_parse_ex right = solu_pexpr(p, 0);
         if (!right.is_ok) {
-            sol_node_free(n_obj);
+            solu_node_free(n_obj);
             return right;
         }
 
-        sol_node *nn = malloc(sizeof(sol_node));
-        *nn = (sol_node){SOL_ND_IDENTIFIER, name->line, name->column, .n_identifier = name->value};
-        sol_node *member = malloc(sizeof(sol_node));
-        *member = (sol_node){
-            SOL_ND_BINARY,
+        solu_node *nn = malloc(sizeof(solu_node));
+        *nn = (solu_node){SOLU_ND_IDENTIFIER, name->line, name->column, .n_identifier = name->value};
+        solu_node *member = malloc(sizeof(solu_node));
+        *member = (solu_node){
+            SOLU_ND_BINARY,
             name->line, name->column,
             .n_binary = {TK_EQUAL, nn, right.ok},
         };
-        n_obj->n_obj.members = realloc(n_obj->n_obj.members, ++n_obj->n_obj.mem_c * sizeof(sol_node *));
+        n_obj->n_obj.members = realloc(n_obj->n_obj.members, ++n_obj->n_obj.mem_c * sizeof(solu_node *));
         n_obj->n_obj.members[n_obj->n_obj.mem_c - 1] = member;
         if (p->tok->tt == TK_COMMA) ++p->tok;
     }
     ++p->tok; // }
-    return sol_parse_ex_ok(n_obj);
+    return solu_parse_ex_ok(n_obj);
 }
 
-sol_parse_ex sol_pwhile(sol_parser *p) {
+solu_parse_ex solu_pwhile(solu_parser *p) {
     uint16_t line = p->tok->line, column = p->tok->column;
     ++p->tok;
 
-    sol_parse_ex cond = sol_pexpr(p, 0);
+    solu_parse_ex cond = solu_pexpr(p, 0);
     if (!cond.is_ok)
         return cond;
-    if (!sol_niscondition(cond.ok)) {
+    if (!solu_niscondition(cond.ok)) {
         uint16_t line = cond.ok->line;
         uint16_t column = cond.ok->column;
-        sol_node_free(cond.ok);
-        return sol_parse_ex_err((sol_parse_err){SOL_ERRP_EXPECTED_CONDITION, line, column});
+        solu_node_free(cond.ok);
+        return solu_parse_ex_err((solu_parse_err){SOLU_ERRP_EXPECTED_CONDITION, line, column});
     }
     if (p->tok->tt != TK_COLON) {
         uint16_t line = cond.ok->line;
         uint16_t column = cond.ok->column;
-        sol_node_free(cond.ok);
-        return sol_parse_ex_err((sol_parse_err){SOL_ERRP_EXPECTED_COLON, line, column});
+        solu_node_free(cond.ok);
+        return solu_parse_ex_err((solu_parse_err){SOLU_ERRP_EXPECTED_COLON, line, column});
     }
     ++p->tok;
 
-    sol_parse_ex stmt = p->tok->tt == TK_LEFT_BRACE ? sol_pblock(p) : sol_pstmt(p);;
+    solu_parse_ex stmt = p->tok->tt == TK_LEFT_BRACE ? solu_pblock(p) : solu_pstmt(p);;
     if (!stmt.is_ok) {
-        sol_node_free(cond.ok);
+        solu_node_free(cond.ok);
         return stmt;
     }
 
-    sol_node *n_while = malloc(sizeof(sol_node));
-    *n_while = (sol_node){
-        .tt = SOL_ND_WHILE,
+    solu_node *n_while = malloc(sizeof(solu_node));
+    *n_while = (solu_node){
+        .tt = SOLU_ND_WHILE,
         .line = line, .column = column,
         .n_while = {
             .condition = cond.ok,
@@ -961,61 +961,61 @@ sol_parse_ex sol_pwhile(sol_parser *p) {
         },
     };
 
-    return sol_parse_ex_ok(n_while);
+    return solu_parse_ex_ok(n_while);
 }
 
-sol_parse_ex sol_preturn(sol_parser *p) {
+solu_parse_ex solu_preturn(solu_parser *p) {
     uint16_t line = p->tok->line, column = p->tok->column;
     ++p->tok;
-    sol_parse_ex expr = sol_pexpr(p, 0);
+    solu_parse_ex expr = solu_pexpr(p, 0);
     if (!expr.is_ok) return expr;
     if (p->tok->tt != TK_SEMICOLON) {
         --p->tok;
-        sol_node_free(expr.ok);
-        return sol_perr(SOL_ERRP_EXPECTED_SEMICOLON);
+        solu_node_free(expr.ok);
+        return solu_perr(SOLU_ERRP_EXPECTED_SEMICOLON);
     }
     ++p->tok;
 
-    sol_node *n_return = malloc(sizeof(sol_node));
-    *n_return = (sol_node){
-        .tt = SOL_ND_RETURN,
+    solu_node *n_return = malloc(sizeof(solu_node));
+    *n_return = (solu_node){
+        .tt = SOLU_ND_RETURN,
         .line = line, .column = column,
         .n_return = { expr.ok, false },
     };
-    return sol_parse_ex_ok(n_return);
+    return solu_parse_ex_ok(n_return);
 }
 
-sol_parse_ex sol_pstmt(sol_parser *p) {
+solu_parse_ex solu_pstmt(solu_parser *p) {
     if (p->asm && p->tok->tt != TK_OPCODE)
-        return sol_perr(SOL_ERRP_EXPECTED_ASM);
+        return solu_perr(SOLU_ERRP_EXPECTED_ASM);
     if (p->impli) goto expr;
 
     switch (p->tok->tt) {
         case TK_OPCODE: {
-            if (!p->asm) return sol_perr(SOL_ERRP_UNEXPECTED_ASM);
-            return sol_pins(p);
+            if (!p->asm) return solu_perr(SOLU_ERRP_UNEXPECTED_ASM);
+            return solu_pins(p);
         }
-        case TK_IF: return sol_pif(p);
-        case TK_LET: return sol_plet(p);
-        case TK_WHILE: return sol_pwhile(p);
-        case TK_RETURN: return sol_preturn(p);
+        case TK_IF: return solu_pif(p);
+        case TK_LET: return solu_plet(p);
+        case TK_WHILE: return solu_pwhile(p);
+        case TK_RETURN: return solu_preturn(p);
 
         case TK_DO: ++p->tok;
-        case TK_SOF: return sol_pblock(p);
+        case TK_SOF: return solu_pblock(p);
 
         expr: default: {
             bool impli = p->impli;
             p->impli = false;
-            sol_parse_ex id = sol_pexpr(p, 0);
+            solu_parse_ex id = solu_pexpr(p, 0);
             if (!id.is_ok) return id;
             if (impli || p->tok->tt != TK_SEMICOLON) {
-                sol_node *n_return = malloc(sizeof(sol_node));
-                *n_return = (sol_node){
-                    .tt = SOL_ND_RETURN,
+                solu_node *n_return = malloc(sizeof(solu_node));
+                *n_return = (solu_node){
+                    .tt = SOLU_ND_RETURN,
                     .line = id.ok->line, .column = id.ok->column,
                     .n_return = { id.ok, true },
                 };
-                return sol_parse_ex_ok(n_return);
+                return solu_parse_ex_ok(n_return);
             }
             ++p->tok;
             return id;
@@ -1023,9 +1023,9 @@ sol_parse_ex sol_pstmt(sol_parser *p) {
     };
 }
 
-sol_parse_ex sol_parse(sol_tokenvec *tokens) {
+solu_parse_ex solu_parse(solu_tokenvec *tokens) {
     if (tokens->count == 0)
-        return sol_parse_ex_err((sol_parse_err){SOL_ERRP_NO_TOKENS, 0, 0});
-    sol_parser p = { tokens->data, false, false };
-    return sol_pstmt(&p);
+        return solu_parse_ex_err((solu_parse_err){SOLU_ERRP_NO_TOKENS, 0, 0});
+    solu_parser p = { tokens->data, false, false };
+    return solu_pstmt(&p);
 }

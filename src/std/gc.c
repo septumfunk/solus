@@ -1,12 +1,12 @@
 #include "std.h"
 
-static sol_call_ex gc_collect(sol_state *s) {
-    sol_dcollect(s);
-    return sol_call_ex_ok(SOL_NIL);
+static solu_call_ex gc_collect(solu_state *s) {
+    solu_dcollect(s);
+    return solu_call_ex_ok(SOLU_NIL);
 }
 
-void sol_mod_gc(sol_state *s) {
-    sol_val gc = sol_dnew(s, SOL_DOBJ);
-    sol_dobj_set(gc.dyn, sf_lit("collect"), sol_wrapcfun(s, gc_collect, 0, 0));
-    sol_dobj_set(s->global.dyn, sf_lit("gc"), gc);
+void solu_mod_gc(solu_state *s) {
+    solu_val gc = solu_dnew(s, SOLU_DOBJ);
+    solu_dobj_set(gc.dyn, sf_lit("collect"), solu_wrapcfun(s, gc_collect, 0, 0));
+    solu_dobj_set(s->global.dyn, sf_lit("gc"), gc);
 }
