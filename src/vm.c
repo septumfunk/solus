@@ -451,7 +451,7 @@ sol_call_ex sol_call_bc(sol_state *s, sol_fproto *proto, const sol_val *args, ui
     #endif
 
     sol_instruction ins;
-    uint32_t pc = proto->dbg_res ? proto->dbg_res : proto->entry;
+    uint32_t pc = proto->dbg_res ? proto->dbg_res : 0;
     if (!proto->dbg_res) {
         sol_pushframe(s, proto->reg_c);
         for (uint32_t i = 0; i < proto->arg_c && args && i < arg_c; ++i)
