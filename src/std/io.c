@@ -5,18 +5,18 @@ static solu_call_ex io_print(solu_state *s) {
     char *val = solu_tostring(to_print);
     printf("%s", val);
     free(val);
-    return solu_call_ex_ok(SOLU_NIL);
+    return solu_ok(SOLU_NIL);
 }
 static solu_call_ex io_println(solu_state *s) {
     solu_val to_print = solu_get(s, 0);
     char *val = solu_tostring(to_print);
     printf("%s\n", val);
     free(val);
-    return solu_call_ex_ok(SOLU_NIL);
+    return solu_ok(SOLU_NIL);
 }
 static solu_call_ex io_time(solu_state *s) {
     (void)s;
-    return solu_call_ex_ok((solu_val){.tt = SOLU_TF64, .f64 = solu_timesec()});
+    return solu_ok((solu_val){.tt = SOLU_TF64, .f64 = solu_timesec()});
 }
 static solu_call_ex io_fread(solu_state *s) {
     solu_val path = solu_get(s, 0);
@@ -25,7 +25,7 @@ static solu_call_ex io_fread(solu_state *s) {
     sf_str p = sf_ref(path.dyn);
     if (!sf_file_exists(p)) {
         sf_str e = sf_str_fmt("File '%s' not found", p.c_str);
-        solu_call_ex ex = solu_call_ex_ok(solu_dnerr(s, e.c_str));
+        solu_call_ex ex = solu_ok(solu_dnerr(s, e.c_str));
         sf_str_free(e);
         return ex;
     }
@@ -37,14 +37,14 @@ static solu_call_ex io_fread(solu_state *s) {
             case SF_OPEN_FAILURE: errs = sf_str_fmt("File '%s' failed to open", p.c_str); break;
             case SF_READ_FAILURE: errs = sf_str_fmt("File '%s' failed to read", p.c_str); break;
         }
-        solu_call_ex ex = solu_call_ex_ok(solu_dnerr(s, errs.c_str));
+        solu_call_ex ex = solu_ok(solu_dnerr(s, errs.c_str));
         sf_str_free(errs);
         return ex;
     }
     fsb.ok.flags = SF_BUFFER_GROW;
     sf_buffer_autoins(&fsb.ok, ""); // [\0]
 
-    return solu_call_ex_ok(solu_dnstr(s, (char *)fsb.ok.ptr));
+    return solu_ok(solu_dnstr(s, (char *)fsb.ok.ptr));
 }
 static solu_call_ex io_fwrite(solu_state *s) {
     solu_val path = solu_get(s, 0);
@@ -58,14 +58,14 @@ static solu_call_ex io_fwrite(solu_state *s) {
     FILE *f = fopen(p.c_str, "w");
     if (!f) {
         sf_str e = sf_str_fmt("File '%s' failed to open", p.c_str);
-        solu_call_ex ex = solu_call_ex_ok(solu_dnerr(s, e.c_str));
+        solu_call_ex ex = solu_ok(solu_dnerr(s, e.c_str));
         sf_str_free(e);
         return ex;
     }
     fwrite(cont.c_str, 1, cont.len, f);
     fclose(f);
 
-    return solu_call_ex_ok(SOLU_NIL);
+    return solu_ok(SOLU_NIL);
 }
 
 void solu_mod_io(solu_state *s) {

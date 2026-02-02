@@ -3,7 +3,7 @@
 #include <setjmp.h>
 
 static solu_call_ex obj_new(solu_state *s) {
-    return solu_call_ex_ok(solu_dnew(s, SOLU_DOBJ));
+    return solu_ok(solu_dnew(s, SOLU_DOBJ));
 }
 static solu_call_ex obj_set(solu_state *s) {
     solu_val obj = solu_get(s, 0);
@@ -16,7 +16,7 @@ static solu_call_ex obj_set(solu_state *s) {
         kstr = solu_tostring(key);
     else kstr = _strdup(key.dyn);
     solu_dobj_set(obj.dyn, sf_own(kstr), val);
-    return solu_call_ex_ok(SOLU_NIL);
+    return solu_ok(SOLU_NIL);
 }
 static solu_call_ex obj_get(solu_state *s) {
     solu_val obj = solu_get(s, 0);
@@ -36,7 +36,7 @@ static solu_call_ex obj_get(solu_state *s) {
     }
     free(kstr);
 
-    return solu_call_ex_ok(ex.ok);
+    return solu_ok(ex.ok);
 }
 
 typedef struct {
@@ -104,7 +104,7 @@ solu_call_ex obj_stringify(solu_state *s) {
         commas.tt == SOLU_TBOOL ? commas.boolean : false,
         1
     );
-    solu_call_ex ex = solu_call_ex_ok(solu_dnstr(s, e.c_str));
+    solu_call_ex ex = solu_ok(solu_dnstr(s, e.c_str));
     sf_str_free(e);
     return ex;
 }
@@ -130,12 +130,12 @@ static solu_call_ex obj_foreach(solu_state *s) {
     expect_dtype(SOLU_DFUN, callback);
 
     jmp_buf ctx;
-    _obj_fe_args args = {s, callback.dyn, solu_call_ex_ok(SOLU_NIL), &ctx};
+    _obj_fe_args args = {s, callback.dyn, solu_ok(SOLU_NIL), &ctx};
     if (setjmp(ctx) == 0)
         solu_dobj_foreach(self.dyn, _obj_fe, &args);
     else return args.ex;
 
-    return solu_call_ex_ok(SOLU_NIL);
+    return solu_ok(SOLU_NIL);
 }
 
 void solu_mod_obj(solu_state *s) {

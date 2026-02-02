@@ -31,16 +31,16 @@ static solu_call_ex builtin_import(solu_state *s) {
     if (!sf_file_exists(p)) {
         sf_str p2 = sf_str_fmt("File '%s' not found", p.c_str);
         sf_str_free(p);
-        return solu_call_ex_ok(solu_dnerr(s, p2.c_str));
+        return solu_ok(solu_dnerr(s, p2.c_str));
     }
 
     solu_compile_ex cm_ex = solu_cfile(s, p.c_str);
     if (!cm_ex.is_ok)
-        return solu_call_ex_ok(solu_dnerr(s, solu_err_string(cm_ex.err.tt).c_str));
+        return solu_ok(solu_dnerr(s, solu_err_string(cm_ex.err.tt).c_str));
     solu_call_ex cl_ex = solu_call(s, &cm_ex.ok, NULL, 0);
     solu_fproto_free(&cm_ex.ok);
     if (!cl_ex.is_ok)
-            return solu_call_ex_ok(solu_dnerr(s, cl_ex.err.panic
+            return solu_ok(solu_dnerr(s, cl_ex.err.panic
             ));
     return cl_ex;
 }
@@ -59,11 +59,11 @@ static solu_call_ex builtin_eval(solu_state *s) {
 
     solu_compile_ex cm_ex = solu_csrc(s, src.dyn);
     if (!cm_ex.is_ok)
-        return solu_call_ex_ok(solu_dnerr(s, solu_err_string(cm_ex.err.tt).c_str));
+        return solu_ok(solu_dnerr(s, solu_err_string(cm_ex.err.tt).c_str));
     solu_call_ex cl_ex = solu_call(s, &cm_ex.ok, NULL, 0);
     solu_fproto_free(&cm_ex.ok);
     if (!cl_ex.is_ok)
-        return solu_call_ex_ok(solu_dnerr(s, cl_ex.err.tt == SOLU_ERRV_PANIC ?
+        return solu_ok(solu_dnerr(s, cl_ex.err.tt == SOLU_ERRV_PANIC ?
             cl_ex.err.panic :
             solu_err_string(cm_ex.err.tt).c_str
         ));
@@ -72,7 +72,7 @@ static solu_call_ex builtin_eval(solu_state *s) {
 static solu_call_ex builtin_err(solu_state *s) {
     solu_val str = solu_get(s, 0);
     expect_dtype(SOLU_DSTR, str);
-    return solu_call_ex_ok(solu_dnstr(s, str.dyn));
+    return solu_ok(solu_dnstr(s, str.dyn));
 }
 static solu_call_ex builtin_panic(solu_state *s) {
     solu_val err = solu_get(s, 0);
@@ -85,9 +85,9 @@ static solu_call_ex builtin_catch(solu_state *s) {
     solu_call_ex try_ex = solu_call(s, try.dyn, NULL, 0);
     if (!try_ex.is_ok) {
         solu_popframe(s); // Frame remains after panic!
-        return solu_call_ex_ok(solu_dnerr(s, try_ex.err.panic));
+        return solu_ok(solu_dnerr(s, try_ex.err.panic));
     }
-    return solu_call_ex_ok(try_ex.ok);
+    return solu_ok(try_ex.ok);
 }
 static solu_call_ex builtin_attempt(solu_state *s) {
     solu_val try = solu_get(s, 0);
@@ -100,51 +100,51 @@ static solu_call_ex builtin_attempt(solu_state *s) {
         solu_val err = solu_dnerr(s, try_ex.err.panic);
         solu_call_ex hand_ex = solu_call(s, handler.dyn, (solu_val[]){err}, 1);
         if (!hand_ex.is_ok) return hand_ex;
-        return solu_call_ex_ok(hand_ex.ok);
+        return solu_ok(hand_ex.ok);
     }
     if (solu_isdtype(try_ex.ok, SOLU_DERR)) {
         solu_call_ex hand_ex = solu_call(s, handler.dyn, (solu_val[]){try_ex.ok}, 1);
         if (!hand_ex.is_ok) return hand_ex;
-        return solu_call_ex_ok(hand_ex.ok);
+        return solu_ok(hand_ex.ok);
     }
-    return solu_call_ex_ok(try_ex.ok);
+    return solu_ok(try_ex.ok);
 }
 static solu_call_ex builtin_unwrap(solu_state *s) {
     solu_val val = solu_get(s, 0);
     if (!solu_isdtype(val, SOLU_DERR))
-        return solu_call_ex_ok(val);
+        return solu_ok(val);
     return solu_call_ex_err((solu_call_err){SOLU_ERRV_PANIC, _strdup(val.dyn), 0});
 }
 static solu_call_ex builtin_unwrap_or(solu_state *s) {
     solu_val val = solu_get(s, 0);
     if (!solu_isdtype(val, SOLU_DERR))
-        return solu_call_ex_ok(val);
-    return solu_call_ex_ok(solu_get(s, 1));
+        return solu_ok(val);
+    return solu_ok(solu_get(s, 1));
 }
 static solu_call_ex builtin_assert(solu_state *s) {
     solu_val con = solu_get(s, 0);
     expect_type(SOLU_TBOOL, con);
-    return con.boolean ? solu_call_ex_ok(SOLU_NIL) : solu_call_ex_err((solu_call_err){SOLU_ERRV_PANIC, "Assertion failed", 0});
+    return con.boolean ? solu_ok(SOLU_NIL) : solu_call_ex_err((solu_call_err){SOLU_ERRV_PANIC, "Assertion failed", 0});
 }
 static solu_call_ex builtin_type(solu_state *s) {
-    return solu_call_ex_ok(solu_dnstr(s, solu_typename(solu_get(s, 0)).c_str));
+    return solu_ok(solu_dnstr(s, solu_typename(solu_get(s, 0)).c_str));
 }
 
 static solu_call_ex builtin_str(solu_state *s) {
     char *e = solu_tostring(solu_get(s, 0));
-    solu_call_ex ex = solu_call_ex_ok(solu_dnstr(s, e));
+    solu_call_ex ex = solu_ok(solu_dnstr(s, e));
     free(e);
     return ex;
 }
 static solu_call_ex builtin_i64(solu_state *s) {
     solu_val f64 = solu_get(s, 0);
     expect_type(SOLU_TF64, f64);
-    return solu_call_ex_ok((solu_val){SOLU_TI64, .i64 = (solu_i64)f64.f64});
+    return solu_ok((solu_val){SOLU_TI64, .i64 = (solu_i64)f64.f64});
 }
 static solu_call_ex builtin_f64(solu_state *s) {
     solu_val i64 = solu_get(s, 0);
     expect_type(SOLU_TI64, i64);
-    return solu_call_ex_ok((solu_val){SOLU_TF64, .f64 = (solu_f64)i64.i64});
+    return solu_ok((solu_val){SOLU_TF64, .f64 = (solu_f64)i64.i64});
 }
 
 void solu_mod_builtin(solu_state *s) {

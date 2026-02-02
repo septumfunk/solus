@@ -4,14 +4,8 @@
 #include "solus/vm.h"
 #include <sf/fs.h>
 
-#define solu_serr(T, str) \
-    solu_call_ex_err((solu_call_err){T, \
-        str, \
-    0})
-#define solu_serrf(T, fmt, ...) \
-    solu_call_ex_err((solu_call_err){T, \
-        sf_str_fmt(fmt, __VA_ARGS__).c_str, \
-    0})
+#define solu_serr(T, str) solu_panic((str))
+#define solu_serrf(T, fmt, ...) solu_panic((fmt), __VA_ARGS__)
 #define expect_type(T, val) do { \
     if (val.tt != T) \
         return solu_serrf(SOLU_ERRV_TYPE_MISMATCH, "'%s' expected %s, found %s", #val, SOLU_TYPE_NAMES[T], solu_typename(val).c_str); \

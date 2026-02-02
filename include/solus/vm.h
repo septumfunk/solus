@@ -3,6 +3,7 @@
 
 #include "bytecode.h"
 #include "compiler.h"
+#include <stdarg.h>
 
 /// Represents a function's frame, or compiler reserved registers, on the stack
 typedef struct {
@@ -153,5 +154,14 @@ EXPORT solu_call_ex solu_call(solu_state *state, solu_fproto *proto, const solu_
 /// If you have a solu_val that refers to a fun type, you can use val.dyn for the arg `proto`.
 /// Returns a value on success, or panic on failure
 EXPORT solu_call_ex solu_dcall(solu_state *state, solu_fproto *proto, const solu_val *args, uint32_t arg_c, bool *bps);
+
+/// Convenience function for returning ok in API functions
+static inline solu_call_ex solu_ok(solu_val return_val) {
+    return solu_call_ex_ok(return_val);
+}
+/// Convenience function for returning err in API functions
+EXPORT solu_call_ex solu_err(solu_state *state, char *fmt, ...);
+/// Convenience function for returning panic in API functions
+EXPORT solu_call_ex solu_panic(char *fmt, ...);
 
 #endif // VM_H

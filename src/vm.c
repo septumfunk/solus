@@ -913,3 +913,38 @@ solu_call_ex solu_dcall(solu_state *state, solu_fproto *proto, const solu_val *a
 #if (defined(__GNUC__) || defined(__clang__)) && !defined(SOLU_DBG_NOCOMPUTE)
 #pragma GCC diagnostic pop
 #endif
+
+solu_call_ex solu_err(solu_state *s, char *fmt, ...) {
+    va_list arglist;
+
+    va_start(arglist, fmt);
+    const size_t size =
+        (size_t)vsnprintf(NULL, 0, fmt, arglist);
+    va_end(arglist);
+
+    char *_fmt = calloc(1, size + 1);
+    va_start(arglist, fmt);
+    vsnprintf(_fmt, size + 1, fmt, arglist);
+    va_end(arglist);
+
+    solu_val err = solu_dnerr(s, _fmt);
+    free(_fmt);
+
+    return solu_call_ex_ok(err);
+}
+
+solu_call_ex solu_panic(char *fmt, ...) {
+    va_list arglist;
+
+    va_start(arglist, fmt);
+    const size_t size =
+        (size_t)vsnprintf(NULL, 0, fmt, arglist);
+    va_end(arglist);
+
+    char *_fmt = calloc(1, size + 1);
+    va_start(arglist, fmt);
+    vsnprintf(_fmt, size + 1, fmt, arglist);
+    va_end(arglist);
+
+    return solu_call_ex_err((solu_call_err){SOLU_ERRV_PANIC, _fmt, 0});
+}

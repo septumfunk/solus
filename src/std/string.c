@@ -3,7 +3,7 @@
 static solu_call_ex string_len(solu_state *s) {
     solu_val str = solu_get(s, 0);
     expect_dtype(SOLU_DSTR, str);
-    return solu_call_ex_ok((solu_val){.tt = SOLU_TI64, .i64 = (solu_i64)(solu_dheader(str)->size - 1)});
+    return solu_ok((solu_val){.tt = SOLU_TI64, .i64 = (solu_i64)(solu_dheader(str)->size - 1)});
 }
 static solu_call_ex string_sub(solu_state *s) {
     solu_val str = solu_get(s, 0);
@@ -18,7 +18,7 @@ static solu_call_ex string_sub(solu_state *s) {
     sf_str *sstr = str.dyn;
     solu_i64 len = (solu_i64)sstr->len;
     if (len == 0)
-        return solu_call_ex_ok(solu_dnew(s, SOLU_DSTR));
+        return solu_ok(solu_dnew(s, SOLU_DSTR));
     start.i64 = max(0, min(start.i64, len > 0 ? len - 1 : 0));
     end.i64 = max(0, min(end.i64, len > 0 ? len - 1 : 0));
 
@@ -28,7 +28,7 @@ static solu_call_ex string_sub(solu_state *s) {
     buf[slen] = 0;
     solu_val nstr = solu_dnstr(s, buf);
     free(buf);
-    return solu_call_ex_ok(nstr);
+    return solu_ok(nstr);
 }
 static solu_call_ex string_repeat(solu_state *s) {
     solu_val str = solu_get(s, 0);
@@ -52,7 +52,7 @@ static solu_call_ex string_repeat(solu_state *s) {
         p = (char *)p + size - 1;
     }
     solu_dpush(s, dh);
-    return solu_call_ex_ok((solu_val){SOLU_TDYN, .dyn = dh + 1});
+    return solu_ok((solu_val){SOLU_TDYN, .dyn = dh + 1});
 }
 
 void solu_mod_string(solu_state *s) {
