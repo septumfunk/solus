@@ -18,7 +18,7 @@ typedef struct {
 } sol_scanner;
 
 static sol_val sol_scan_str(sol_scanner *s, const sf_str str) {
-    sol_dyn p = calloc(1, sizeof(sol_dalloc) + sizeof(sf_str));
+    sol_dyn p = calloc(1, sizeof(sol_dalloc) + str.len + 1);
     sol_dalloc *dh = p;
     *dh = (sol_dalloc){
         .next = NULL,

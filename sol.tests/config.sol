@@ -4,11 +4,11 @@ let default = {
     max_i = 256
 };
 
-let cfg = unwrap_or(do {
+let cfg = attempt([]() {
     let f = io.fread("test.cfg");
     if type(f) == "err": f
     else: eval(f)
-}, do {
+}, [default]() {
     unwrap(io.fwrite("test.cfg", obj.stringify(default, false)));
     default
 });

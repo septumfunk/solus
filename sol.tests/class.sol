@@ -1,5 +1,4 @@
-let x = 1;
-class {
+{
     name = "Jessica"
     fav_food = "Meow Mix"
     color = "Brown"

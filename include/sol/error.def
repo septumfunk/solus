@@ -3,7 +3,6 @@ X(V, BREAK, "Breakpoint") \
 X(V, OOB_ACCESS, "OOB Access") \
 X(V, TYPE_MISMATCH, "Type Mismatch") \
 X(V, MEMBER_NOT_FOUND, "Member Not Found") \
-X(V, ASSERT, "Assert Panic") \
 X(V, PANIC, "Runtime Panic") \
 \
 X(P, UNEXPECTED_TOKEN, "Unexpected token") \

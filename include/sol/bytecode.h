@@ -306,13 +306,39 @@ static inline void *sol_uptr(sol_val val) { return (char *)val.dyn + sizeof(sol_
 static inline sf_str sol_typename(sol_val val) {
     if (sol_isdtype(val, SOL_DUSR))
         return sol_uheader(val)->name;
+    sol_dalloc *dh = sol_dheader(val);(void)dh;
     return sf_lit(val.tt == SOL_TDYN ? SOL_TYPE_NAMES[(int)SOL_TDYN + 1 + sol_dheader(val)->tt] : SOL_TYPE_NAMES[val.tt]);
 }
 /// Returns whether a usrtype object is of the specified type
 static inline bool sol_isutype(sol_val val, sf_str name) { return sf_str_eq(name, sol_typename(val)); }
 
 
-
+#if defined(_WIN32) || defined(_WIN64)
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+static inline double sol_timesec(void) {
+    FILETIME ft;
+    ULARGE_INTEGER uli;
+    GetSystemTimeAsFileTime(&ft);
+    uli.LowPart  = ft.dwLowDateTime;
+    uli.HighPart = ft.dwHighDateTime;
+    return (double)(uli.QuadPart - 116444736000000000ULL) / 10000000.0;
+}
+#else
+#include <time.h>
+#include <sys/time.h>
+static inline double sol_timesec(void) {
+#if defined(CLOCK_REALTIME)
+    struct timespec ts;
+    clock_gettime(CLOCK_REALTIME, &ts);
+    return (double)ts.tv_sec + (double)ts.tv_nsec / 1e9;
+#else
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+    return (double)tv.tv_sec + (double)tv.tv_usec / 1e6;
+#endif
+}
+#endif
 
 EXPORT sf_str sol_dasmi(sol_instruction ins);
 EXPORT sf_str sol_dasmp(sol_fproto *proto);

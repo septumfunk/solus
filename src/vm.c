@@ -8,6 +8,7 @@
 #include "sol/bytecode.h"
 #include "sol/solc.h"
 #include "sf/str.h"
+#include "std/std.h"
 
 sol_state *sol_state_new(void) {
     sol_dyn p = calloc(1, sizeof(sol_dalloc) + sizeof(sol_dobj));
@@ -33,6 +34,15 @@ void sol_state_free(sol_state *state) {
     sol_strcache_free(&state->strcache);
     sol_dclean(state->global);
     free(state);
+}
+
+void sol_usestd(sol_state *s) {
+    sol_mod_builtin(s);
+    sol_mod_io(s);
+    sol_mod_string(s);
+    sol_mod_obj(s);
+    sol_mod_math(s);
+    sol_mod_gc(s);
 }
 
 sol_compile_ex sol_csrc(sol_state *state, char *src) {

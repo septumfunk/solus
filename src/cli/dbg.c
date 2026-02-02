@@ -1,7 +1,7 @@
 #include "sf/math.h"
 #include "sol/bytecode.h"
 #include "sol/vm.h"
-#include "sol/cli.h"
+#include "cli/cli.h"
 #include <limits.h>
 #include <ctype.h>
 

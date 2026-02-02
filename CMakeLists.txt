@@ -11,18 +11,23 @@ project(solus C)
 add_library(${PROJECT_NAME} ${LIBRARY_TYPE}
     src/bytecode.c
     src/solc.c
-    src/std.c
     src/syntax.c
     src/vm.c
+
+    src/std/builtin.c
+    src/std/io.c
+    src/std/string.c
+    src/std/obj.c
+    src/std/_math.c # It has to be this way for headers
+    src/std/gc.c
 )
 target_include_directories(${PROJECT_NAME} PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
-
 # CLI
 set(CLI_TARGET solus_cli)
-set(CLI_SOURCES src/cli.c)
+set(CLI_SOURCES src/cli/cli.c)
 if (WIN32 OR UNIX) # ncurses/pdcurses required
-    list(APPEND CLI_SOURCES src/dbg.c)
+    list(APPEND CLI_SOURCES src/cli/dbg.c)
 endif()
 add_executable(${CLI_TARGET} ${CLI_SOURCES})
 set_target_properties(${CLI_TARGET} PROPERTIES OUTPUT_NAME "solus")

@@ -589,7 +589,6 @@ sol_cnode_ex sol_cnode(sol_compiler *c, sol_node *node, uint32_t t_reg) {
                 c->proto.dbg[jmp_false] = SOL_DBG_ENCODE(node->line, node->column);
             }
 
-            sol_ctemps(c, 1);
             return sol_cnode_ex_ok();
         }
         case SOL_ND_WHILE: {
@@ -641,7 +640,6 @@ sol_cnode_ex sol_cnode(sol_compiler *c, sol_node *node, uint32_t t_reg) {
             c->proto.dbg[jmp_break] = SOL_DBG_ENCODE(node->n_while.condition->line, node->n_while.condition->column);
             sol_cemit(c, sol_ins_a(SOL_OP_JMP, jmp_cond - c->proto.code_c));
 
-            sol_ctemps(c, 1);
             return sol_cnode_ex_ok();
         }
         case SOL_ND_RETURN: {

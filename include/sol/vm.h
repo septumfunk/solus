@@ -37,7 +37,7 @@ EXPORT sol_state *sol_state_new(void);
 EXPORT void sol_state_free(sol_state *state);
 
 /// Include the standard library defined in std.c into the global namespace
-EXPORT void sol_usestd(struct sol_state *state);
+EXPORT void sol_usestd(sol_state *state);
 EXPORT sol_compile_ex sol_csrc(sol_state *state, char *src);
 EXPORT sol_compile_ex sol_cfile(sol_state *state, char *path);
 
@@ -50,6 +50,7 @@ EXPORT sf_str sol_tostring(sol_val val);
 /// Dumps the current stack frame to an owned string.
 EXPORT sf_str sol_stackdump(sol_state *state);
 
+void sol_dpush(sol_state *s, sol_dalloc *ac);
 /// Create a new dynamic value
 EXPORT sol_val sol_dnew(sol_state *state, sol_dtype type);
 EXPORT void sol_dcollect(sol_state *state);

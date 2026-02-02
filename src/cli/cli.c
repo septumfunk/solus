@@ -1,7 +1,8 @@
+#include "sf/containers/buffer.h"
 #include "sol/bytecode.h"
 #include "sol/solc.h"
 #include "sol/vm.h"
-#include "sol/cli.h"
+#include "cli/cli.h"
 #include <sf/str.h>
 #include <sf/fs.h>
 #include <stdio.h>
@@ -16,6 +17,7 @@
 typedef enum {
     CLI_RUN,
     CLI_DBG,
+    CLI_TEST,
 } cli_mode;
 
 void cli_highlight_line(sf_str src, sf_str err, uint16_t line, uint16_t column) {
@@ -104,9 +106,92 @@ int cli_run(char *path, sf_str src) {
     return 0;
 }
 
+int cli_tf(char *path, sf_str src) {
+    printf(TUI_BLD TUI_UL "Test '%s'\n" TUI_CLR, path);
+    double start = sol_timesec();
+    int ret = cli_run(path, src);
+    printf( ret == 0 ? (TUI_BLD "Success: %fs\n" TUI_CLR) : (TUI_BLD "Failure: %fs\n" TUI_CLR), sol_timesec() - start);
+    return ret;
+}
+
+static int has_suffix_sol(const char *s) {
+    size_t n = strlen(s);
+    return n >= 4 && memcmp(s + (n - 4), ".sol", 4) == 0;
+}
+#if defined(_WIN32) || defined(_WIN64)
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+int cli_test(char *dirpath) {
+    char pattern[MAX_PATH];
+    snprintf(pattern, sizeof(pattern), "%s\\*", dirpath);
+    WIN32_FIND_DATAA fd;
+    HANDLE h = FindFirstFileA(pattern, &fd);
+    if (h == INVALID_HANDLE_VALUE) {
+        fprintf(stderr, "FindFirstFileA failed for '%s'\n", pattern);
+        return 1;
+    }
+
+    int printed_any = 0;
+    do {
+        if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
+            continue;
+        if (!has_suffix_sol(fd.cFileName))
+            continue;
+        char full[MAX_PATH];
+        snprintf(full, sizeof(full), "%s\\%s", dirpath, fd.cFileName);
+        if (printed_any++) printf("\n");
+
+        sf_fsb_ex fsb = sf_file_buffer(sf_ref(full));
+        if (!fsb.is_ok) {
+            fprintf(stderr, TUI_ERR TUI_UL "Test %s failed to open!\n" TUI_CLR, full);
+            continue;
+        }
+        cli_tf(full, sf_ref((char *)fsb.ok.ptr));
+        sf_buffer_clear(&fsb.ok);
+
+    } while (FindNextFileA(h, &fd));
+
+    FindClose(h);
+    return 0;
+}
+#else
+#include <dirent.h>
+int cli_test(char *dirpath) {
+    DIR *dir = opendir(dirpath);
+    if (!dir) {
+        perror("opendir");
+        return 1;
+    }
+
+    struct dirent *ent;
+    int printed_any = 0;
+    while ((ent = readdir(dir)) != NULL) {
+        if (strcmp(ent->d_name, ".") == 0 || strcmp(ent->d_name, "..") == 0)
+            continue;
+        if (!has_suffix_sol(ent->d_name))
+            continue;
+
+        char full[1024];
+        snprintf(full, sizeof(full), "%s/%s", dirpath, ent->d_name);
+        if (printed_any++) printf("\n");
+
+        sf_fsb_ex fsb = sf_file_buffer(sf_ref(full));
+        if (!fsb.is_ok) {
+            fprintf(stderr, TUI_ERR TUI_UL "Test %s failed to open!\n" TUI_CLR, full);
+            continue;
+        }
+        cli_tf(full, sf_ref((char *)fsb.ok.ptr));
+        sf_buffer_clear(&fsb.ok);
+    }
+
+    closedir(dir);
+    return 0;
+}
+#endif
+
 int main(int argc, char **argv) {
     if (argc == 1) {
-        printf("Usage: %s [run|dbg] <file>\n", argv[0]);
+        printf("Usage: %s [run|dbg|test] <file>\n", argv[0]);
         return 1;
     }
 
@@ -123,10 +208,19 @@ int main(int argc, char **argv) {
             return 1;
         }
         mode = CLI_DBG;
+    } else if (!strcmp(argv[1], "test")) {
+        if (argc == 2) {
+            printf("Usage: %s test <dir>\n", argv[0]);
+            return 1;
+        }
+        mode = CLI_TEST;
     } else {
-        printf("Unknown option '%s'.\nUsage: %s [run|dbg] <file>\n", argv[1], argv[0]);
+        printf("Unknown option '%s'.\nUsage: %s [run|dbg|test] <file|dir>\n", argv[1], argv[0]);
         return 1;
     }
+
+    if (mode == CLI_TEST)
+        return cli_test(argv[2]);
 
     sf_str src = cli_load_file(argv[2]);
     if (sf_isempty(src))
@@ -136,6 +230,7 @@ int main(int argc, char **argv) {
     switch (mode) {
         case CLI_RUN: ret = cli_run(argv[2], src); break;
         case CLI_DBG: ret = sol_cli_cbg(argv[2], src); break;
+        default: ret = -1; break;
     }
     sf_str_free(src);
     return ret;
