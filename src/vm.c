@@ -179,15 +179,15 @@ solu_val solu_dnstr(solu_state *s, const char *str) {
 
 char *solu_tostring(solu_val val) {
     switch (val.tt) {
-        case SOLU_TNIL: return strdup("nil");
+        case SOLU_TNIL: return _strdup("nil");
         case SOLU_TF64: return sf_str_fmt("%f", val.f64).c_str;
         case SOLU_TI64: return sf_str_fmt("%lld", val.i64).c_str;
-        case SOLU_TBOOL: return strdup(val.boolean ? "true" : "false");
+        case SOLU_TBOOL: return _strdup(val.boolean ? "true" : "false");
         case SOLU_TDYN: {
             switch (solu_dheader(val)->tt) {
                 case SOLU_DSTR:
                 case SOLU_DERR:
-                return strdup(val.dyn); break;
+                return _strdup(val.dyn); break;
                 case SOLU_DOBJ:
                 case SOLU_DFUN: return sf_str_fmt("%p", val.dyn).c_str;
                 case SOLU_DREF: return solu_tostring(*(solu_val *)val.dyn);

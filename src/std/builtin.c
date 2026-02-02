@@ -49,7 +49,7 @@ static solu_call_ex builtin_require(solu_state *s) {
     if (!import.is_ok) return import;
     if (solu_isdtype(import.ok, SOLU_DERR))
         return solu_call_ex_err((solu_call_err){
-            SOLU_ERRV_PANIC, strdup(import.ok.dyn), 0
+            SOLU_ERRV_PANIC, _strdup(import.ok.dyn), 0
         });
     return import;
 }
@@ -77,7 +77,7 @@ static solu_call_ex builtin_err(solu_state *s) {
 static solu_call_ex builtin_panic(solu_state *s) {
     solu_val err = solu_get(s, 0);
     expect_dtype(SOLU_DSTR, err);
-    return solu_call_ex_err((solu_call_err){SOLU_ERRV_PANIC, strdup(err.dyn), 0});
+    return solu_call_ex_err((solu_call_err){SOLU_ERRV_PANIC, _strdup(err.dyn), 0});
 }
 static solu_call_ex builtin_catch(solu_state *s) {
     solu_val try = solu_get(s, 0);
@@ -113,7 +113,7 @@ static solu_call_ex builtin_unwrap(solu_state *s) {
     solu_val val = solu_get(s, 0);
     if (!solu_isdtype(val, SOLU_DERR))
         return solu_call_ex_ok(val);
-    return solu_call_ex_err((solu_call_err){SOLU_ERRV_PANIC, strdup(val.dyn), 0});
+    return solu_call_ex_err((solu_call_err){SOLU_ERRV_PANIC, _strdup(val.dyn), 0});
 }
 static solu_call_ex builtin_unwrap_or(solu_state *s) {
     solu_val val = solu_get(s, 0);

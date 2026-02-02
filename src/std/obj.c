@@ -15,7 +15,7 @@ static solu_call_ex obj_set(solu_state *s) {
     char *kstr;
     if (!solu_isdtype(key, SOLU_DSTR))
         kstr = solu_tostring(key);
-    else kstr = strdup(key.dyn);
+    else kstr = _strdup(key.dyn);
     solu_dobj_set(obj.dyn, sf_own(kstr), val);
     return solu_call_ex_ok(SOLU_NIL);
 }
