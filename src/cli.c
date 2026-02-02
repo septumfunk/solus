@@ -70,7 +70,7 @@ sf_str cli_load_file(char *name) {
 int cli_run(char *path, sf_str src) {
     sol_state *s = sol_state_new();
     sol_usestd(s);
-    sol_compile_ex comp_ex = sol_cfile(s, sf_ref(path));
+    sol_compile_ex comp_ex = sol_cfile(s, path);
     if (!comp_ex.is_ok) {
         fprintf(stderr, TUI_ERR "error: %s:%u:%u\n" TUI_CLR, path, comp_ex.err.line, comp_ex.err.column);
         cli_highlight_line(src, sol_err_string(comp_ex.err.tt), comp_ex.err.line, comp_ex.err.column);
@@ -84,10 +84,10 @@ int cli_run(char *path, sf_str src) {
         uint16_t line = SOL_DBG_LINE(fun->dbg[call_ex.err.pc]), col = SOL_DBG_COL(fun->dbg[call_ex.err.pc]);
         fprintf(stderr, TUI_ERR "error: %s:%u:%u\n" TUI_CLR, path, line, col);
 
-        if (!sf_isempty(call_ex.err.panic)) {
-            sf_str full = sf_str_fmt("%s: %s", sol_err_string(call_ex.err.tt).c_str, call_ex.err.panic.c_str);
+        if (call_ex.err.panic) {
+            sf_str full = sf_str_fmt("%s: %s", sol_err_string(call_ex.err.tt).c_str, call_ex.err.panic);
             cli_highlight_line(src, full, line, col);
-            sf_str_free(call_ex.err.panic);
+            free(call_ex.err.panic);
             sf_str_free(full);
         } else
             cli_highlight_line(src, sol_err_string(call_ex.err.tt), line, col);

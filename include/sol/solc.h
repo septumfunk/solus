@@ -14,6 +14,6 @@ typedef struct {
 #define EXPECTED_E sol_compile_err
 #include <sf/containers/expected.h>
 /// Compile a sol_proto from source code
-EXPORT sol_compile_ex sol_cproto(sf_str src, uint32_t arg_c, sol_val *args, uint32_t up_c, sol_upvalue *upvals);
+EXPORT sol_compile_ex sol_cproto(char *src, uint32_t arg_c, sol_val *args, uint32_t up_c, sol_upvalue *upvals);
 
 #endif // SOLC_H

@@ -152,7 +152,7 @@ static int sol_rdcmd(void) {
         } else {
             uint16_t line = SOL_DBG_LINE(dbg.proto.dbg[e.err.pc]), column = SOL_DBG_COL(dbg.proto.dbg[e.err.pc]);
             sf_str p = sf_str_fmt(e.err.tt == SOL_ERRV_PANIC ? "panic: %s:%u:%u %s\n" : "error: %s:%u:%u %s\n", dbg.path, line, column,
-                (e.err.panic.len > 0 ? e.err.panic : sol_err_string(e.err.tt)).c_str
+                e.err.panic ? e.err.panic : sol_err_string(e.err.tt).c_str
             );
             sol_writeout(p);
             dbg.pane = SOL_DBG_OUT;
@@ -185,7 +185,7 @@ static int sol_rdcmd(void) {
         sol_writeout(sf_lit("\n"));
 
         dbg.pane = SOL_DBG_OUT;
-        sol_compile_ex comp_ex = sol_csrc(dbg.s, sf_ref(dbg.cmd + 1));
+        sol_compile_ex comp_ex = sol_csrc(dbg.s, dbg.cmd + 1);
         if (!comp_ex.is_ok) {
             sf_str e = sf_str_fmt("error: %s\n", sol_err_string(comp_ex.err.tt).c_str);
             sol_cmderr(e);
@@ -195,7 +195,7 @@ static int sol_rdcmd(void) {
         sol_call_ex call_ex = sol_call(dbg.s, &comp_ex.ok, NULL, 0);
         if (!call_ex.is_ok) {
             sf_str e = sf_str_fmt(call_ex.err.tt == SOL_ERRV_PANIC ? "panic: %s\n" : "error: %s\n",
-                (call_ex.err.tt == SOL_ERRV_PANIC ? call_ex.err.panic : sol_err_string(call_ex.err.tt)).c_str
+                call_ex.err.tt == SOL_ERRV_PANIC ? call_ex.err.panic : sol_err_string(call_ex.err.tt).c_str
             );
             sol_cmderr(e);
             sf_str_free(e);
@@ -290,7 +290,7 @@ static void sol_drawasm(void) {
         switch (sol_op_info(sol_ins_op(ins))->type) {
             case SOL_INS_A: mvwprintw(dbg.asm_w, y, 1, "%4u:%-3u %-7s %-8d", line, column, op, sol_ia_a(ins)); break;
             case SOL_INS_AB: mvwprintw(dbg.asm_w, y, 1, "%4u:%-3u %-7s %-4u %-4u", line, column, op, sol_iab_a(ins), sol_iab_b(ins)); break;
-            case SOL_INS_ABC: mvwprintw(dbg.asm_w, y, 1, "%4u:%-3u %-7s %-4u %-4u %-4u", line, column, op, sol_iabc_a(ins), sol_iabc_b(ins), sol_iabc_c(ins)); break;
+            case SOL_INS_ABC: mvwprintw(dbg.asm_w, y, 1, "%4u:%-3u %-7s %-4u %-4u %-4u", line, column, op, sol_iabc_a(ins), sol_iabc_bx(ins), sol_iabc_cx(ins)); break;
         }
     }
 
@@ -426,7 +426,7 @@ int sol_cli_cbg(char *path, sf_str src) {
     sol_dobj_set(io.ok.dyn, sf_lit("print"), sol_wrapcfun(s, sol_dbgprint, 1, 0));
     sol_dobj_set(io.ok.dyn, sf_lit("println"), sol_wrapcfun(s, sol_dbgprintln, 1, 0));
 
-    sol_compile_ex comp_ex = sol_cfile(s, sf_ref(path));
+    sol_compile_ex comp_ex = sol_cfile(s, path);
     if (!comp_ex.is_ok) {
         fprintf(stderr, TUI_ERR "error: %s:%u:%u\n" TUI_CLR, path, comp_ex.err.line, comp_ex.err.column);
         cli_highlight_line(src, sol_err_string(comp_ex.err.tt), comp_ex.err.line, comp_ex.err.column);

@@ -7,12 +7,12 @@ class {
 
     give_birth = [self]() {
         self.babies += 1;
-        io.println("A kitten is born! That's " + string(self.babies) + " babies!");
+        io.println("A kitten is born! That's " + str(self.babies) + " babies!");
     }
 
     describe = [self]() {
         io.println("My name is " + self.name + ", my fav food is " + self.fav_food +
             ", and my color is " + self.color + "!");
-        io.println("I've had " + string(self.babies) + " babies so far.");
+        io.println("I've had " + str(self.babies) + " babies so far.");
     }
 }

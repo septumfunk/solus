@@ -22,12 +22,12 @@ static sol_val sol_scan_str(sol_scanner *s, const sf_str str) {
     sol_dalloc *dh = p;
     *dh = (sol_dalloc){
         .next = NULL,
-        .size = sizeof(sf_str),
+        .size = str.len + 1,
         .tt = SOL_DSTR,
         .mark = SOL_DYN_WHITE,
     };
     p = (char *)p + sizeof(sol_dalloc);
-    *(sf_str *)p = sf_str_dup(str);
+    memcpy(p, str.c_str, str.len);
     sol_dalloc *dd = s->alloc;
     if (dd == NULL) s->alloc = dh;
     else {
@@ -919,6 +919,7 @@ sol_parse_ex sol_pobj(sol_parser *p) {
 }
 
 sol_parse_ex sol_pwhile(sol_parser *p) {
+    uint16_t line = p->tok->line, column = p->tok->column;
     ++p->tok;
 
     sol_parse_ex cond = sol_pexpr(p, 0);
@@ -947,7 +948,7 @@ sol_parse_ex sol_pwhile(sol_parser *p) {
     sol_node *n_while = malloc(sizeof(sol_node));
     *n_while = (sol_node){
         .tt = SOL_ND_WHILE,
-        .line = p->tok->line, .column = p->tok->column,
+        .line = line, .column = column,
         .n_while = {
             .condition = cond.ok,
             .stmt = stmt.ok,

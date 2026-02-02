@@ -6,6 +6,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #define SOL_VERSION "0.3"
 #define SOL_GIT "https://github.com/septumfunk/solus"
@@ -60,40 +61,53 @@ extern const char *SOL_ERR_STRINGS[SOL_ERR_COUNT];
 #define sol_err_string(err) (sf_ref(SOL_ERR_STRINGS[(err)]))
 
 
-#define MASKI(n) ((1U<<(n))-1U)
+#define MASKI(n) ((1U << (n)) - 1U)
 #define MAXARG_A ((1 << 25) - 1)
 #define sol_ins_op(i) ((i >> 26U) & MASKI(6U))
 
+/// Safely store int26 as uint26
 #define sol_ins_a_ec(a) ((uint32_t)((a) + MAXARG_A))
 #define sol_ins_a_dc(a)  ((int32_t)((a) & MASKI(26U)) - MAXARG_A)
 
+/// Pack type A instruction
 #define sol_ins_a(op, as) \
   (((uint32_t)(op) & MASKI(6U)) << 26U | (sol_ins_a_ec(as) & MASKI(26U)))
-#define sol_ia_a(i) (sol_ins_a_dc(i))
+#define sol_ia_a(i) (sol_ins_a_dc(i)) /// Retrieve operand A
 
+/// Pack type AB instruction
 #define sol_ins_ab(op, a, b) \
   ((op & MASKI(6U)) << 26U) | ((a & MASKI(8U)) << 18U) | ((b & MASKI(18U)))
-#define sol_iab_a(i) ((i >> 18U) & MASKI(8U))
-#define sol_iab_b(i) ((i) & MASKI(18U))
+#define sol_iab_a(i) ((i >> 18U) & MASKI(8U)) /// Retrieve operand A
+#define sol_iab_b(i) ((i) & MASKI(18U)) /// Retrieve operand B
 
+/// ABC allows B and C to be const
+#define RKBIT 0x100 // MSB
+#define RKIDX(x) ((x) & 0xFF) // lower 8 bits
+#define sol_const(x) (RKBIT | RKIDX(x)) // constant
+#define sol_reg(x) RKIDX(x)            // register
+/// Pack type ABC instruction
 #define sol_ins_abc(op, a, b, c) \
   ((op & MASKI(6U)) << 26U) | ((a & MASKI(8U)) << 18U) | ((b & MASKI(9U)) << 9U) | ((c & MASKI(9U)))
-#define sol_iabc_a(i) ((i >> 18U) & MASKI(8U))
-#define sol_iabc_b(i) ((i >> 9U) & MASKI(9U))
-#define sol_iabc_c(i) ((i) & MASKI(9U))
+#define sol_iabc_a(i) ((i >> 18U) & MASKI(8U)) /// Retrieve operand A
+#define sol_iabc_bx(i) ((i >> 9U) & 0xFF)  /// Retrieve operand B
+#define sol_iabc_cx(i) ((i) & 0xFF) /// Retreieve operand C
+#define sol_iabc_bk(i) (((i) >> 17U) & 1) // Const flag
+#define sol_iabc_ck(i) (((i) >> 8U) & 1)  // Const flag
 
 
-#define SOL_DBG_LINE_BITS 16
-#define SOL_DBG_COL_BITS  16
+#define SOL_DBG_LINE_BITS 16U // uint16_t
+#define SOL_DBG_COL_BITS  16U // uint16_t
 
+/// Pack debug data
 #define SOL_DBG_COL_MASK  ((1u << SOL_DBG_COL_BITS) - 1u)
 #define SOL_DBG_LINE_MASK ((1u << SOL_DBG_LINE_BITS) - 1u)
-
 #define SOL_DBG_ENCODE(line, col) \
     (((uint32_t)(line) & SOL_DBG_LINE_MASK) << SOL_DBG_COL_BITS | \
      ((uint32_t)(col)  & SOL_DBG_COL_MASK) )
 
+/// Retrieve debug line
 #define SOL_DBG_LINE(loc) (((loc) >> SOL_DBG_COL_BITS) & SOL_DBG_LINE_MASK)
+/// Retrieve debug column
 #define SOL_DBG_COL(loc)  ((loc) & SOL_DBG_COL_MASK)
 
 typedef uint32_t sol_dbg;
@@ -132,14 +146,17 @@ typedef enum {
 
     SOL_DCOUNT,
 } sol_dtype;
+/// Type names table
 extern const char *SOL_TYPE_NAMES[(size_t)SOL_TCOUNT + (size_t)SOL_DCOUNT];
 
+// Dynamic types are prefixed with d
+
 typedef enum {
-    SOL_DYN_WHITE,
-    SOL_DYN_BLACK,
-    SOL_DYN_GREEN, // Reference held by C
+    SOL_DYN_WHITE, /// Not yet marked, will be swept if it's not
+    SOL_DYN_BLACK, /// Marked valid
+    SOL_DYN_GREEN, /// Reference held by C
 } sol_dstate;
-/// Dynamic allocation header including size, type, and gc info
+/// Dynamic allocation header
 typedef struct sol_dalloc {
     struct sol_dalloc *next;
     size_t size;
@@ -147,8 +164,9 @@ typedef struct sol_dalloc {
     sol_dstate mark;
 } sol_dalloc;
 
+/// Primitive value stored in registers or on the heap
 typedef struct {
-    sol_ptype tt;
+    sol_ptype tt; // tt = Type Tag
     union {
         sol_f64 f64;
         sol_i64 i64;
@@ -220,6 +238,19 @@ void _sol_dobj_cleanup(struct sol_dobj *obj);
 #include <sf/containers/map.h>
 typedef sol_fproto *sol_dfun;
 
+#define SOL_STRCACHE_MAX 40
+
+struct sol_strcache;
+void _sol_strcache_cleanup(struct sol_strcache *self);
+#define MAP_NAME sol_strcache
+#define MAP_K sf_str
+#define MAP_V sol_dalloc *
+#define EQUAL_FN(s1, s2) (sf_str_eq(s1, s2))
+#define HASH_FN(s) (sf_str_hash(s))
+#define CLEANUP_FN _sol_strcache_cleanup
+#define KCLEANUP sf_str_free
+#include <sf/containers/map.h>
+
 typedef void (*sol_usrdel)(void *);
 typedef sf_str (*sol_usrtostring)(void *);
 typedef struct {
@@ -248,6 +279,13 @@ static inline bool sol_isdtype(sol_val value, sol_dtype dtype) {
     return value.tt == SOL_TDYN && sol_dheader(value)->tt == dtype;
 }
 
+/// Returns whether two dstrs equal
+static inline bool sol_streq(sol_val str1, sol_val str2) {
+    size_t s1 = sol_dheader(str1)->size - 1, s2 = sol_dheader(str2)->size - 1;
+    if (s1 != s2) return false;
+    return memcmp(str1.dyn, str2.dyn, s1) == 0;
+}
+
 /// Get an inner value reference if it is a reference
 static inline sol_val sol_dval(sol_val val) {
     sol_dalloc *dh = sol_dheader(val);
@@ -272,6 +310,8 @@ static inline sf_str sol_typename(sol_val val) {
 }
 /// Returns whether a usrtype object is of the specified type
 static inline bool sol_isutype(sol_val val, sf_str name) { return sf_str_eq(name, sol_typename(val)); }
+
+
 
 
 EXPORT sf_str sol_dasmi(sol_instruction ins);

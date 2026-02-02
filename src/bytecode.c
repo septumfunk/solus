@@ -29,6 +29,11 @@ void _sol_dobj_cleanup(sol_dobj *obj) {
     sol_dobj_foreach(obj, _dobj_foreach, NULL);
 }
 
+void _strcache_foreach(void *_u, sf_str k, sol_dalloc *_v) { (void)_u;(void)_v; sf_str_free(k); }
+void _sol_strcache_cleanup(sol_strcache *obj) {
+    sol_strcache_foreach(obj, _strcache_foreach, NULL);
+}
+
 sol_fproto sol_fproto_new(void) {
     return (sol_fproto){
         .tt = SOL_FPROTO_BC,
@@ -80,7 +85,7 @@ void sol_dclean(sol_val val) {
     if (!dh) return;
     switch (dh->tt) {
         case SOL_DSTR:
-        case SOL_DERR: sf_str_free(*(sf_str *)val.dyn); break;
+        case SOL_DERR: break;
         case SOL_DOBJ: sol_dobj_free(val.dyn); break;
         case SOL_DARRAY: sol_valvec_free(val.dyn); break;
         case SOL_DFUN: sol_fproto_free((sol_fproto *)val.dyn); break;
@@ -236,7 +241,7 @@ sf_str sol_dasmi(sol_instruction ins) {
         default:
         case SOL_INS_A: return sf_str_fmt("%-7s%-8d", op, sol_ia_a(ins));
         case SOL_INS_AB: return sf_str_fmt("%-7s%-4u%-4u",  op, sol_iab_a(ins), sol_iab_b(ins)); break;
-        case SOL_INS_ABC: return sf_str_fmt("%-7s%-4u%-4u%-4u",  op, sol_iabc_a(ins), sol_iabc_b(ins), sol_iabc_c(ins)); break;
+        case SOL_INS_ABC: return sf_str_fmt("%-7s%-4u%-4u%-4u",  op, sol_iabc_a(ins), sol_iabc_bx(ins), sol_iabc_cx(ins)); break;
     }
 }
 

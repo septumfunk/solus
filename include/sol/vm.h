@@ -30,6 +30,7 @@ typedef struct sol_state {
     bool dbg;
 
     sol_dalloc *alloc;
+    sol_strcache strcache;
     size_t lb, cb;
 } sol_state;
 EXPORT sol_state *sol_state_new(void);
@@ -37,8 +38,8 @@ EXPORT void sol_state_free(sol_state *state);
 
 /// Include the standard library defined in std.c into the global namespace
 EXPORT void sol_usestd(struct sol_state *state);
-EXPORT sol_compile_ex sol_csrc(sol_state *state, sf_str src);
-EXPORT sol_compile_ex sol_cfile(sol_state *state, sf_str path);
+EXPORT sol_compile_ex sol_csrc(sol_state *state, char *src);
+EXPORT sol_compile_ex sol_cfile(sol_state *state, char *path);
 
 static inline sf_str sol_cwd(sol_state *state) {
     return sf_str_dup(*(state->files.data + (state->files.count - 1)));
@@ -53,18 +54,12 @@ EXPORT sf_str sol_stackdump(sol_state *state);
 EXPORT sol_val sol_dnew(sol_state *state, sol_dtype type);
 EXPORT void sol_dcollect(sol_state *state);
 /// Shorthand for using sol_dnew and assigning a string value.
-/// This function takes ownership of the string passed, so make a copy if needed
-static inline sol_val sol_dnstr(sol_state *state, sf_str str) {
-    sol_val strv = sol_dnew(state, SOL_DSTR);
-    *(sf_str *)strv.dyn = str;
-    return strv;
-}
+sol_val sol_dnstr(sol_state *state, const char *str);
 /// Shorthand for using sol_dnew and assigning a string value.
-/// This function takes ownership of the string passed, so make a copy if needed
-static inline sol_val sol_dnerr(sol_state *state, sf_str str) {
-    sol_val strv = sol_dnew(state, SOL_DERR);
-    *(sf_str *)strv.dyn = str;
-    return strv;
+static inline sol_val sol_dnerr(sol_state *state, const char *str) {
+    sol_val err = sol_dnstr(state, str);
+    sol_dheader(err)->tt = SOL_DERR;
+    return err;
 }
 /// Hold a reference to the a dyn value for the C API.
 /// This marks the object as green, meaning collection is skipped
@@ -87,6 +82,9 @@ static inline sol_val sol_rawget(sol_state *state, uint32_t index, uint32_t fram
 }
 /// Get the value of a register from the current stack frame
 static inline sol_val sol_get(sol_state *state, uint32_t index) { return sol_rawget(state, index, state->frames.count - 1); }
+/// Get the value of a constant from the current fun
+static inline sol_val sol_getk(sol_fproto *proto, uint32_t index) { return *(proto->constants.data + index); }
+
 /// Set the value of a register in a specific stack frame.
 static inline void sol_rawset(sol_state *state, uint32_t index, sol_val val, uint32_t frame) {
     sol_valvec_set(&state->stack, state->frames.data[frame].bottom_o + index, val);
@@ -102,8 +100,8 @@ static inline sol_val sol_getg(sol_state *state, sf_str name) {
     return ex.ok;
 }
 /// Set a global value by name
-static inline void sol_setg(sol_state *state, sf_str name, sol_val value) {
-    sol_dobj_set((sol_dobj *)state->global.dyn, sf_str_dup(name), value);
+static inline void sol_setg(sol_state *state, char *name, sol_val value) {
+    sol_dobj_set((sol_dobj *)state->global.dyn, sf_str_cdup(name), value);
 }
 static inline uint32_t sol_pushframe(sol_state *state, uint32_t reg_c) {
     sol_frames_push(&state->frames, (sol_stackframe){
@@ -125,7 +123,7 @@ EXPORT sol_val sol_wrapcfun(sol_state *state, sol_cfunction fptr, uint32_t arg_c
 
 typedef struct {
     sol_error tt;
-    sf_str panic;
+    char *panic;
     size_t pc;
 } sol_call_err;
 #define EXPECTED_NAME sol_call_ex
