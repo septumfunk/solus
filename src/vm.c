@@ -76,50 +76,6 @@ sol_compile_ex sol_cfile(sol_state *state, char *path) {
     return ex;
 }
 
-sf_str sol_tostring(sol_val val) {
-    switch (val.tt) {
-        case SOL_TNIL: return sf_lit("nil");
-        case SOL_TF64: return sf_str_fmt("%f", val.f64);
-        case SOL_TI64: return sf_str_fmt("%lld", val.i64);
-        case SOL_TBOOL: return sf_str_cdup(val.boolean ? "true" : "false");
-        case SOL_TDYN: {
-            switch (sol_dheader(val)->tt) {
-                case SOL_DSTR:
-                case SOL_DERR:
-                return sf_str_cdup(val.dyn); break;
-                case SOL_DOBJ:
-                case SOL_DARRAY:
-                case SOL_DFUN: return sf_str_fmt("%p", val.dyn);
-                case SOL_DREF: return sol_tostring(*(sol_val *)val.dyn);
-
-                case SOL_DUSR: {
-                    sol_usrwrap *w = sol_uheader(val);
-                    return w->tostring ? w->tostring(sol_uptr(val)) : sf_str_fmt("%p", val.dyn);
-                }
-                case SOL_DCOUNT: return SF_STR_EMPTY;
-            }
-        }
-        default: return SF_STR_EMPTY;
-    }
-}
-
-sf_str sol_stackdump(sol_state *state) {
-    sf_str out = sf_str_cdup("====STACK DUMP====\n");
-    for (uint32_t i = 0; i < state->stack.count; ++i) {
-        sol_val val = sol_get(state, i);
-        sf_str val_s = sol_tostring(val);
-        sf_str line = sf_str_fmt(
-            val.tt == SOL_TDYN && sol_dheader(val)->tt == SOL_DSTR ? "[%llu]: %s = '%s'\n" :
-            "[%llu]: %s = %s\n", i, sol_typename(val).c_str, val_s.c_str
-        );
-        sf_str_append(&out, line);
-        sf_str_free(val_s);
-        sf_str_free(line);
-    }
-    sf_str_append(&out, sf_lit("=================="));
-    return out;
-}
-
 void sol_dpush(sol_state *s, sol_dalloc *ac) {
     sol_dalloc *dd = s->alloc;
     if (dd == NULL) s->alloc = ac;
@@ -136,7 +92,6 @@ sol_val sol_dnew(sol_state *s, sol_dtype tt) {
         case SOL_DSTR: size = 0; break;
         case SOL_DERR: size = 0; break;
         case SOL_DOBJ: size = sizeof(sol_dobj); break;
-        case SOL_DARRAY: size = sizeof(sol_valvec); break;
         case SOL_DFUN: size = sizeof(sol_fproto); break;
         case SOL_DREF: size = sizeof(sol_val); break;
 
@@ -158,7 +113,6 @@ sol_val sol_dnew(sol_state *s, sol_dtype tt) {
         case SOL_DSTR:
         case SOL_DERR: break;
         case SOL_DOBJ: *(sol_dobj *)p = sol_dobj_new(); break;
-        case SOL_DARRAY: *(sol_valvec *)p = sol_valvec_new(); break;
         case SOL_DFUN: *(sol_fproto *)p = sol_fproto_new(); break;
         case SOL_DREF: *(sol_val *)p = SOL_NIL; break;
 
@@ -168,6 +122,27 @@ sol_val sol_dnew(sol_state *s, sol_dtype tt) {
             return SOL_NIL;
         }
     }
+
+    sol_dpush(s, dh);
+    return (sol_val){ .tt = SOL_TDYN, .dyn = p };
+}
+
+sol_val sol_dnewusr(sol_state *s, size_t size, const char *name, void *value, sol_usrdel del, sol_usrtostring tostring) {
+    sol_dyn p = calloc(1, sizeof(sol_dalloc) + size);
+    sol_dalloc *dh = p;
+    *dh = (sol_dalloc){
+        .next = NULL,
+        .size = size + sizeof(sol_usrwrap),
+        .tt = SOL_DUSR,
+        .mark = SOL_DYN_WHITE,
+    };
+    p = (char *)p + sizeof(sol_dalloc);
+    memcpy(p, value, size);
+    *(sol_usrwrap *)((char *)p + size) = (sol_usrwrap){
+        .name = sf_str_cdup(name),
+        .del = del,
+        .tostring = tostring,
+    };
 
     sol_dpush(s, dh);
     return (sol_val){ .tt = SOL_TDYN, .dyn = p };
@@ -195,6 +170,32 @@ sol_val sol_dnstr(sol_state *s, const char *str) {
     if (size > 1 && size <= SOL_STRCACHE_MAX - 1)
         sol_strcache_set(&s->strcache, sf_ref(p), dh);
     return (sol_val){ .tt = SOL_TDYN, .dyn = p };
+}
+
+char *sol_tostring(sol_val val) {
+    switch (val.tt) {
+        case SOL_TNIL: return strdup("nil");
+        case SOL_TF64: return sf_str_fmt("%f", val.f64).c_str;
+        case SOL_TI64: return sf_str_fmt("%lld", val.i64).c_str;
+        case SOL_TBOOL: return strdup(val.boolean ? "true" : "false");
+        case SOL_TDYN: {
+            switch (sol_dheader(val)->tt) {
+                case SOL_DSTR:
+                case SOL_DERR:
+                return strdup(val.dyn); break;
+                case SOL_DOBJ:
+                case SOL_DFUN: return sf_str_fmt("%p", val.dyn).c_str;
+                case SOL_DREF: return sol_tostring(*(sol_val *)val.dyn);
+
+                case SOL_DUSR: {
+                    sol_usrwrap *w = sol_uheader(val);
+                    return w->tostring ? w->tostring(val.dyn) : sf_str_fmt("%p", val.dyn).c_str;
+                }
+                case SOL_DCOUNT: return NULL;
+            }
+        }
+        default: return NULL;
+    }
 }
 
 sol_val sol_dscopy(sol_state *state, sol_val val, bool kconst) {
@@ -710,7 +711,6 @@ sol_call_ex sol_call_bc(sol_state *s, sol_fproto *proto, const sol_val *args, ui
                     switch (h1->tt) {
                         case SOL_DSTR: e = lhs.dyn == rhs.dyn || strcmp(lhs.dyn, rhs.dyn) == 0; break;
                         case SOL_DOBJ:
-                        case SOL_DARRAY:
                         case SOL_DFUN: e = lhs.dyn == rhs.dyn; break;
                         default: return sol_callerr(SOL_ERRV_TYPE_MISMATCH, "Unknown Type", NULL);
                     }

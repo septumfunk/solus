@@ -23,7 +23,7 @@
       }
     },
     {
-      "name": "Run Unit Tests",
+      "name": "Run Tests",
       "request": "launch",
       "program": "${workspaceRoot}/build/solus",
       "args": ["test", "sol.tests"],
@@ -42,34 +42,10 @@
         "program": "${workspaceRoot}/build/solus.exe",
         "args": ["test", "sol.tests"],
       }
-    },
-
-    {
-      "name": "Sanitize Test",
-      "request": "launch",
-      "program": "${workspaceRoot}/build/sanitized/tests/${input:testName}",
-      "args": [],
-      "cwd": "${workspaceRoot}",
-
-      // Defaults for Linux/macOS
-      "type": "lldb",
-
-      // Windows: sanitized builds usually not supported
-      "windows": {
-        "type": "cppvsdbg",
-        "program": "${workspaceRoot}/build/sanitized/tests/${input:testName}.exe"
-      }
-    },
+    }
   ],
 
   "inputs": [
-    {
-      "id": "testName",
-      "type": "promptString",
-      "description": "Test Name",
-      "default": "default"
-    },
-
     {
       "id": "cliMode",
       "type": "promptString",

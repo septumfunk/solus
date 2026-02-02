@@ -96,11 +96,11 @@ int cli_run(char *path, sf_str src) {
         return -1;
     }
 
-    sf_str ret = sol_tostring(call_ex.ok);
+    char *ret = sol_tostring(call_ex.ok);
     printf(sol_isdtype(call_ex.ok, SOL_DSTR) ? TUI_BLD "Returned: (%s) '%s'\n" : TUI_BLD "Returned: (%s) %s\n",
-        sol_typename(call_ex.ok).c_str, ret.c_str);
+        sol_typename(call_ex.ok).c_str, ret);
 
-    sf_str_free(ret);
+    free(ret);
     sol_fproto_free(fun);
     sol_state_free(s);
     return 0;

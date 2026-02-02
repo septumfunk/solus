@@ -54,14 +54,14 @@ static void sol_writeout(sf_str s) {
 /// Hijack!
 sol_call_ex sol_dbgprint(sol_state *s) {
     sol_val to_print = sol_get(s, 0);
-    sf_str val = sol_tostring(to_print);
-    sol_writeout(val);
-    sf_str_free(val);
+    char *val = sol_tostring(to_print);
+    sol_writeout(sf_ref(val));
+    free(val);
     return sol_call_ex_ok(SOL_NIL);
 }
 sol_call_ex sol_dbgprintln(sol_state *s) {
     sol_val to_print = sol_get(s, 0);
-    sf_str val = sol_tostring(to_print);
+    sf_str val = sf_own(sol_tostring(to_print));
     sf_str_append(&val, sf_lit("\n"));
     sol_writeout(val);
     sf_str_free(val);
@@ -134,7 +134,7 @@ static int sol_rdcmd(void) {
 
         sol_call_ex e = sol_dcall(dbg.s, &dbg.proto, NULL, 0, dbg.bp);
         if (e.is_ok) {
-            sf_str ret = sol_tostring(e.ok);
+            sf_str ret = sf_own(sol_tostring(e.ok));
             sf_str p = sf_str_fmt(sol_isdtype(e.ok, SOL_DSTR) ?
                 "return: %s | '%s'\n" : "return: %s | %s\n",
                 sol_typename(e.ok).c_str, ret.c_str
@@ -200,7 +200,7 @@ static int sol_rdcmd(void) {
             sol_cmderr(e);
             sf_str_free(e);
         } else {
-            sf_str ret = sol_tostring(call_ex.ok);
+            sf_str ret = sf_own(sol_tostring(call_ex.ok));
             sf_str p = sf_str_fmt(sol_isdtype(call_ex.ok, SOL_DSTR) ?
                 "return: %s | '%s'\n" : "return: %s | %s\n",
                 sol_typename(call_ex.ok).c_str, ret.c_str
@@ -307,7 +307,7 @@ static void sol_drawstack(void) {
     for (uint32_t r = s_reg; r < dbg.s->stack.count; ++r) {
         sol_val v = sol_valvec_get(&dbg.s->stack, r);
         sf_str type = sol_typename(v);
-        sf_str val = sol_tostring(v);
+        sf_str val = sf_own(sol_tostring(v));
         mvwprintw(dbg.asm_w, y, 1, "  [%03u]: %-4s | %s", r, type.c_str, val.c_str);
         sf_str_free(val);
         ++y;

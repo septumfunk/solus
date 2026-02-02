@@ -1,5 +1,9 @@
 #include "std.h"
 
+static inline sf_str sol_cwd(sol_state *state) {
+    return sf_str_dup(*(state->files.data + (state->files.count - 1)));
+}
+
 static sol_call_ex builtin_import(sol_state *s) {
     sol_val path = sol_get(s, 0);
     expect_dtype(SOL_DSTR, path);
@@ -114,9 +118,9 @@ static sol_call_ex builtin_type(sol_state *s) {
 }
 
 static sol_call_ex builtin_str(sol_state *s) {
-    sf_str e = sol_tostring(sol_get(s, 0));
-    sol_call_ex ex = sol_call_ex_ok(sol_dnstr(s, e.c_str));
-    sf_str_free(e);
+    char *e = sol_tostring(sol_get(s, 0));
+    sol_call_ex ex = sol_call_ex_ok(sol_dnstr(s, e));
+    free(e);
     return ex;
 }
 static sol_call_ex builtin_i64(sol_state *s) {

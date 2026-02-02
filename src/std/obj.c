@@ -12,11 +12,11 @@ static sol_call_ex obj_set(sol_state *s) {
     sol_val key = sol_get(s, 1);
     sol_val val = sol_get(s, 2);
 
-    sf_str kstr;
+    char *kstr;
     if (!sol_isdtype(key, SOL_DSTR))
         kstr = sol_tostring(key);
-    else kstr = sf_str_cdup(key.dyn);
-    sol_dobj_set(obj.dyn, kstr, val);
+    else kstr = strdup(key.dyn);
+    sol_dobj_set(obj.dyn, sf_own(kstr), val);
     return sol_call_ex_ok(SOL_NIL);
 }
 static sol_call_ex obj_get(sol_state *s) {
@@ -24,17 +24,18 @@ static sol_call_ex obj_get(sol_state *s) {
     expect_dtype(SOL_DOBJ, obj);
     sol_val key = sol_get(s, 1);
 
-    sf_str kstr;
+    char *kstr;
     if (!sol_isdtype(key, SOL_DSTR))
         kstr = sol_tostring(key);
-    else kstr = sf_str_cdup(key.dyn);
+    else kstr = key.dyn;
 
-    sol_dobj_ex ex = sol_dobj_get(obj.dyn, kstr);
+    sol_dobj_ex ex = sol_dobj_get(obj.dyn, sf_ref(kstr));
     if (!ex.is_ok) {
-        sf_str estr = sf_str_fmt("Object does not contain member '%s'", kstr.c_str);
-        sf_str_free(kstr);
+        sf_str estr = sf_str_fmt("Object does not contain member '%s'", kstr);
+        free(kstr);
         return sol_call_ex_err((sol_call_err){SOL_ERRV_MEMBER_NOT_FOUND, estr.c_str, 0});
     }
+    free(kstr);
 
     return sol_call_ex_ok(ex.ok);
 }
@@ -76,7 +77,12 @@ static void _stringify_fe(void *u, sf_str key, sol_val val) {
             sf_str_append(args->out, _stringify(val.dyn, args->pretty, args->commas, args->id + 1));
             break;
         }
-        default: sf_str_append(args->out, sol_tostring(val)); break;
+        default: {
+            char *s = sol_tostring(val);
+            sf_str_append(args->out, sf_ref(s));
+            free(s);
+            break;
+        }
     }
     sf_str ec = sf_lit(" ");
     if (args->pretty && args->commas)

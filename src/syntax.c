@@ -17,6 +17,7 @@ typedef struct {
     sol_dalloc *alloc;
 } sol_scanner;
 
+// Scan string
 static sol_val sol_scan_str(sol_scanner *s, const sf_str str) {
     sol_dyn p = calloc(1, sizeof(sol_dalloc) + str.len + 1);
     sol_dalloc *dh = p;
@@ -36,8 +37,9 @@ static sol_val sol_scan_str(sol_scanner *s, const sf_str str) {
     }
     return (sol_val){ .tt = SOL_TDYN, .dyn = p };
 }
-
+// Shortcut for simple char cases
 #define sol_scancase(_c, _tt) case _c: s.current.tt = _tt; break
+// Peek the next char
 static inline bool sol_scanpeek(sol_scanner *s, char match) {
     if (s->cc + 1 >= s->src.len || s->src.c_str[s->cc+1] != match)
         return false;
@@ -192,19 +194,23 @@ sol_scan_ex sol_scan(sf_str src) {
     for (sol_opcode o = 0; o < SOL_OP_COUNT; ++o)
         sol_keywords_set(&s.keywords, sf_ref(sol_op_info(o)->mnemonic), TK_OPCODE);
 
-    sol_keywords_set(&s.keywords, sf_lit("asm"), TK_ASM);
-    sol_keywords_set(&s.keywords, sf_lit("and"), TK_AND);
-    sol_keywords_set(&s.keywords, sf_lit("or"), TK_OR);
-    sol_keywords_set(&s.keywords, sf_lit("return"), TK_RETURN);
+    // statements
+    sol_keywords_set(&s.keywords, sf_lit("let"), TK_LET);
     sol_keywords_set(&s.keywords, sf_lit("do"), TK_DO);
     sol_keywords_set(&s.keywords, sf_lit("if"), TK_IF);
     sol_keywords_set(&s.keywords, sf_lit("else"), TK_ELSE);
-    sol_keywords_set(&s.keywords, sf_lit("nil"), TK_NIL);
-    sol_keywords_set(&s.keywords, sf_lit("let"), TK_LET);
-    sol_keywords_set(&s.keywords, sf_lit("for"), TK_FOR);
     sol_keywords_set(&s.keywords, sf_lit("while"), TK_WHILE);
+    sol_keywords_set(&s.keywords, sf_lit("return"), TK_RETURN);
+    // operators
+    sol_keywords_set(&s.keywords, sf_lit("and"), TK_AND);
+    sol_keywords_set(&s.keywords, sf_lit("or"), TK_OR);
+    // literals
+    sol_keywords_set(&s.keywords, sf_lit("nil"), TK_NIL);
     sol_keywords_set(&s.keywords, sf_lit("true"), TK_TRUE);
     sol_keywords_set(&s.keywords, sf_lit("false"), TK_FALSE);
+
+    sol_keywords_set(&s.keywords, sf_lit("asm"), TK_ASM);
+
 
     sol_tokenvec_push(&tks, (sol_token){TK_SOF, SOL_NIL, s.current.line, s.current.column});
     for (; s.cc < src.len; ++s.cc) {
@@ -309,9 +315,26 @@ typedef struct {
 void sol_node_free(sol_node *tree) {
     if (!tree) return;
     switch (tree->tt) {
-        case SOL_ND_MEMBER:
-            sol_node_free(tree->n_postfix.expr);
+        // statements
+        case SOL_ND_LET:
+            sol_node_free(tree->n_let.value);
             break;
+        case SOL_ND_IF:
+            sol_node_free(tree->n_if.condition);
+            sol_node_free(tree->n_if.then_node);
+            if (tree->n_if.else_node)
+                sol_node_free(tree->n_if.else_node);
+            break;
+        case SOL_ND_WHILE:
+            sol_node_free(tree->n_while.condition);
+            sol_node_free(tree->n_while.stmt);
+            break;
+        case SOL_ND_INS:
+            break;
+        case SOL_ND_RETURN:
+            sol_node_free(tree->n_return.expr);
+            break;
+        // operators
         case SOL_ND_UNARY:
             sol_node_free(tree->n_unary.right);
             break;
@@ -319,18 +342,8 @@ void sol_node_free(sol_node *tree) {
             sol_node_free(tree->n_binary.left);
             sol_node_free(tree->n_binary.right);
             break;
-        case SOL_ND_RETURN:
-            sol_node_free(tree->n_return.expr);
-            break;
-        case SOL_ND_IDENTIFIER:
-        case SOL_ND_LITERAL:
-            break;
-        case SOL_ND_LET:
-            sol_node_free(tree->n_let.value);
-            break;
-        case SOL_ND_ASSIGN:
-            sol_node_free(tree->n_assign.expr);
-            sol_node_free(tree->n_assign.value);
+        case SOL_ND_MEMBER:
+            sol_node_free(tree->n_postfix.expr);
             break;
         case SOL_ND_CALL:
             sol_node_free(tree->n_call.identifier);
@@ -340,12 +353,16 @@ void sol_node_free(sol_node *tree) {
                 free(tree->n_call.args);
             }
             break;
-        case SOL_ND_IF:
-            sol_node_free(tree->n_if.condition);
-            sol_node_free(tree->n_if.then_node);
-            if (tree->n_if.else_node)
-                sol_node_free(tree->n_if.else_node);
+        // literals
+        case SOL_ND_IDENTIFIER:
+        case SOL_ND_LITERAL:
             break;
+        case SOL_ND_OBJ:
+            for (uint32_t i = 0; i < tree->n_obj.mem_c; ++i)
+                sol_node_free(tree->n_obj.members[i]);
+            free(tree->n_obj.members);
+            break;
+        // functions
         case SOL_ND_BLOCK:
             if (tree->n_block.stmts) {
                 for (uint32_t i = 0; i < tree->n_block.count; ++i)
@@ -361,17 +378,6 @@ void sol_node_free(sol_node *tree) {
             break;
         case SOL_ND_ASM:
             sol_node_free(tree->n_asm.n_fun);
-            break;
-        case SOL_ND_INS:
-            break;
-        case SOL_ND_WHILE:
-            sol_node_free(tree->n_while.condition);
-            sol_node_free(tree->n_while.stmt);
-            break;
-        case SOL_ND_OBJ:
-            for (uint32_t i = 0; i < tree->n_obj.mem_c; ++i)
-                sol_node_free(tree->n_obj.members[i]);
-            free(tree->n_obj.members);
             break;
     }
     free(tree);

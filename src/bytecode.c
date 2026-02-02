@@ -2,28 +2,6 @@
 #include "sf/str.h"
 #include <stdlib.h>
 
-#define MAP_NAME sol_pp
-#define MAP_K sf_str
-#define MAP_V sf_str
-#define EQUAL_FN sf_str_eq
-#define HASH_FN sf_str_hash
-#define KCLEANUP sf_str_free
-#include <sf/containers/map.h>
-#define MAP_NAME sol_cmap
-#define MAP_K sf_str
-#define MAP_V sol_i64
-#define EQUAL_FN sf_str_eq
-#define HASH_FN sf_str_hash
-#define KCLEANUP sf_str_free
-#include <sf/containers/map.h>
-#define MAP_NAME sol_opmap
-#define MAP_K sf_str
-#define MAP_V const sol_inssig *
-#define EQUAL_FN sf_str_eq
-#define HASH_FN sf_str_hash
-#define KCLEANUP sf_str_free
-#include <sf/containers/map.h>
-
 void _dobj_foreach(void *_u, sf_str k, sol_val _v) { (void)_u;(void)_v; sf_str_free(k); }
 void _sol_dobj_cleanup(sol_dobj *obj) {
     sol_dobj_foreach(obj, _dobj_foreach, NULL);
@@ -41,7 +19,6 @@ sol_fproto sol_fproto_new(void) {
         .code_c = 0,
         .reg_c = 0,
         .arg_c = 0,
-        .entry = 0,
         .dbg_res = 0, .dbg_ll = 0,
         .file_name = SF_STR_EMPTY,
         .constants = sol_valvec_new(),
@@ -55,7 +32,6 @@ sol_fproto sol_fproto_c(sol_cfunction c_fun, uint32_t arg_c, uint32_t temp_c) {
         .c_fun = c_fun,
         .reg_c = arg_c + temp_c,
         .arg_c = arg_c,
-        .entry = 0,
         .constants = sol_valvec_new(),
         .upvals = NULL,
     };
@@ -87,11 +63,37 @@ void sol_dclean(sol_val val) {
         case SOL_DSTR:
         case SOL_DERR: break;
         case SOL_DOBJ: sol_dobj_free(val.dyn); break;
-        case SOL_DARRAY: sol_valvec_free(val.dyn); break;
         case SOL_DFUN: sol_fproto_free((sol_fproto *)val.dyn); break;
         default: break;
     }
     free(dh);
+}
+
+sf_str sol_dasmi(sol_instruction ins) {
+    const char *op = sol_op_info(sol_ins_op(ins))->mnemonic;
+    switch (sol_op_info(sol_ins_op(ins))->type) {
+        default:
+        case SOL_INS_A: return sf_str_fmt("%-7s%-8d", op, sol_ia_a(ins));
+        case SOL_INS_AB: return sf_str_fmt("%-7s%-4u%-4u",  op, sol_iab_a(ins), sol_iab_b(ins)); break;
+        case SOL_INS_ABC: return sf_str_fmt("%-7s%-4u%-4u%-4u",  op, sol_iabc_a(ins), sol_iabc_bx(ins), sol_iabc_cx(ins)); break;
+    }
+}
+
+sf_str sol_dasmf(sol_fproto *p) {
+    sf_str final = SF_STR_EMPTY;
+    for (uint32_t pc = 0; pc < p->code_c; ++pc) {
+        sf_str bc = sol_dasmi(p->code[pc]);
+        uint16_t line = SOL_DBG_LINE(p->dbg[pc]), column = SOL_DBG_COL(p->dbg[pc]);
+        sf_str f = sf_str_fmt("%.2u:%-6.2u%s\n", line, column, bc.c_str);
+        sf_str_free(bc);
+        if (sf_isempty(final))
+            final = f;
+        else {
+            sf_str_append(&final, f);
+            sf_str_free(f);
+        }
+    }
+    return final;
 }
 
 const char *SOL_ERR_STRINGS[SOL_ERR_COUNT] = {
@@ -228,36 +230,8 @@ const char *SOL_TYPE_NAMES[(size_t)SOL_TCOUNT + (size_t)SOL_DCOUNT] = {
     "str",
     "err",
     "obj",
-    "array",
     "fun",
     "ref",
 
     "usr",
 };
-
-sf_str sol_dasmi(sol_instruction ins) {
-    const char *op = sol_op_info(sol_ins_op(ins))->mnemonic;
-    switch (sol_op_info(sol_ins_op(ins))->type) {
-        default:
-        case SOL_INS_A: return sf_str_fmt("%-7s%-8d", op, sol_ia_a(ins));
-        case SOL_INS_AB: return sf_str_fmt("%-7s%-4u%-4u",  op, sol_iab_a(ins), sol_iab_b(ins)); break;
-        case SOL_INS_ABC: return sf_str_fmt("%-7s%-4u%-4u%-4u",  op, sol_iabc_a(ins), sol_iabc_bx(ins), sol_iabc_cx(ins)); break;
-    }
-}
-
-sf_str sol_dasmp(sol_fproto *p) {
-    sf_str final = SF_STR_EMPTY;
-    for (uint32_t pc = 0; pc < p->code_c; ++pc) {
-        sf_str bc = sol_dasmi(p->code[pc]);
-        uint16_t line = SOL_DBG_LINE(p->dbg[pc]), column = SOL_DBG_COL(p->dbg[pc]);
-        sf_str f = sf_str_fmt("%.2u:%-6.2u%s\n", line, column, bc.c_str);
-        sf_str_free(bc);
-        if (sf_isempty(final))
-            final = f;
-        else {
-            sf_str_append(&final, f);
-            sf_str_free(f);
-        }
-    }
-    return final;
-}

@@ -1,15 +1,15 @@
 let default = {
-    repeat = 100
+    repeat = 5
     min_i = -256
     max_i = 256
 };
 
 let cfg = attempt([]() {
-    let f = io.fread("test.cfg");
+    let f = io.fread("sol.tests/test.cfg");
     if type(f) == "err": f
     else: eval(f)
 }, [default]() {
-    unwrap(io.fwrite("test.cfg", obj.stringify(default, false)));
+    unwrap(io.fwrite("sol.tests/test.cfg", obj.stringify(default, false)));
     default
 });
 

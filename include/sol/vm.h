@@ -4,56 +4,59 @@
 #include "bytecode.h"
 #include "solc.h"
 
-#define SOL_GCSTEP 1.5
-
-/// Represents a function's frame, or reserved registers, on the stack
+/// Represents a function's frame, or compiler reserved registers, on the stack
 typedef struct {
     uint32_t bottom_o;
     uint32_t size;
 } sol_stackframe;
+/// Stack frame stack (i know that sounds confusing)
 #define VEC_NAME sol_frames
 #define VEC_T sol_stackframe
 #define VSIZE_T uint32_t
 #include <sf/containers/vec.h>
-
+/// File name stack
 #define VEC_NAME sol_filenames
 #define VEC_T sf_str
 #define VSIZE_T uint32_t
 #include <sf/containers/vec.h>
 
+/// GC will collect after cb = lb * SOL_GCSTEP
+#define SOL_GCSTEP 1.5
+
 /// The main global state for the VM, responsible for the stack and any globals/caching
 typedef struct sol_state {
-    sol_valvec stack;
-    sol_frames frames;
-    sol_filenames files;
-    sol_val global;
-    bool dbg;
+    sol_valvec stack; // registers/stack
+    sol_frames frames; // stack frames
+    sol_filenames files; // filename stack
+    sol_val global; // _g
 
-    sol_dalloc *alloc;
-    sol_strcache strcache;
-    size_t lb, cb;
+    sol_dalloc *alloc; // gc allocations
+    sol_strcache strcache; // short string cache
+    size_t lb, cb; // last bytes / current bytes
 } sol_state;
+/// Create a new solus VM state
 EXPORT sol_state *sol_state_new(void);
+/// Clean up a solus VM's state
 EXPORT void sol_state_free(sol_state *state);
 
-/// Include the standard library defined in std.c into the global namespace
+/// Load the solus standard library into the global namespace.
+/// The standard library is implemented in C functions
 EXPORT void sol_usestd(sol_state *state);
+/// Compile solus source code.
+/// Returns a fun proto or an error
 EXPORT sol_compile_ex sol_csrc(sol_state *state, char *src);
+/// Compile a solus source code file.
+/// Returns a fun proto or an error
 EXPORT sol_compile_ex sol_cfile(sol_state *state, char *path);
 
-static inline sf_str sol_cwd(sol_state *state) {
-    return sf_str_dup(*(state->files.data + (state->files.count - 1)));
-}
-
-/// Converts a value to an owned string.
-EXPORT sf_str sol_tostring(sol_val val);
-/// Dumps the current stack frame to an owned string.
-EXPORT sf_str sol_stackdump(sol_state *state);
-
+/// Manually push an allocation to the gc.
+/// Not recommended for users :)
 void sol_dpush(sol_state *s, sol_dalloc *ac);
-/// Create a new dynamic value
+/// Construct a new dynamic type
 EXPORT sol_val sol_dnew(sol_state *state, sol_dtype type);
-EXPORT void sol_dcollect(sol_state *state);
+/// Constructs a dynamic usertype object, a dynamic type with extra user info.
+/// User types are managed by the GC so make sure you use sol_dhold if you don't want them to be!
+EXPORT sol_val sol_dnewusr(sol_state *state, size_t size, const char *name, void *value, sol_usrdel del, sol_usrtostring tostring);
 /// Shorthand for using sol_dnew and assigning a string value.
 sol_val sol_dnstr(sol_state *state, const char *str);
 /// Shorthand for using sol_dnew and assigning a string value.
@@ -62,6 +65,7 @@ static inline sol_val sol_dnerr(sol_state *state, const char *str) {
     sol_dheader(err)->tt = SOL_DERR;
     return err;
 }
+
 /// Hold a reference to the a dyn value for the C API.
 /// This marks the object as green, meaning collection is skipped
 static inline void sol_dhold(sol_val val) {
@@ -74,6 +78,13 @@ static inline void sol_drelease(sol_val val) {
     sol_dheader(val)->mark = SOL_DYN_WHITE;
 }
 
+/// Mark and Sweep garbage collection
+EXPORT void sol_dcollect(sol_state *state);
+
+/// Converts a value to a string.
+/// You are responsible for freeing this string
+EXPORT char *sol_tostring(sol_val val);
+
 /// Get the value of a register from a specific stack frame
 static inline sol_val sol_rawget(sol_state *state, uint32_t index, uint32_t frame) {
     sol_val val = sol_valvec_get(&state->stack, state->frames.data[frame].bottom_o + index);
@@ -81,16 +92,17 @@ static inline sol_val sol_rawget(sol_state *state, uint32_t index, uint32_t fram
         return *(sol_val *)val.dyn;
     return val;
 }
-/// Get the value of a register from the current stack frame
+/// Get the value of a register from the current stack frame.
+/// In the C API this can be used to get function arguments (0, 1, 2...)
 static inline sol_val sol_get(sol_state *state, uint32_t index) { return sol_rawget(state, index, state->frames.count - 1); }
 /// Get the value of a constant from the current fun
 static inline sol_val sol_getk(sol_fproto *proto, uint32_t index) { return *(proto->constants.data + index); }
 
-/// Set the value of a register in a specific stack frame.
+/// Set the value of a register in a specific stack frame
 static inline void sol_rawset(sol_state *state, uint32_t index, sol_val val, uint32_t frame) {
     sol_valvec_set(&state->stack, state->frames.data[frame].bottom_o + index, val);
 }
-/// Set the value of a register in the current stack frame.
+/// Set the value of a register in the current stack frame
 static inline void sol_set(sol_state *state, uint32_t index, sol_val val) {
     sol_rawset(state, index, val, state->frames.count - 1);
 }
@@ -104,6 +116,7 @@ static inline sol_val sol_getg(sol_state *state, sf_str name) {
 static inline void sol_setg(sol_state *state, char *name, sol_val value) {
     sol_dobj_set((sol_dobj *)state->global.dyn, sf_str_cdup(name), value);
 }
+/// Push a stack frame to the VM
 static inline uint32_t sol_pushframe(sol_state *state, uint32_t reg_c) {
     sol_frames_push(&state->frames, (sol_stackframe){
         state->frames.count == 0 ? 0 : state->frames.data[state->frames.count - 1].bottom_o + state->frames.data[state->frames.count - 1].size,
@@ -113,6 +126,7 @@ static inline uint32_t sol_pushframe(sol_state *state, uint32_t reg_c) {
         sol_valvec_push(&state->stack, SOL_NIL);
     return state->frames.count - 1;
 }
+/// Pop the top stack frame from the VM
 static inline void sol_popframe(sol_state *state) {
     sol_stackframe f = sol_frames_pop(&state->frames);
     for (uint32_t i = 0; i < f.size; ++i)
@@ -131,7 +145,13 @@ typedef struct {
 #define EXPECTED_O sol_val
 #define EXPECTED_E sol_call_err
 #include <sf/containers/expected.h>
+/// Call a fun proto.
+/// If you have a sol_val that refers to a fun type, you can use val.dyn for the arg `proto`.
+/// Returns a value on success, or panic on failure
 EXPORT sol_call_ex sol_call(sol_state *state, sol_fproto *proto, const sol_val *args, uint32_t arg_c);
+/// Call a fun proto with debug breakpoints.
+/// If you have a sol_val that refers to a fun type, you can use val.dyn for the arg `proto`.
+/// Returns a value on success, or panic on failure
 EXPORT sol_call_ex sol_dcall(sol_state *state, sol_fproto *proto, const sol_val *args, uint32_t arg_c, bool *bps);
 
 #endif // VM_H

@@ -4,30 +4,25 @@
 #include <stdint.h>
 #include "bytecode.h"
 
+/// Token type, or character
 typedef enum {
-    TK_SOF,
-    TK_LEFT_PAREN, TK_RIGHT_PAREN, TK_LEFT_BRACE, TK_RIGHT_BRACE,
-    TK_LEFT_BRACKET, TK_RIGHT_BRACKET,
-    TK_COMMA, TK_PERIOD, TK_MINUS, TK_PLUS, TK_SEMICOLON, TK_SLASH, TK_ASTERISK,
-
-    TK_BANG,
-    TK_EQUAL, TK_NOT_EQUAL,
-    TK_PLUS_EQUAL, TK_MINUS_EQUAL,
-    TK_DOUBLE_EQUAL,
-    TK_GREATER, TK_GREATER_EQUAL,
-    TK_LESS, TK_LESS_EQUAL,
-
+    // Statements
+    TK_LET, TK_DO, TK_IF, TK_ELSE, TK_WHILE, TK_RETURN,
+    // Operators
+    TK_PLUS, TK_MINUS, TK_BANG, TK_ASTERISK, TK_SLASH, TK_EQUAL, TK_PLUS_EQUAL,
+    TK_NOT_EQUAL, TK_MINUS_EQUAL, TK_DOUBLE_EQUAL, TK_GREATER, TK_GREATER_EQUAL,
+    TK_LESS, TK_LESS_EQUAL, TK_AND, TK_OR,
+    // Assembly
     TK_ASM, TK_OPCODE,
-
-    TK_IDENTIFIER, TK_STRING, TK_NUMBER, TK_INTEGER,
-
-    TK_DO,
-    TK_AND, TK_COLON, TK_ELSE, TK_TRUE, TK_FALSE, TK_FUN, TK_FOR, TK_IF, TK_NIL, TK_OR,
-    TK_RETURN, TK_LET, TK_WHILE,
-
-    TK_EOF
+    // Identifier/Literals
+    TK_IDENTIFIER, TK_STRING, TK_NUMBER, TK_INTEGER, TK_NIL, TK_TRUE, TK_FALSE,
+    // Misc
+    TK_LEFT_PAREN, TK_RIGHT_PAREN, TK_LEFT_BRACE, TK_RIGHT_BRACE,
+    TK_LEFT_BRACKET, TK_RIGHT_BRACKET, TK_COMMA, TK_PERIOD,
+    TK_SEMICOLON, TK_COLON, TK_SOF, TK_EOF
 } sol_tokentype;
 
+/// Token info
 typedef struct {
     sol_tokentype tt;
     sol_val value;
@@ -46,6 +41,7 @@ struct sol_tokenvec;
 #define VSIZE_T uint32_t
 #include <sf/containers/vec.h>
 
+/// Maps keyword strings to tokentype
 struct sol_keywords;
 void _sol_keywords_cleanup(struct sol_keywords *vec);
 #define MAP_NAME sol_keywords
@@ -69,28 +65,14 @@ EXPORT sol_scan_ex sol_scan(sf_str src);
 
 /// Node types that the parser is capable of producing
 typedef enum {
-    SOL_ND_BLOCK,
-
-    SOL_ND_IDENTIFIER,
-    SOL_ND_MEMBER,
-    SOL_ND_LITERAL,
-
-    SOL_ND_LET,
-    SOL_ND_ASSIGN,
-
-    SOL_ND_UNARY,
-    SOL_ND_BINARY,
-    SOL_ND_CALL,
-    SOL_ND_FUN,
-
-    SOL_ND_ASM,
-    SOL_ND_INS,
-
-    SOL_ND_IF,
-    SOL_ND_WHILE,
-    SOL_ND_RETURN,
-
-    SOL_ND_OBJ,
+    // Statements
+    SOL_ND_LET, SOL_ND_IF, SOL_ND_WHILE, SOL_ND_INS, SOL_ND_RETURN,
+    // Operators
+    SOL_ND_UNARY, SOL_ND_BINARY, SOL_ND_MEMBER, SOL_ND_CALL,
+    // Literals
+    SOL_ND_IDENTIFIER, SOL_ND_LITERAL, SOL_ND_OBJ,
+    // Functions
+    SOL_ND_BLOCK, SOL_ND_FUN, SOL_ND_ASM,
 } sol_nodetype;
 
 /// A node in the AST (Abstract Syntax Tree) that the parser exports.

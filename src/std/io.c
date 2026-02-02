@@ -2,16 +2,16 @@
 
 static sol_call_ex io_print(sol_state *s) {
     sol_val to_print = sol_get(s, 0);
-    sf_str val = sol_tostring(to_print);
-    printf("%s", val.c_str);
-    sf_str_free(val);
+    char *val = sol_tostring(to_print);
+    printf("%s", val);
+    free(val);
     return sol_call_ex_ok(SOL_NIL);
 }
 static sol_call_ex io_println(sol_state *s) {
     sol_val to_print = sol_get(s, 0);
-    sf_str val = sol_tostring(to_print);
-    printf("%s\n", val.c_str);
-    sf_str_free(val);
+    char *val = sol_tostring(to_print);
+    printf("%s\n", val);
+    free(val);
     return sol_call_ex_ok(SOL_NIL);
 }
 static sol_call_ex io_time(sol_state *s) {

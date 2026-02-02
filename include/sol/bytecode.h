@@ -8,15 +8,18 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define SOL_VERSION "0.3"
+/// Bytecode version
+#define SOL_VERSION "0.6"
+/// Git repository, hosted on GitHub for now
 #define SOL_GIT "https://github.com/septumfunk/solus"
 
+/// Bytecode instruction type
 typedef enum {
     SOL_INS_A, // A: i26 (jmp)
     SOL_INS_AB, // A: u8, B: u18 (load)
     SOL_INS_ABC, // A: u8, B: u9, C: u9 (most)
 } sol_instype;
-
+/// Bytecode Operations
 typedef enum {
     SOL_OP_LOAD,
     SOL_OP_MOVE,
@@ -48,9 +51,9 @@ typedef enum {
     SOL_OP_UNKNOWN,
     SOL_OP_COUNT,
 } sol_opcode;
+/// All instructions are packed into a 32 bit uint
 typedef uint32_t sol_instruction;
-
-
+/// Loading errors from error.def
 typedef enum {
 #define X(prefix, name, string) SOL_ERR##prefix##_##name,
 #include "error.def"
@@ -60,12 +63,11 @@ typedef enum {
 extern const char *SOL_ERR_STRINGS[SOL_ERR_COUNT];
 #define sol_err_string(err) (sf_ref(SOL_ERR_STRINGS[(err)]))
 
-
+/// Masking functions
 #define MASKI(n) ((1U << (n)) - 1U)
 #define MAXARG_A ((1 << 25) - 1)
-#define sol_ins_op(i) ((i >> 26U) & MASKI(6U))
 
-/// Safely store int26 as uint26
+/// Store int26 as uint26
 #define sol_ins_a_ec(a) ((uint32_t)((a) + MAXARG_A))
 #define sol_ins_a_dc(a)  ((int32_t)((a) & MASKI(26U)) - MAXARG_A)
 
@@ -94,6 +96,8 @@ extern const char *SOL_ERR_STRINGS[SOL_ERR_COUNT];
 #define sol_iabc_bk(i) (((i) >> 17U) & 1) // Const flag
 #define sol_iabc_ck(i) (((i) >> 8U) & 1)  // Const flag
 
+/// Retrieve opcode
+#define sol_ins_op(i) ((i >> 26U) & MASKI(6U))
 
 #define SOL_DBG_LINE_BITS 16U // uint16_t
 #define SOL_DBG_COL_BITS  16U // uint16_t
@@ -112,6 +116,7 @@ extern const char *SOL_ERR_STRINGS[SOL_ERR_COUNT];
 
 typedef uint32_t sol_dbg;
 
+/// Instruction signatures, defines how an opcode's operands should look
 typedef struct {
     sol_opcode opcode;
     const char *mnemonic;
@@ -120,6 +125,7 @@ typedef struct {
 extern const sol_inssig SOL_OP_INFO[SOL_OP_COUNT];
 #define sol_op_info(op) (&(SOL_OP_INFO[(op)]))
 
+/// Primitive types stored on the stack
 typedef enum {
     SOL_TNIL,
     SOL_TF64,
@@ -129,34 +135,32 @@ typedef enum {
 
     SOL_TCOUNT,
 } sol_ptype;
-typedef double sol_f64;
-typedef int64_t sol_i64;
-typedef bool sol_bool;
-typedef void *sol_dyn;
-
+typedef double sol_f64; // float
+typedef int64_t sol_i64; // integer
+typedef bool sol_bool; // boolean
+typedef void *sol_dyn; // dynamic
+/// Dynamic types stored on the heap.
+/// The d prefix refers to dynamic
 typedef enum {
-    SOL_DSTR,
-    SOL_DERR,
-    SOL_DOBJ,
-    SOL_DARRAY,
-    SOL_DFUN,
-    SOL_DREF,
+    SOL_DSTR, // string
+    SOL_DERR, // error
+    SOL_DOBJ, // object
+    SOL_DFUN, // function
+    SOL_DREF, // managed primitive
 
-    SOL_DUSR,
+    SOL_DUSR, // usertype
 
     SOL_DCOUNT,
 } sol_dtype;
 /// Type names table
 extern const char *SOL_TYPE_NAMES[(size_t)SOL_TCOUNT + (size_t)SOL_DCOUNT];
-
-// Dynamic types are prefixed with d
-
+/// GC State
 typedef enum {
     SOL_DYN_WHITE, /// Not yet marked, will be swept if it's not
     SOL_DYN_BLACK, /// Marked valid
     SOL_DYN_GREEN, /// Reference held by C
 } sol_dstate;
-/// Dynamic allocation header
+/// GC header
 typedef struct sol_dalloc {
     struct sol_dalloc *next;
     size_t size;
@@ -164,7 +168,7 @@ typedef struct sol_dalloc {
     sol_dstate mark;
 } sol_dalloc;
 
-/// Primitive value stored in registers or on the heap
+/// A primitive value, which may be a (dyn) reference to a GC/heap managed dynamic value
 typedef struct {
     sol_ptype tt; // tt = Type Tag
     union {
@@ -181,7 +185,7 @@ typedef struct {
 #define VEC_T sol_val
 #define VSIZE_T uint32_t
 #include <sf/containers/vec.h>
-
+/// The captures of a fun, all UP_REF upvals are converted to VAL when loaded from the const table
 typedef struct {
     sf_str name;
     enum {
@@ -197,10 +201,10 @@ typedef struct {
 
 struct sol_state;
 struct sol_call_ex;
+/// The signature of a solus C API function
 typedef struct sol_call_ex (*sol_cfunction)(struct sol_state *);
 
-/// Function prototype. This is the main unit of bytecode
-/// for the language, and the result of compilation
+/// Function prototype. This is the main unit of bytecode for the language, and the result of compilation
 typedef struct {
     enum {
         SOL_FPROTO_BC, // bytecode
@@ -208,15 +212,15 @@ typedef struct {
     } tt;
     union {
         struct {
-            uint16_t line_c;
-            uint32_t code_c, dbg_res, dbg_ll;
+            uint16_t line_c, code_c; // lines/instruction count
+            uint32_t dbg_res, dbg_ll; // debug resume/line
             sf_str file_name;
-            sol_instruction *code;
-            sol_dbg *dbg;
+            sol_instruction *code; // bytecode
+            sol_dbg *dbg; // debug info
         };
         sol_cfunction c_fun;
     };
-    uint32_t reg_c, arg_c, up_c, entry;
+    uint32_t reg_c, arg_c, up_c; // registers, args, upvals,
     sol_valvec constants;
     sol_upvalue *upvals;
 } sol_fproto;
@@ -224,8 +228,10 @@ EXPORT sol_fproto sol_fproto_new(void);
 EXPORT sol_fproto sol_fproto_c(sol_cfunction c_fun, uint32_t arg_c, uint32_t temp_c);
 EXPORT void sol_fproto_free(sol_fproto *proto);
 
+// dstr
 typedef sf_str sol_dstr;
 
+// dobj
 struct sol_dobj;
 void _sol_dobj_cleanup(struct sol_dobj *obj);
 #define MAP_NAME sol_dobj
@@ -238,8 +244,8 @@ void _sol_dobj_cleanup(struct sol_dobj *obj);
 #include <sf/containers/map.h>
 typedef sol_fproto *sol_dfun;
 
+/// Strings 40 characters or less are cached
 #define SOL_STRCACHE_MAX 40
-
 struct sol_strcache;
 void _sol_strcache_cleanup(struct sol_strcache *self);
 #define MAP_NAME sol_strcache
@@ -252,7 +258,7 @@ void _sol_strcache_cleanup(struct sol_strcache *self);
 #include <sf/containers/map.h>
 
 typedef void (*sol_usrdel)(void *);
-typedef sf_str (*sol_usrtostring)(void *);
+typedef char *(*sol_usrtostring)(void *);
 typedef struct {
     sf_str name;
     sol_usrdel del;
@@ -294,13 +300,12 @@ static inline sol_val sol_dval(sol_val val) {
     return val;
 }
 
-/// Allocates a dynamic usertype object, a dynamic type with extra user info
-EXPORT sol_val sol_dnewusr(size_t size, sf_str name, void *value, sol_usrdel del, sol_usrtostring tostring);
-
 /// Gets the usrwrap header of a usrtype object
-static inline sol_usrwrap *sol_uheader(sol_val val) { return val.dyn; }
-/// Gets the true pointer of a usrtype object
-static inline void *sol_uptr(sol_val val) { return (char *)val.dyn + sizeof(sol_usrwrap); }
+static inline sol_usrwrap *sol_uheader(sol_val val) {
+    if (!sol_isdtype(val, SOL_DUSR))
+        return NULL;
+    return (sol_usrwrap *)((char *)val.dyn + sol_dheader(val)->size);
+}
 
 /// Returns a (static) string denoting the type of a value
 static inline sf_str sol_typename(sol_val val) {
@@ -312,10 +317,10 @@ static inline sf_str sol_typename(sol_val val) {
 /// Returns whether a usrtype object is of the specified type
 static inline bool sol_isutype(sol_val val, sf_str name) { return sf_str_eq(name, sol_typename(val)); }
 
-
 #if defined(_WIN32) || defined(_WIN64)
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+/// Complicated cross platform stuff to get time in seconds
 static inline double sol_timesec(void) {
     FILETIME ft;
     ULARGE_INTEGER uli;
@@ -327,6 +332,7 @@ static inline double sol_timesec(void) {
 #else
 #include <time.h>
 #include <sys/time.h>
+/// Complicated cross platform stuff to get time in seconds
 static inline double sol_timesec(void) {
 #if defined(CLOCK_REALTIME)
     struct timespec ts;
@@ -340,7 +346,9 @@ static inline double sol_timesec(void) {
 }
 #endif
 
+/// Disassemble instruction
 EXPORT sf_str sol_dasmi(sol_instruction ins);
-EXPORT sf_str sol_dasmp(sol_fproto *proto);
+/// Disassemble fun
+EXPORT sf_str sol_dasmf(sol_fproto *proto);
 
 #endif // BYTECODE_H
