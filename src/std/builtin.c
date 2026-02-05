@@ -1,47 +1,44 @@
+#include "solus/vm.h"
 #include "std.h"
+#include <string.h>
 
 static inline sf_str solu_cwd(solu_state *state) {
-    return sf_str_dup(*(state->files.data + (state->files.count - 1)));
-}
-
-static int has_suffix_solu(const char *s) {
-    size_t n = strlen(s);
-    return (n >= 5 && memcmp(s + (n - 5), ".solu", 5) == 0) ||
-           (n >= 6 && memcmp(s + (n - 6), ".solus", 6) == 0);
+    if (state->files.count == 0) return sf_lit("./");
+    return sf_own((state->files.data + (state->files.count - 1))->c_str);
 }
 
 static solu_call_ex builtin_import(solu_state *s) {
     solu_val path = solu_get(s, 0);
     expect_dtype(SOLU_DSTR, path);
-    sf_str cwd = solu_cwd(s);
 
-    sf_str p = sf_str_fmt("%s%s", cwd.c_str, path.dyn);
-    if (!sf_file_exists(p) && !has_suffix_solu(p.c_str)) {
-        sf_str p2 = sf_str_fmt("%s.solu", p.c_str);
-        if (sf_file_exists(p2)) {
-            sf_str_free(p);
-            p = p2;
-        } else {
-            sf_str_free(p2);
-            p2 = sf_str_fmt("%s.solus", p.c_str);
-            p = p2;
-        }
-    }
-
-    if (!sf_file_exists(p)) {
-        sf_str p2 = sf_str_fmt("File '%s' not found", p.c_str);
-        sf_str_free(p);
+    char *rpath = solu_findfile(solu_cwd(s).c_str, path.dyn);
+    if (!rpath) {
+        sf_str p2 = sf_str_fmt("File '%s' not found", path.dyn);
         return solu_ok(solu_dnerr(s, p2.c_str));
     }
 
-    solu_compile_ex cm_ex = solu_cfile(s, p.c_str);
-    if (!cm_ex.is_ok)
-        return solu_ok(solu_dnerr(s, solu_err_string(cm_ex.err.tt).c_str));
-    solu_call_ex cl_ex = solu_call(s, &cm_ex.ok, NULL, 0);
-    solu_fproto_free(&cm_ex.ok);
+    solu_call_ex cl_ex;
+    if (memcmp(rpath + strlen(rpath) - 4, "solc", 4) == 0) {
+        solu_load_ex ld_ex = solu_loadfun(s, rpath);
+        free(rpath);
+        if (!ld_ex.is_ok) return solu_err(s, solu_err_string(ld_ex.err).c_str);
+        s->rcmp = true;
+        cl_ex = solu_call(s, &ld_ex.ok, NULL, 0);
+        s->rcmp = false;
+        solu_fproto_free(&ld_ex.ok);
+    } else {
+        solu_compile_ex cm_ex = solu_cfile(s, rpath);
+        free(rpath);
+        if (!cm_ex.is_ok)
+            return solu_ok(solu_dnerr(s, solu_err_string(cm_ex.err.tt).c_str));
+        cl_ex = solu_call(s, &cm_ex.ok, NULL, 0);
+        solu_fproto_free(&cm_ex.ok);
+    }
+
+
+
     if (!cl_ex.is_ok)
-            return solu_ok(solu_dnerr(s, cl_ex.err.panic
-            ));
+        return solu_ok(solu_dnerr(s, cl_ex.err.panic));
     return cl_ex;
 }
 static solu_call_ex builtin_require(solu_state *s) {

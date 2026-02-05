@@ -5,7 +5,7 @@
       "name": "Debug CLI",
       "request": "launch",
       "program": "${workspaceRoot}/build/solus",
-      "args": ["${input:cliMode}", "solus.tests/${input:scriptName}.solu"],
+      "args": ["${input:cliMode}", "solus.tests/${input:scriptName}"],
       "cwd": "${workspaceRoot}",
 
       // Defaults (Linux/macOS)
@@ -19,7 +19,7 @@
       "windows": {
         "type": "cppvsdbg",
         "program": "${workspaceRoot}/build/solus.exe",
-        "args": ["${input:cliMode}", "solus.tests/${input:scriptName}.solu"],
+        "args": ["${input:cliMode}", "solus.tests/${input:scriptName}"],
       }
     },
     {

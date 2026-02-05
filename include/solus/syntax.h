@@ -7,7 +7,7 @@
 /// Token type, or character
 typedef enum {
     // Statements
-    TK_LET, TK_DO, TK_IF, TK_ELSE, TK_WHILE, TK_RETURN,
+    TK_VAL, TK_VAR, TK_DO, TK_IF, TK_ELSE, TK_WHILE, TK_RETURN, TK_INCLUDE,
     // Operators
     TK_PLUS, TK_MINUS, TK_BANG, TK_ASTERISK, TK_SLASH, TK_EQUAL, TK_PLUS_EQUAL,
     TK_NOT_EQUAL, TK_MINUS_EQUAL, TK_DOUBLE_EQUAL, TK_GREATER, TK_GREATER_EQUAL,
@@ -66,7 +66,7 @@ EXPORT solu_scan_ex solu_scan(sf_str src);
 /// Node types that the parser is capable of producing
 typedef enum {
     // Statements
-    SOLU_ND_LET, SOLU_ND_IF, SOLU_ND_WHILE, SOLU_ND_INS, SOLU_ND_RETURN,
+    SOLU_ND_LOCAL, SOLU_ND_IF, SOLU_ND_WHILE, SOLU_ND_INS, SOLU_ND_RETURN,
     // Operators
     SOLU_ND_UNARY, SOLU_ND_BINARY, SOLU_ND_MEMBER, SOLU_ND_CALL,
     // Literals
@@ -102,7 +102,8 @@ typedef struct solu_node {
         struct { // <let> n = v; // { n = v }
             solu_val name;
             struct solu_node *value;
-        } n_let, n_member;
+            bool mut;
+        } n_local;
         struct {
             struct solu_node *expr;
             struct solu_node *value;
@@ -132,6 +133,7 @@ typedef struct solu_node {
             solu_val *args;
             uint32_t arg_c;
             struct solu_node *block;
+            bool include;
         } n_fun;
 
         struct {
@@ -143,7 +145,7 @@ typedef struct solu_node {
             solu_val opa[3];
         } n_ins;
 
-        struct { // { n_member, }
+        struct { // { n_binary, }
             struct solu_node **members;
             uint32_t mem_c;
         } n_obj;
@@ -167,6 +169,6 @@ typedef solu_node *solu_ast;
 #define EXPECTED_O solu_ast
 #define EXPECTED_E solu_parse_err
 #include <sf/containers/expected.h>
-EXPORT solu_parse_ex solu_parse(solu_tokenvec *tokens);
+EXPORT solu_parse_ex solu_parse(sf_str path, solu_scan_ex scan_ex);
 
 #endif // SYNTAX_H

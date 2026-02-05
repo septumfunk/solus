@@ -12,7 +12,7 @@
 
 solu_state *solu_state_new(void) {
     solu_dyn p = calloc(1, sizeof(solu_dalloc) + sizeof(solu_dobj));
-    *(solu_dalloc *)p = (solu_dalloc){NULL, sizeof(solu_dobj), SOLU_DOBJ, SOLU_DYN_GREEN};
+    *(solu_dalloc *)p = (solu_dalloc){NULL, sizeof(solu_dobj), 1, SOLU_DOBJ, SOLU_DYN_GREEN};
     p = (char *)p + sizeof(solu_dalloc);
     *(solu_dobj *)p = solu_dobj_new();
 
@@ -22,9 +22,11 @@ solu_state *solu_state_new(void) {
         .files = solu_filenames_new(),
         .strcache = solu_strcache_new(),
         .global = {SOLU_TDYN, .dyn = p},
-        .lb = 1<<20, .cb = 0,
+        .lb = 1<<20, .cb = 0, .nb = 0,
+
+        .collect = false,
+        .alloc = NULL,
     };
-    solu_filenames_push(&s->files, sf_lit("./"));
     return s;
 }
 
@@ -51,8 +53,8 @@ void solu_usestd(solu_state *s) {
 }
 
 solu_compile_ex solu_csrc(solu_state *state, char *src) {
-    solu_compile_ex ex = solu_cproto(src, 0, NULL, 1, (solu_upvalue[]){
-        (solu_upvalue){sf_lit("_g"), SOLU_UP_VAL, .value = state->global}
+    solu_compile_ex ex = solu_cproto(SF_STR_EMPTY, src, 0, NULL, 1, (solu_upvalue[]){
+        (solu_upvalue){sf_lit("_g"), SOLU_UP_VAL, .value = state->global, .mut = false}
     });
     ex.ok.line_c = 1;
     for (char *c = src; *c != '\0'; ++c)
@@ -72,23 +74,36 @@ solu_compile_ex solu_cfile(solu_state *state, char *path) {
         }
     }
     fsb.ok.flags = SF_BUFFER_GROW;
+    sf_buffer_seek(&fsb.ok, SF_BUFFER_END, 0);
     sf_buffer_autoins(&fsb.ok, ""); // [\0]
+    sf_buffer_seek(&fsb.ok, SF_BUFFER_START, 0);
 
-    solu_compile_ex ex = solu_csrc(state, (char *)fsb.ok.ptr);
+    char *realpath = solu_realpath(path);
+    if (!path) return solu_compile_ex_err((solu_compile_err){SOLU_ERRC_FILE_NOT_FOUND, 0, 0});
+
+    solu_compile_ex ex = solu_cproto(sf_ref(realpath), (char *)fsb.ok.ptr, 0, NULL, 1, (solu_upvalue[]){
+        (solu_upvalue){sf_lit("_g"), SOLU_UP_VAL, .value = state->global, .mut = false}
+    });
+    free(realpath);
+    ex.ok.line_c = 1;
+    for (char *c = (char *)fsb.ok.ptr; *c != '\0'; ++c)
+        if (*c == '\n') ++ex.ok.line_c;
     sf_buffer_clear(&fsb.ok);
-    if (!ex.is_ok) return ex;
     ex.ok.file_name = sf_str_cdup(path);
     return ex;
 }
 
 void solu_dpush(solu_state *s, solu_dalloc *ac) {
-    solu_dalloc *dd = s->alloc;
-    if (dd == NULL) s->alloc = ac;
-    else {
-        while (dd->next) dd = dd->next;
-        dd->next = ac;
+    if (!s->alloc) {
+        s->alloc = ac;
+        s->alloc_tail = ac;
+    } else {
+        s->alloc_tail->next = ac;
+        s->alloc_tail = ac;
     }
     s->cb += ac->size;
+    if (s->cb > s->nb)
+        s->collect = true;
 }
 
 solu_val solu_dnew(solu_state *s, solu_dtype tt) {
@@ -109,6 +124,7 @@ solu_val solu_dnew(solu_state *s, solu_dtype tt) {
     *dh = (solu_dalloc){
         .next = NULL,
         .size = size,
+        .thread = 1,
         .tt = tt,
         .mark = SOLU_DYN_WHITE,
     };
@@ -132,12 +148,13 @@ solu_val solu_dnew(solu_state *s, solu_dtype tt) {
     return (solu_val){ .tt = SOLU_TDYN, .dyn = p };
 }
 
-solu_val solu_dnewusr(solu_state *s, size_t size, const char *name, void *value, solu_usrdel del, solu_usrtostring tostring) {
-    solu_dyn p = calloc(1, sizeof(solu_dalloc) + size);
+solu_val solu_dnusr(solu_state *s, size_t size, const char *name, void *value, solu_usrdel del, solu_usrtostring tostring) {
+    solu_dyn p = calloc(1, sizeof(solu_dalloc) + size + sizeof(solu_usrwrap));
     solu_dalloc *dh = p;
     *dh = (solu_dalloc){
         .next = NULL,
         .size = size + sizeof(solu_usrwrap),
+        .thread = 1,
         .tt = SOLU_DUSR,
         .mark = SOLU_DYN_WHITE,
     };
@@ -158,7 +175,7 @@ solu_val solu_dnstr(solu_state *s, const char *str) {
     if (size <= SOLU_STRCACHE_MAX - 1) {
         solu_strcache_ex sex = solu_strcache_get(&s->strcache, sf_ref(str));
         if (sex.is_ok)
-            return (solu_val){ .tt = SOLU_TDYN, .dyn = sex.ok };
+            return (solu_val){ .tt = SOLU_TDYN, .dyn = sex.ok + 1 };
     }
 
     solu_dyn p = calloc(1, sizeof(solu_dalloc) + size);
@@ -166,6 +183,7 @@ solu_val solu_dnstr(solu_state *s, const char *str) {
     *dh = (solu_dalloc){
         .next = NULL,
         .size = size,
+        .thread = 1,
         .tt = SOLU_DSTR,
         .mark = SOLU_DYN_WHITE,
     };
@@ -207,6 +225,7 @@ solu_val solu_dscopy(solu_state *state, solu_val val, bool kconst) {
     if (val.tt != SOLU_TDYN)
         return val; // This function only needs to copy dynamic constants
 
+    solu_dalloc *ov = solu_dheader(val); (void)ov;
     solu_dalloc *ac = malloc(sizeof(solu_dalloc) + solu_dheader(val)->size);
     *ac = *(solu_dheader(val));
     ac->size = solu_dheader(val)->size;
@@ -236,10 +255,11 @@ solu_val solu_dscopy(solu_state *state, solu_val val, bool kconst) {
                 } else {
                     solu_val nv;
                     if (upv.tt == SOLU_UP_REF) {
-                        solu_val cv = solu_rawget(state, upv.ref, upv.frame);
+                        uint32_t frame = state->rcmp ? state->frames.count - 1 - upv.frame : upv.frame;
+                        solu_val cv = solu_rawget(state, upv.ref, frame);
                         if (cv.tt != SOLU_TDYN) {
                             nv = solu_dnew(state, SOLU_DREF);
-                            solu_rawset(state, upv.ref, nv, upv.frame);
+                            solu_rawset(state, upv.ref, nv, frame);
                             *(solu_val *)nv.dyn = cv;
                         } else nv = cv;
                     } else nv = upv.value;
@@ -248,6 +268,7 @@ solu_val solu_dscopy(solu_state *state, solu_val val, bool kconst) {
                         sf_str_dup(upv.name),
                         SOLU_UP_VAL,
                         .value = nv,
+                        .mut = upv.mut,
                     };
                 }
             }
@@ -312,9 +333,9 @@ void solu_dmarkref(solu_val *r) {
     }
 }
 
-void solu_dcollect(solu_state *state) {
-    state->lb = 0;
-    for (solu_val *r = state->stack.data; r < state->stack.data + state->stack.count; ++r) {
+void solu_dcollect(solu_state *s) {
+    s->lb = 0;
+    for (solu_val *r = s->stack.data; r < s->stack.data + s->stack.count; ++r) {
         if (r->tt == SOLU_TDYN) {
             solu_dalloc *ac = solu_dheader(*r);
             ac->mark = SOLU_DYN_BLACK;
@@ -327,22 +348,27 @@ void solu_dcollect(solu_state *state) {
                 solu_dmarkref(r);
         }
     }
-    solu_dobj_foreach(state->global.dyn, solu_dcollect_obj, NULL);
+    solu_dobj_foreach(s->global.dyn, solu_dcollect_obj, NULL);
 
-    solu_dalloc **ac = &state->alloc;
+    solu_dalloc **ac = &s->alloc;
+    solu_dalloc *last = NULL;
     while (*ac) {
         if ((*ac)->mark == SOLU_DYN_WHITE) {
             solu_dalloc *dead = *ac;
             *ac = dead->next;
-            if (dead->tt == SOLU_DSTR)
-                solu_strcache_delete(&state->strcache, sf_ref((char *)(dead + 1)));
+            if (dead->tt == SOLU_DSTR && dead->size < SOLU_STRCACHE_MAX)
+                solu_strcache_delete(&s->strcache, sf_ref((char *)(dead + 1)));
             solu_dclean((solu_val){SOLU_TDYN, .dyn = dead + 1});
             continue;
         }
-        state->lb += (*ac)->size;
+        last = *ac;
+        s->lb += (*ac)->size;
         (*ac)->mark = SOLU_DYN_WHITE;
         ac = &(*ac)->next;
     }
+    s->nb = (size_t)((double)s->lb * SOLU_GCSTEP);
+    s->cb = s->lb;
+    s->alloc_tail = last;
 }
 
 #define CAT(a, b) a##b
@@ -370,8 +396,10 @@ void solu_dcollect(solu_state *state) {
         proto->dbg_ll = SOLU_DBG_LINE(proto->dbg[pc]); \
         ++pc; \
         \
-        if (s->cb > (size_t)((double)s->lb * SOLU_GCSTEP)) /* Collect on GC threshold reached */\
+        if (s->collect) { \
             solu_dcollect(s); \
+            s->collect = false; \
+        } \
         goto *computed[solu_ins_op(ins)]; /* jump up jump up and get down */\
     } while (0)
 #   pragma GCC diagnostic push
@@ -389,6 +417,262 @@ solu_val solu_wrapcfun(solu_state *state, solu_cfunction fptr, uint32_t arg_c, u
     return fun;
 }
 
+sf_buffer solu_fproto_serialize(solu_fproto *proto) {
+    sf_buffer buf = sf_buffer_grow();
+
+    sf_buffer_insert(&buf, "[SOLC]", 6);
+    sf_buffer_insert(&buf, SOLU_VERSION, sizeof(SOLU_VERSION) - 1);
+    sf_buffer_autoins(&buf, &(uint64_t){htonll(proto->file_name.len)});
+    sf_buffer_insert(&buf, proto->file_name.c_str, proto->file_name.len);
+    sf_buffer_autoins(&buf, &(uint16_t){htons(proto->code_c)});
+    sf_buffer_autoins(&buf, &(uint16_t){htons(proto->line_c)});
+
+    sf_buffer_autoins(&buf, &(uint32_t){htonl(proto->constants.count)});
+    for (solu_val *k = proto->constants.data; k < proto->constants.data + proto->constants.count; ++k) {
+        if (solu_isdtype(*k, SOLU_DFUN)) {
+            sf_buffer_autoins(&buf, &(uint32_t){htonl(SOLU_TCOUNT)}); // fun
+            sf_buffer bfun = solu_fproto_serialize(k->dyn);
+            sf_buffer_insert(&buf, bfun.ptr, bfun.size);
+            sf_buffer_clear(&bfun);
+            continue;
+        }
+        sf_buffer_autoins(&buf, &(uint32_t){htonl(k->tt)});
+        switch (k->tt) {
+            case SOLU_TI64:
+            case SOLU_TF64:
+                sf_buffer_autoins(&buf, &(uint64_t){htonll(k->i64)});
+                break;
+            case SOLU_TBOOL:
+                sf_buffer_autoins(&buf, &k->boolean);
+                break;
+            case SOLU_TDYN: { // str
+                size_t s = solu_dheader(*k)->size - 1;
+                if (s == 0) break;
+                sf_buffer_autoins(&buf, &(uint64_t){htonll(s)});
+                sf_buffer_insert(&buf, k->dyn, s);
+                break;
+            }
+            default: break; // nil
+        }
+    }
+
+    sf_buffer_autoins(&buf, &(uint32_t){htonl(proto->reg_c)});
+    sf_buffer_autoins(&buf, &(uint32_t){htonl(proto->arg_c)});
+    uint32_t upc = proto->up_c;
+    if (upc > 0 && sf_str_eq(proto->upvals[0].name, sf_lit("_g")))
+        --upc;
+    sf_buffer_autoins(&buf, &(uint32_t){htonl(upc)});
+    for (solu_upvalue *u = proto->upvals + (proto->up_c - upc); u < proto->upvals + proto->up_c; ++u) {
+        sf_buffer_autoins(&buf, &(uint64_t){htonll(u->name.len)});
+        sf_buffer_insert(&buf, u->name.c_str, u->name.len);
+        sf_buffer_autoins(&buf, &(uint32_t){htonl(u->frame)});
+        sf_buffer_autoins(&buf, &(uint32_t){htonl(u->ref)});
+        sf_buffer_autoins(&buf, &u->mut);
+    }
+
+    for (uint16_t i = 0; i < proto->code_c; ++i)
+        sf_buffer_autoins(&buf, &(uint32_t){htonl(proto->code[i])});
+    for (uint16_t i = 0; i < proto->code_c; ++i)
+        sf_buffer_autoins(&buf, &(uint32_t){htonl(proto->dbg[i])});
+
+    return buf;
+}
+
+void solu_savefun(solu_fproto *proto, char *path) {
+    if (proto->tt != SOLU_FPROTO_BC)
+        return;
+    sf_buffer buf = solu_fproto_serialize(proto);
+    FILE *f = fopen(path, "wb");
+    if (!f) return;
+    fwrite(buf.ptr, 1, buf.size, f);
+    fclose(f);
+}
+
+solu_load_ex _solu_loadfun(solu_state *s, sf_buffer *buf) {
+    char *name = NULL;
+    solu_valvec kvec = solu_valvec_new();
+    solu_fproto proto = solu_fproto_new();
+    solu_upvalue *upvals = NULL;
+
+    if (memcmp(buf->head, "[SOLC]", 6) != 0) return solu_load_ex_err(SOLU_ERRV_CORRUPT);
+    buf->head += 6;
+    if (memcmp(buf->head, SOLU_VERSION, sizeof(SOLU_VERSION) - 1) != 0) return solu_load_ex_err(SOLU_ERRV_OLD_BC);
+    buf->head += sizeof(SOLU_VERSION) - 1;
+
+    uint64_t n_len;
+    sf_buffer_ex ex = sf_buffer_autoread(buf, &n_len);
+    if (!ex.is_ok) return solu_load_ex_err(SOLU_ERRV_CORRUPT);
+    n_len = ntohll(n_len);
+    if (n_len > 1024) return solu_load_ex_err(SOLU_ERRV_CORRUPT);
+
+    if (n_len > 0) {
+        name = malloc(n_len + 1);
+        ex = sf_buffer_read(buf, name, n_len);
+        if (!ex.is_ok) goto corrupt;
+        name[n_len] = 0;
+    }
+    proto.file_name = name ? sf_own(name) : SF_STR_EMPTY;
+
+    ex = sf_buffer_autoread(buf, &proto.code_c);
+    if (!ex.is_ok) goto corrupt;
+    proto.code_c = ntohs(proto.code_c);
+    ex = sf_buffer_autoread(buf, &proto.line_c);
+    if (!ex.is_ok) goto corrupt;
+    proto.line_c = ntohs(proto.line_c);
+
+    uint32_t kcount;
+    ex = sf_buffer_autoread(buf, &kcount);
+    if (!ex.is_ok) goto corrupt;
+    kcount = ntohl(kcount);
+    for (uint32_t k = 0; k < kcount; ++k) {
+        uint32_t tt;
+        ex = sf_buffer_autoread(buf, &tt);
+        if (!ex.is_ok) goto corrupt;
+        tt = ntohl(tt);
+
+        solu_val val = {tt, .dyn = NULL};
+        switch (tt) {
+            case SOLU_TDYN: { // str
+                uint64_t slen;
+                ex = sf_buffer_autoread(buf, &slen);
+                if (!ex.is_ok) goto corrupt;
+                slen = ntohll(slen);
+
+                char *temp = slen == 0 ? "" : malloc(slen + 1);
+                if (!temp) goto corrupt;
+                ex = sf_buffer_read(buf, temp, slen);
+                if (!ex.is_ok) { if (slen) free(temp); goto corrupt; }
+                temp[slen] = 0;
+
+                solu_dyn p = calloc(1, sizeof(solu_dalloc) + slen + 1);
+                solu_dalloc *dh = p;
+                *dh = (solu_dalloc){
+                    .next = NULL,
+                    .size = slen + 1,
+                    .thread = 1,
+                    .tt = SOLU_DSTR,
+                    .mark = SOLU_DYN_GREEN,
+                };
+                p = (char *)p + sizeof(solu_dalloc);
+                memcpy(p, temp, slen + 1);
+                val.dyn = p;
+                if (slen) free(temp);
+                break;
+            }
+            case SOLU_TI64:
+            case SOLU_TF64:
+                ex = sf_buffer_autoread(buf, &val.i64);
+                if (!ex.is_ok) goto corrupt;
+                val.i64 = (int64_t)ntohll(val.i64);
+                break;
+            case SOLU_TBOOL:
+                ex = sf_buffer_autoread(buf, &val.boolean);
+                if (!ex.is_ok) goto corrupt;
+                break;
+            case SOLU_TCOUNT: { // fun
+                solu_load_ex lex = _solu_loadfun(s, buf);
+                if (!lex.is_ok) {
+                    if (name) free(name);
+                    for (solu_val *k = kvec.data; k < kvec.data + kvec.count; ++k)
+                        solu_dclean(*k);
+                    solu_valvec_free(&kvec);
+                    return lex;
+                }
+                solu_dyn p = calloc(1, sizeof(solu_dalloc) + sizeof(solu_fproto));
+                solu_dalloc *dh = p;
+                *dh = (solu_dalloc){
+                    .next = NULL,
+                    .size = sizeof(solu_fproto),
+                    .thread = 1,
+                    .tt = SOLU_DFUN,
+                    .mark = SOLU_DYN_GREEN,
+                };
+                p = (char *)p + sizeof(solu_dalloc);
+                val = (solu_val){SOLU_TDYN, .dyn = p};
+                *(solu_fproto *)val.dyn = lex.ok;
+                break;
+            }
+            default: break; // nil
+        }
+        solu_valvec_push(&kvec, val);
+    }
+
+    ex = sf_buffer_autoread(buf, &proto.reg_c);
+    if (!ex.is_ok) goto corrupt;
+    proto.reg_c = ntohl(proto.reg_c);
+    ex = sf_buffer_autoread(buf, &proto.arg_c);
+    if (!ex.is_ok) goto corrupt;
+    proto.arg_c = ntohl(proto.arg_c);
+    ex = sf_buffer_autoread(buf, &proto.up_c);
+    if (!ex.is_ok) goto corrupt;
+    proto.up_c = ntohl(proto.up_c) + 1;
+    upvals = calloc(proto.up_c, sizeof(solu_upvalue));
+    upvals[0] = (solu_upvalue){sf_lit("_g"), SOLU_UP_VAL, .value = s->global, .mut = false};
+    for (uint32_t u = 1; u < proto.up_c; ++u) {
+        uint64_t slen;
+        ex = sf_buffer_autoread(buf, &slen);
+        if (!ex.is_ok) goto corrupt;
+        slen = ntohll(slen);
+        if (slen == 0) goto corrupt;
+
+        char *temp = malloc(slen + 1);
+        if (!temp) goto corrupt;
+        ex = sf_buffer_read(buf, temp, slen);
+        if (!ex.is_ok) { free(temp); goto corrupt; }
+        temp[slen] = 0;
+
+        uint32_t frame, ref;
+        bool mut;
+        ex = sf_buffer_autoread(buf, &frame);
+        if (!ex.is_ok) { free(temp); goto corrupt; }
+        frame = ntohl(frame);
+        ex = sf_buffer_autoread(buf, &ref);
+        if (!ex.is_ok) { free(temp); goto corrupt; }
+        ref = ntohl(ref);
+        ex = sf_buffer_autoread(buf, &mut);
+        if (!ex.is_ok) { free(temp); goto corrupt; }
+        upvals[u] = (solu_upvalue){sf_own(temp), SOLU_UP_REF, .ref = ref, frame, };
+    }
+
+    proto.code = malloc(sizeof(uint32_t) * proto.code_c);
+    proto.dbg = malloc(sizeof(uint32_t) * proto.code_c);
+
+    for (uint16_t i = 0; i < proto.code_c; ++i) {
+        ex = sf_buffer_autoread(buf, proto.code + i);
+        proto.code[i] = ntohl(proto.code[i]);
+        if (!ex.is_ok) goto corrupt;
+    }
+    for (uint16_t i = 0; i < proto.code_c; ++i) {
+        ex = sf_buffer_autoread(buf, proto.dbg + i);
+        proto.dbg[i] = ntohl(proto.dbg[i]);
+        if (!ex.is_ok) goto corrupt;
+    }
+
+    proto.constants = kvec;
+    proto.upvals = upvals;
+    return solu_load_ex_ok(proto);
+corrupt:
+    if (name) free(name);
+    for (solu_val *k = kvec.data; k < kvec.data + kvec.count; ++k)
+        solu_dclean(*k);
+    solu_valvec_free(&kvec);
+    if (upvals) {
+        for (uint32_t u = 0; u < proto.up_c; ++u)
+            sf_str_free(upvals[u].name);
+        free(upvals);
+    }
+    if (proto.code) {
+        free(proto.code);
+        free(proto.dbg);
+    }
+    return solu_load_ex_err(SOLU_ERRV_CORRUPT);
+}
+
+solu_load_ex solu_loadfun(solu_state *state, char *path) {
+    sf_fsb_ex fsb = sf_file_buffer(sf_ref(path));
+    if (!fsb.is_ok) return solu_load_ex_err(SOLU_ERRC_FILE_NOT_FOUND);
+    return _solu_loadfun(state, &fsb.ok);
+}
 
 static sf_str solu_dirname(sf_str path) {
     const char *slash = strrchr(path.c_str, '/');
@@ -421,7 +705,7 @@ solu_call_ex solu_call_cfun(solu_state *state, solu_fproto *proto, const solu_va
 
 solu_call_ex solu_call_bc(solu_state *s, solu_fproto *proto, const solu_val *args, uint32_t arg_c, bool *bps) {
     if (proto->tt == SOLU_FPROTO_BC && !sf_isempty(proto->file_name))
-        solu_filenames_push(&s->files, solu_dirname(proto->file_name));
+        solu_filenames_push(&s->files, sf_own(solu_realdir(proto->file_name.c_str)));
     #ifdef COMPUTE_GOTOS
     void *computed[] = {
         LABEL(SOLU_OP_LOAD),
@@ -481,8 +765,10 @@ solu_call_ex solu_call_bc(solu_state *s, solu_fproto *proto, const solu_val *arg
         }
         proto->dbg_ll = SOLU_DBG_LINE(proto->dbg[pc]);
         ++pc;
-        if (s->cb > (size_t)((double)s->lb * SOLU_GCSTEP))
+        if (s->collect) {
             solu_dcollect(s);
+            s->collect = false;
+        }
         switch (solu_ins_op(ins)) {
     #endif
         CASE(SOLU_OP_LOAD) {
@@ -519,6 +805,7 @@ solu_call_ex solu_call_bc(solu_state *s, solu_fproto *proto, const solu_val *arg
                 fex = solu_call(s, f, argv, argc);
                 free(argv);
             } else fex = solu_call(s, f, NULL, 0);
+
             if (!fex.is_ok) {
                 fex.err.pc = pc - 1;
                 return fex;
@@ -899,14 +1186,22 @@ ret: {}
 }
 
 solu_call_ex solu_call(solu_state *state, solu_fproto *proto, const solu_val *args, uint32_t arg_c) {
-    if (proto->tt == SOLU_FPROTO_BC)
-        return solu_call_bc(state, proto, args, arg_c, NULL);
+    if (proto->tt == SOLU_FPROTO_BC) {
+        solu_call_ex ex = solu_call_bc(state, proto, args, arg_c, NULL);
+        if (!ex.is_ok)
+            sf_str_free(solu_filenames_pop(&state->files));
+        return ex;
+    }
     return solu_call_cfun(state, proto, args, arg_c);
 }
 
 solu_call_ex solu_dcall(solu_state *state, solu_fproto *proto, const solu_val *args, uint32_t arg_c, bool *bps) {
-    if (proto->tt == SOLU_FPROTO_BC)
-        return solu_call_bc(state, proto, args, arg_c, bps);
+    if (proto->tt == SOLU_FPROTO_BC) {
+        solu_call_ex ex = solu_call_bc(state, proto, args, arg_c, bps);
+        if (!ex.is_ok)
+            sf_str_free(solu_filenames_pop(&state->files));
+        return ex;
+    }
     return solu_call_cfun(state, proto, args, arg_c);
 }
 

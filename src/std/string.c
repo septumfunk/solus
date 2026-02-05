@@ -13,7 +13,7 @@ static solu_call_ex string_sub(solu_state *s) {
     solu_val end = solu_get(s, 2);
     expect_type(SOLU_TI64, end);
     if (end.i64 < start.i64)
-        return solu_serr(SOLU_ERRV_PANIC, _strdup("end cannot be before start"));
+        return solu_panic(_strdup("end cannot be before start"));
 
     sf_str *sstr = str.dyn;
     solu_i64 len = (solu_i64)sstr->len;
@@ -43,6 +43,7 @@ static solu_call_ex string_repeat(solu_state *s) {
     *dh = (solu_dalloc){
         .next = NULL,
         .size = strlen,
+        .thread = 1,
         .tt = SOLU_DSTR,
         .mark = SOLU_DYN_WHITE,
     };

@@ -1,4 +1,5 @@
 X(V, CORRUPT, "Corrupt bytecode") \
+X(V, OLD_BC, "Old bytecode version") \
 X(V, BREAK, "Breakpoint") \
 X(V, OOB_ACCESS, "OOB Access") \
 X(V, TYPE_MISMATCH, "Type Mismatch") \
@@ -11,6 +12,7 @@ X(P, NUMBER_FORMAT, "Ill-formatted number") \
 X(P, NO_TOKENS, "Parser expected to recieve tokens from scanner") \
 X(P, EXPECTED_EXPRESSION, "Expected expression") \
 X(P, EXPECTED_IDENTIFIER, "Expected identifier") \
+X(P, EXPECTED_LITERAL, "Expected str literal") \
 X(P, EXPECTED_LPAREN, "Expected '('") \
 X(P, EXPECTED_RPAREN, "Expected ')'") \
 X(P, EXPECTED_RBRACE, "Expected ']'") \
@@ -27,10 +29,15 @@ X(P, EXPECTED_ARGS, "Expected argument list") \
 X(P, EXPECTED_ASM, "Expected assembly") \
 X(P, EXPECTED_INTEGER, "Expected i64") \
 X(P, UNEXPECTED_ASM, "Unexpected assembly") \
+X(P, NEGATIVE_REGISTERS, "Negative registers are not allowed") \
+X(P, EXPECTED_SHARED, "Unexpected allocation error") \
 X(P, UNREACHABLE_CODE, "Early return causes unreachable code") \
-X(P, UNEXPECTED_IMPL_RETURN, "Unexpected implicit return causes unreachable code. Missing ';'?") \
+X(P, UNEXPECTED_IDENTIFIER, "Unexpected identifier. Missing ';'?") \
 X(P, UNTERMINATED_ARGS, "Unterminated argument list") \
 X(P, UNTERMINATED_CAPTURES, "Unterminated capture list") \
+X(P, INCLUDE_NOT_FOUND, "Included module not found") \
+X(P, CIRCULAR_INCLUDE, "Module includes itself (circular inclusion)") \
+X(P, EXPECTED_SOURCE, "Expected source code, found solc") \
 \
 X(C, FILE_NOT_FOUND, "File not found") \
 X(C, FILE_UNREADABLE, "File unreadable") \
@@ -40,6 +47,7 @@ X(C, EXPECTED_FUN, "Expected function") \
 X(C, EXPECTED_EXPRESSION, "Expected expression") \
 X(C, UNKNOWN_LOCAL, "Unknown local variable") \
 X(C, REDEFINED_LOCAL, "Redefined local variable") \
+X(C, REASSIGNED_VAL, "Attempted to reassign a value. vals are immutable, did you mean var?") \
 X(C, UNKNOWN_OPERATION, "Unknown operation") \
 X(C, UNUSED_EVALUATION, "Unused (discarded) evaluation") \
 X(C, INVALID_ASSIGN, "Malformed assignment") \

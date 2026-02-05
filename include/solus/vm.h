@@ -3,6 +3,7 @@
 
 #include "bytecode.h"
 #include "compiler.h"
+#include <_stdlib.h>
 #include <stdarg.h>
 
 /// Represents a function's frame, or compiler reserved registers, on the stack
@@ -31,9 +32,12 @@ typedef struct solu_state {
     solu_filenames files; // filename stack
     solu_val global; // _g
 
-    solu_dalloc *alloc; // gc allocations
+    bool collect;
+    solu_dalloc *alloc, *alloc_tail; // gc allocations
     solu_strcache strcache; // short string cache
-    size_t lb, cb; // last bytes / current bytes
+    size_t lb, cb, nb; // last bytes, current bytes, next bytes
+
+    bool rcmp; // Special flag for compiled files to reset the frame count
 } solu_state;
 /// Create a new soluus VM state
 EXPORT solu_state *solu_state_new(void);
@@ -57,7 +61,7 @@ void solu_dpush(solu_state *s, solu_dalloc *ac);
 EXPORT solu_val solu_dnew(solu_state *state, solu_dtype type);
 /// Constructs a dynamic usertype object, a dynamic type with extra user info.
 /// User types are managed by the GC so make sure you use solu_dhold if you don't want them to be!
-EXPORT solu_val solu_dnewusr(solu_state *state, size_t size, const char *name, void *value, solu_usrdel del, solu_usrtostring tostring);
+EXPORT solu_val solu_dnusr(solu_state *state, size_t size, const char *name, void *value, solu_usrdel del, solu_usrtostring tostring);
 /// Shorthand for using solu_dnew and assigning a string value.
 solu_val solu_dnstr(solu_state *state, const char *str);
 /// Shorthand for using solu_dnew and assigning a string value.
@@ -134,8 +138,15 @@ static inline void solu_popframe(solu_state *state) {
         solu_valvec_pop(&state->stack);
 }
 
+#define EXPECTED_NAME solu_load_ex
+#define EXPECTED_O solu_fproto
+#define EXPECTED_E solu_error
+#include <sf/containers/expected.h>
+
 /// Wrap a c function into a fun and insert it into a dynamic val
 EXPORT solu_val solu_wrapcfun(solu_state *state, solu_cfunction fptr, uint32_t arg_c, uint32_t temp_c);
+EXPORT void solu_savefun(solu_fproto *proto, char *path);
+EXPORT solu_load_ex solu_loadfun(solu_state *state, char *path);
 
 typedef struct {
     solu_error tt;

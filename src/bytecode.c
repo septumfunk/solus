@@ -1,6 +1,8 @@
 #include "solus/bytecode.h"
+#include "sf/containers/buffer.h"
 #include "sf/str.h"
 #include <stdlib.h>
+#include <sys/_endian.h>
 
 void _dobj_foreach(void *_u, sf_str k, solu_val _v) { (void)_u;(void)_v; sf_str_free(k); }
 void _solu_dobj_cleanup(solu_dobj *obj) {
@@ -67,6 +69,111 @@ void solu_dclean(solu_val val) {
         default: break;
     }
     free(dh);
+}
+
+char *solu_realdir(const char *rp) {
+    if (!rp) return NULL;
+
+    char out[4096];
+    size_t len = strlen(rp);
+    if (len == 0)
+        return strdup(".");
+    if (len >= sizeof(out))
+        return NULL;
+    memcpy(out, rp, len + 1);
+
+    while (len > 0 && (out[len - 1] == '/' || out[len - 1] == '\\')) {
+        if (len == 1 && (out[0] == '/' || out[0] == '\\'))
+            break;
+    #ifdef _WIN32
+        if (len == 3 && out[1] == ':' &&
+            (out[2] == '/' || out[2] == '\\'))
+            break;
+    #endif
+        out[--len] = '\0';
+    }
+
+    char *last_slash = NULL;
+    for (char *p = out; *p; p++)
+        if (*p == '/' || *p == '\\')
+            last_slash = p;
+    if (!last_slash)
+        return strdup(".");
+    if (last_slash == out) {
+        out[1] = '\0';
+        return strdup(out);
+    }
+
+#ifdef _WIN32
+    if (last_slash == out + 2 && out[1] == ':') {
+        out[3] = out[2];
+        out[2] = '\0';
+        return strdup(out);
+    }
+#endif
+
+    *last_slash = '\0';
+    return strdup(out);
+}
+
+static sf_str solu_try_realpath(const char *_cwd, sf_str p) {
+    sf_str rp = sf_own(solu_realpath(p.c_str));
+    if (rp.c_str) return rp;
+
+    if (_cwd) {
+        sf_str cwd = sf_str_cdup(_cwd);
+        sf_str_append(&cwd,
+            #if defined(_WIN32) || defined(_WIN64)
+            sf_lit("\\")
+            #else
+            sf_lit("/")
+            #endif
+        );
+        sf_str_append(&cwd, p);
+        rp = sf_own(solu_realpath(cwd.c_str));
+        sf_str_free(cwd);
+    }
+
+    return rp;
+}
+
+char *solu_findfile(const char *cwd, const char *rel_path) {
+    if (!rel_path || !*rel_path) return NULL;
+
+    size_t len = strlen(rel_path);
+    int has_ext = (len >= 5 && memcmp(rel_path + len - 5, ".solu",  5) == 0) ||
+        (len >= 5 && memcmp(rel_path + len - 5, ".solc",  5) == 0) ||
+        (len >= 6 && memcmp(rel_path + len - 6, ".solus",  6) == 0);
+
+    sf_str base = sf_str_cdup(rel_path);
+
+    sf_str rp0 = solu_try_realpath(cwd, base);
+    if (rp0.c_str) { sf_str_free(base); return rp0.c_str; }
+    if (!has_ext) {
+        sf_str p1 = sf_str_dup(base);
+        sf_str_append(&p1, sf_lit(".solu"));
+
+        sf_str rp1 = solu_try_realpath(cwd, p1);
+        sf_str_free(p1);
+        if (rp1.c_str) { sf_str_free(base); return rp1.c_str; }
+
+        sf_str p2 = sf_str_dup(base);
+        sf_str_append(&p2, sf_lit(".solus"));
+
+        sf_str rp2 = solu_try_realpath(cwd, p2);
+        sf_str_free(p2);
+        if (rp2.c_str) { sf_str_free(base); return rp2.c_str; }
+
+        sf_str p3 = sf_str_dup(base);
+        sf_str_append(&p3, sf_lit(".solc"));
+
+        sf_str rp3 = solu_try_realpath(cwd, p3);
+        sf_str_free(p3);
+        if (rp3.c_str) { sf_str_free(base); return rp3.c_str; }
+    }
+
+    sf_str_free(base);
+    return NULL;
 }
 
 sf_str solu_dasmi(solu_instruction ins) {

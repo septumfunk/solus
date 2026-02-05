@@ -1,13 +1,40 @@
 #include "solus/syntax.h"
+#include "sf/fs.h"
 #include "solus/bytecode.h"
 #include "sf/str.h"
 #include <stdint.h>
 #include <stdlib.h>
 
+#define VEC_NAME solu_visited
+#define VEC_T sf_str
+#define VSIZE_T uint32_t
+#include <sf/containers/vec.h>
+
+struct solu_includecache;
+static void _solu_includecache_cleanup(struct solu_includecache *self);
+#define MAP_NAME solu_includecache
+#define MAP_K sf_str
+#define MAP_V solu_node *
+#define EQUAL_FN(s1, s2) (sf_str_eq(s1, s2))
+#define HASH_FN(s) (sf_str_hash(s))
+#define CLEANUP_FN _solu_includecache_cleanup
+#define KCLEANUP sf_str_free
+#include <sf/containers/map.h>
+static void _ic_fe(void *_ud, sf_str key, solu_node *v) { sf_str_free(key); (void)_ud; (void)v; }
+static void _solu_includecache_cleanup(solu_includecache *self) {
+    solu_includecache_foreach(self, _ic_fe, NULL);
+}
+
 void _keywords_foreach(void *_u, sf_str k, solu_tokentype _v) { (void)_u;(void)_v; sf_str_free(k); }
 void _solu_keywords_cleanup(solu_keywords *map) {
     solu_keywords_foreach(map, _keywords_foreach, NULL);
 }
+
+typedef struct {
+    solu_dalloc *alloc;
+    solu_includecache includes;
+    solu_visited visited;
+} solu_pshared;
 
 typedef struct {
     sf_str src;
@@ -24,6 +51,7 @@ static solu_val solu_scan_str(solu_scanner *s, const sf_str str) {
     *dh = (solu_dalloc){
         .next = NULL,
         .size = str.len + 1,
+        .thread = 1,
         .tt = SOLU_DSTR,
         .mark = SOLU_DYN_WHITE,
     };
@@ -195,12 +223,14 @@ solu_scan_ex solu_scan(sf_str src) {
         solu_keywords_set(&s.keywords, sf_ref(solu_op_info(o)->mnemonic), TK_OPCODE);
 
     // statements
-    solu_keywords_set(&s.keywords, sf_lit("let"), TK_LET);
+    solu_keywords_set(&s.keywords, sf_lit("val"), TK_VAL);
+    solu_keywords_set(&s.keywords, sf_lit("var"), TK_VAR);
     solu_keywords_set(&s.keywords, sf_lit("do"), TK_DO);
     solu_keywords_set(&s.keywords, sf_lit("if"), TK_IF);
     solu_keywords_set(&s.keywords, sf_lit("else"), TK_ELSE);
     solu_keywords_set(&s.keywords, sf_lit("while"), TK_WHILE);
     solu_keywords_set(&s.keywords, sf_lit("return"), TK_RETURN);
+    solu_keywords_set(&s.keywords, sf_lit("include"), TK_INCLUDE);
     // operators
     solu_keywords_set(&s.keywords, sf_lit("and"), TK_AND);
     solu_keywords_set(&s.keywords, sf_lit("or"), TK_OR);
@@ -308,16 +338,18 @@ solu_scan_ex solu_scan(sf_str src) {
 }
 
 typedef struct {
+    sf_str path;
     solu_token *tok;
     bool asm, impli;
+    solu_pshared *shared;
 } solu_parser;
 
 void solu_node_free(solu_node *tree) {
     if (!tree) return;
     switch (tree->tt) {
         // statements
-        case SOLU_ND_LET:
-            solu_node_free(tree->n_let.value);
+        case SOLU_ND_LOCAL:
+            solu_node_free(tree->n_local.value);
             break;
         case SOLU_ND_IF:
             solu_node_free(tree->n_if.condition);
@@ -427,7 +459,7 @@ solu_parse_ex solu_pprimary(solu_parser *p);
 solu_parse_ex solu_punary(solu_parser *p);
 solu_parse_ex solu_pexpr(solu_parser *p, size_t prec);
 solu_parse_ex solu_pif(solu_parser *p);
-solu_parse_ex solu_plet(solu_parser *p);
+solu_parse_ex solu_plocal(solu_parser *p);
 solu_parse_ex solu_ppostfix(solu_parser *p);
 solu_parse_ex solu_pblock(solu_parser *p);
 solu_parse_ex solu_pfun(solu_parser *p);
@@ -436,6 +468,7 @@ solu_parse_ex solu_pins(solu_parser *p);
 solu_parse_ex solu_pobj(solu_parser *p);
 solu_parse_ex solu_pwhile(solu_parser *p);
 solu_parse_ex solu_preturn(solu_parser *p);
+solu_parse_ex solu_pinclude(solu_parser *p);
 solu_parse_ex solu_pstmt(solu_parser *p);
 
 solu_parse_ex solu_pprimary(solu_parser *p) {
@@ -450,6 +483,7 @@ solu_parse_ex solu_pprimary(solu_parser *p) {
             ++p->tok;
             return solu_parse_ex_ok(n);
         }
+        case TK_INCLUDE: return solu_pinclude(p);
         case TK_IF:
             p->impli = true;
             return solu_pif(p);
@@ -598,8 +632,8 @@ solu_parse_ex solu_pif(solu_parser *p) {
     return solu_parse_ex_ok(n_if);
 }
 
-solu_parse_ex solu_plet(solu_parser *p) {
-    solu_token *let = p->tok++;
+solu_parse_ex solu_plocal(solu_parser *p) {
+    solu_token *lv = p->tok++;
 
     if (p->tok->tt != TK_IDENTIFIER)
         return solu_perr(SOLU_ERRP_EXPECTED_IDENTIFIER);
@@ -620,11 +654,12 @@ solu_parse_ex solu_plet(solu_parser *p) {
 
     solu_node *n_let = malloc(sizeof(solu_node));
     *n_let = (solu_node){
-        .tt = SOLU_ND_LET,
-        .line = let->line, .column = let->column,
-        .n_let = {
+        .tt = SOLU_ND_LOCAL,
+        .line = lv->line, .column = lv->column,
+        .n_local = {
             .name = name->value,
             .value = vex.ok,
+            .mut = lv->tt == TK_VAR
         }
     };
     return solu_parse_ex_ok(n_let);
@@ -716,7 +751,7 @@ solu_parse_ex solu_pblock(solu_parser *p) {
         }
         if (sex.ok->tt == SOLU_ND_RETURN && p->tok->tt != TK_RIGHT_BRACE && p->tok->tt != TK_EOF) {
             solu_node_free(n_block);
-            solu_error e = sex.ok->n_return.implicit ? SOLU_ERRP_UNEXPECTED_IMPL_RETURN : SOLU_ERRP_UNREACHABLE_CODE;
+            solu_error e = sex.ok->n_return.implicit ? SOLU_ERRP_UNEXPECTED_IDENTIFIER : SOLU_ERRP_UNREACHABLE_CODE;
             uint16_t line = sex.ok->line, column = sex.ok->column;
             if (p->tok->tt == TK_SEMICOLON) {
                 line = p->tok->line; column = p->tok->column;
@@ -809,9 +844,15 @@ solu_parse_ex solu_pasm(solu_parser *p) {
     if (p->tok->tt != TK_LEFT_PAREN)
         return solu_perr(SOLU_ERRP_EXPECTED_LPAREN);
     ++p->tok;
-    if (p->tok->tt != TK_INTEGER)
+    if (p->tok->tt == TK_MINUS && (p->tok+1)->tt == TK_INTEGER)
+        return solu_perr(SOLU_ERRP_NEGATIVE_REGISTERS);
+
+    solu_parse_ex count = solu_pprimary(p);
+    if (!count.is_ok) return count;
+    if (count.ok->tt != SOLU_ND_LITERAL || count.ok->n_literal.tt != SOLU_TI64)
         return solu_perr(SOLU_ERRP_EXPECTED_INTEGER);
-    uint32_t temps = (uint32_t)p->tok->value.i64;
+    uint32_t regs = (uint32_t)count.ok->n_literal.i64;
+
     ++p->tok;
     if (p->tok->tt != TK_RIGHT_PAREN)
         return solu_perr(SOLU_ERRP_EXPECTED_RPAREN);
@@ -827,7 +868,7 @@ solu_parse_ex solu_pasm(solu_parser *p) {
         .tt = SOLU_ND_ASM,
         .line = p->tok->line, .column = p->tok->column,
         .n_asm = {
-            .temps = temps,
+            .temps = regs,
             .n_fun = fex.ok,
         },
     };
@@ -841,16 +882,22 @@ solu_parse_ex solu_pins(solu_parser *p) {
     for (int i = 0; i < (int)(solu_op_info(op)->type) + 1; ++i) {
         solu_parse_ex vex = solu_pprimary(p);
         if (!vex.is_ok) return vex;
+        solu_node *nl = vex.ok;
         switch (vex.ok->tt) {
-            case SOLU_ND_IDENTIFIER: opa[i] = vex.ok->n_identifier; break;
+            case SOLU_ND_UNARY:
+                if (vex.ok->n_unary.op != TK_MINUS)
+                    return solu_perr(SOLU_ERRP_EXPECTED_IDENTIFIER);
+                nl = vex.ok->n_unary.right;
+
+            case SOLU_ND_IDENTIFIER: opa[i] = nl->n_identifier; break;
             case SOLU_ND_LITERAL: {
-                if (vex.ok->n_literal.tt != SOLU_TI64 && !((op == SOLU_OP_LOAD && i == 1) ||
+                if (nl->n_literal.tt != SOLU_TI64 && !((op == SOLU_OP_LOAD && i == 1) ||
                     (op == SOLU_OP_SUPO && i == 1) ||
                     (op == SOLU_OP_GUPO && i == 2))) {
                     solu_node_free(vex.ok);
                     return solu_perr(SOLU_ERRP_EXPECTED_INTEGER);
                 }
-                opa[i] = vex.ok->n_literal;
+                opa[i] = nl->n_literal;
                 break;
             }
             default: {
@@ -985,6 +1032,75 @@ solu_parse_ex solu_preturn(solu_parser *p) {
     return solu_parse_ex_ok(n_return);
 }
 
+static inline void free_alloc(solu_dalloc *alloc) {
+    for (solu_dalloc *ac = alloc; ac; ) {
+        solu_dalloc *next = ac->next;
+        free(ac);
+        ac = next;
+    }
+}
+
+solu_parse_ex _solu_parse(sf_str path, solu_tokenvec *tokens, solu_pshared *shared);
+solu_parse_ex solu_pinclude(solu_parser *p) {
+    uint16_t line = p->tok->line, column = p->tok->column;
+    ++p->tok;
+    if (p->tok->tt != TK_LEFT_PAREN)
+        return solu_perr(SOLU_ERRP_EXPECTED_LPAREN);
+    ++p->tok;
+    if (p->tok->tt != TK_STRING)
+        return solu_perr(SOLU_ERRP_EXPECTED_LITERAL);
+
+    char *path = p->tok->value.dyn;
+    char *cwd = solu_realdir(p->path.c_str);
+    if (!cwd) return solu_parse_ex_err((solu_parse_err){SOLU_ERRP_INCLUDE_NOT_FOUND, line, column});
+    sf_str realpath = sf_own(solu_findfile(cwd, path));
+    free(cwd);
+    if (!realpath.c_str) return solu_parse_ex_err((solu_parse_err){SOLU_ERRP_INCLUDE_NOT_FOUND, line, column});
+    ++p->tok;
+
+    if (p->tok->tt != TK_RIGHT_PAREN)
+        return solu_perr(SOLU_ERRP_EXPECTED_RPAREN);
+    ++p->tok;
+    sf_fsb_ex fsb = sf_file_buffer(sf_ref(realpath.c_str));
+    if (!fsb.is_ok)
+        return solu_parse_ex_err((solu_parse_err){SOLU_ERRP_INCLUDE_NOT_FOUND, line, column});
+    solu_scan_ex res = solu_scan(sf_ref((char *)fsb.ok.ptr));
+    if (!res.is_ok) return solu_perr(res.err.tt);
+
+    solu_visited_push(&p->shared->visited, p->path);
+    for (sf_str *s = p->shared->visited.data; s < p->shared->visited.data + p->shared->visited.count; ++s) {
+        if (sf_str_eq(*s, realpath)) {
+            solu_visited_pop(&p->shared->visited);
+            sf_str_free(realpath);
+            return solu_perr(SOLU_ERRP_CIRCULAR_INCLUDE);
+        }
+    }
+    solu_parse_ex pres = _solu_parse(realpath, &res.ok.tv, p->shared);
+    solu_visited_pop(&p->shared->visited);
+    sf_str_free(realpath);
+
+    if (!pres.is_ok) {
+        free_alloc(res.ok.alloc);
+        return pres;
+    }
+    solu_dalloc *ac = p->shared->alloc;
+    while (ac->next) ac = ac->next;
+    ac->next = res.ok.alloc;
+
+    pres.ok->line = line;
+    pres.ok->column = column;
+    solu_node *n_include = malloc(sizeof(solu_node));
+    *n_include = (solu_node){
+        SOLU_ND_FUN,
+        line, column,
+        .n_fun = {
+            .block = pres.ok,
+            .include = true,
+        }
+    };
+    return solu_parse_ex_ok(n_include);
+}
+
 solu_parse_ex solu_pstmt(solu_parser *p) {
     if (p->asm && p->tok->tt != TK_OPCODE)
         return solu_perr(SOLU_ERRP_EXPECTED_ASM);
@@ -996,7 +1112,8 @@ solu_parse_ex solu_pstmt(solu_parser *p) {
             return solu_pins(p);
         }
         case TK_IF: return solu_pif(p);
-        case TK_LET: return solu_plet(p);
+        case TK_VAL:
+        case TK_VAR: return solu_plocal(p);
         case TK_WHILE: return solu_pwhile(p);
         case TK_RETURN: return solu_preturn(p);
 
@@ -1023,9 +1140,25 @@ solu_parse_ex solu_pstmt(solu_parser *p) {
     };
 }
 
-solu_parse_ex solu_parse(solu_tokenvec *tokens) {
+solu_parse_ex _solu_parse(sf_str path, solu_tokenvec *tokens, solu_pshared *shared) {
     if (tokens->count == 0)
         return solu_parse_ex_err((solu_parse_err){SOLU_ERRP_NO_TOKENS, 0, 0});
-    solu_parser p = { tokens->data, false, false };
-    return solu_pstmt(&p);
+    solu_parser p = { path, tokens->data, false, false, shared };
+    if (!p.shared)
+        return solu_parse_ex_err((solu_parse_err){SOLU_ERRP_EXPECTED_SHARED, 0, 0});
+
+    solu_parse_ex ex = solu_pstmt(&p);
+    if (!shared) {
+        solu_includecache_free(&p.shared->includes);
+        solu_visited_free(&p.shared->visited);
+        free(p.shared);
+    }
+    return ex;
+}
+solu_parse_ex solu_parse(sf_str path, solu_scan_ex scan_ex) {
+    if (!scan_ex.is_ok) return solu_parse_ex_err((solu_parse_err){
+        scan_ex.err.tt, scan_ex.err.line, scan_ex.err.column
+    });
+    solu_pshared shared = {scan_ex.ok.alloc, solu_includecache_new(), solu_visited_new()};
+    return _solu_parse(path, &scan_ex.ok.tv, &shared);
 }

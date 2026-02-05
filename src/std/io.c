@@ -42,7 +42,9 @@ static solu_call_ex io_fread(solu_state *s) {
         return ex;
     }
     fsb.ok.flags = SF_BUFFER_GROW;
+    sf_buffer_seek(&fsb.ok, SF_BUFFER_END, 0);
     sf_buffer_autoins(&fsb.ok, ""); // [\0]
+    sf_buffer_seek(&fsb.ok, SF_BUFFER_START, 0);
 
     return solu_ok(solu_dnstr(s, (char *)fsb.ok.ptr));
 }
