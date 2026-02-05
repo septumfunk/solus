@@ -2,7 +2,6 @@
 #include "sf/containers/buffer.h"
 #include "sf/str.h"
 #include <stdlib.h>
-#include <sys/_endian.h>
 
 void _dobj_foreach(void *_u, sf_str k, solu_val _v) { (void)_u;(void)_v; sf_str_free(k); }
 void _solu_dobj_cleanup(solu_dobj *obj) {
@@ -77,7 +76,7 @@ char *solu_realdir(const char *rp) {
     char out[4096];
     size_t len = strlen(rp);
     if (len == 0)
-        return strdup(".");
+        return _strdup(".");
     if (len >= sizeof(out))
         return NULL;
     memcpy(out, rp, len + 1);
@@ -98,22 +97,22 @@ char *solu_realdir(const char *rp) {
         if (*p == '/' || *p == '\\')
             last_slash = p;
     if (!last_slash)
-        return strdup(".");
+        return _strdup(".");
     if (last_slash == out) {
         out[1] = '\0';
-        return strdup(out);
+        return _strdup(out);
     }
 
 #ifdef _WIN32
     if (last_slash == out + 2 && out[1] == ':') {
         out[3] = out[2];
         out[2] = '\0';
-        return strdup(out);
+        return _strdup(out);
     }
 #endif
 
     *last_slash = '\0';
-    return strdup(out);
+    return _strdup(out);
 }
 
 static sf_str solu_try_realpath(const char *_cwd, sf_str p) {

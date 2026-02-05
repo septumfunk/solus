@@ -380,7 +380,7 @@ solu_cnode_ex solu_cnode(solu_compiler *c, solu_node *node, uint32_t t_reg) {
         }
         case SOLU_ND_BINARY: {
             bool ll = false, rl = false;
-            uint32_t left, right;
+            uint32_t left = UINT32_MAX, right;
             if (node->n_binary.op != TK_EQUAL && node->n_binary.op != TK_PLUS_EQUAL && node->n_binary.op != TK_MINUS_EQUAL) {
                 if (node->n_binary.left->tt == SOLU_ND_LITERAL) {
                     if (!solu_kfind(c, node->n_binary.left->n_literal, &left))

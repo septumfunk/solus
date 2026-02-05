@@ -3,7 +3,6 @@
 
 #include "bytecode.h"
 #include "compiler.h"
-#include <_stdlib.h>
 #include <stdarg.h>
 
 /// Represents a function's frame, or compiler reserved registers, on the stack

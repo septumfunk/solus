@@ -417,6 +417,35 @@ solu_val solu_wrapcfun(solu_state *state, solu_cfunction fptr, uint32_t arg_c, u
     return fun;
 }
 
+
+#if defined(_WIN32)
+// Windows is always little-endian
+static inline uint16_t htons(uint16_t x) { return x; }
+static inline uint16_t ntohs(uint16_t x) { return x; }
+static inline uint32_t htonl(uint32_t x) { return x; }
+static inline uint32_t ntohl(uint32_t x) { return x; }
+static inline uint64_t htonll(uint64_t x) { return x; }
+static inline uint64_t ntohll(uint64_t x) { return x; }
+#else
+#include <arpa/inet.h>
+static inline uint64_t htonll(uint64_t x) {
+#if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+    return ((uint64_t)htonl((uint32_t)(x & 0xffffffffULL)) << 32) |
+            htonl((uint32_t)(x >> 32));
+#else
+    return x;
+#endif
+}
+static inline uint64_t ntohll(uint64_t x) {
+#if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+    return ((uint64_t)ntohl((uint32_t)(x & 0xffffffffULL)) << 32) |
+            ntohl((uint32_t)(x >> 32));
+#else
+    return x;
+#endif
+}
+#endif
+
 sf_buffer solu_fproto_serialize(solu_fproto *proto) {
     sf_buffer buf = sf_buffer_grow();
 
@@ -436,11 +465,11 @@ sf_buffer solu_fproto_serialize(solu_fproto *proto) {
             sf_buffer_clear(&bfun);
             continue;
         }
-        sf_buffer_autoins(&buf, &(uint32_t){htonl(k->tt)});
+        sf_buffer_autoins(&buf, &(uint32_t){htonl((uint32_t)k->tt)});
         switch (k->tt) {
             case SOLU_TI64:
             case SOLU_TF64:
-                sf_buffer_autoins(&buf, &(uint64_t){htonll(k->i64)});
+                sf_buffer_autoins(&buf, &(uint64_t){htonll((uint32_t)k->i64)});
                 break;
             case SOLU_TBOOL:
                 sf_buffer_autoins(&buf, &k->boolean);
@@ -530,7 +559,7 @@ solu_load_ex _solu_loadfun(solu_state *s, sf_buffer *buf) {
         if (!ex.is_ok) goto corrupt;
         tt = ntohl(tt);
 
-        solu_val val = {tt, .dyn = NULL};
+        solu_val val = {(solu_ptype)tt, .dyn = NULL};
         switch (tt) {
             case SOLU_TDYN: { // str
                 uint64_t slen;
@@ -563,7 +592,7 @@ solu_load_ex _solu_loadfun(solu_state *s, sf_buffer *buf) {
             case SOLU_TF64:
                 ex = sf_buffer_autoread(buf, &val.i64);
                 if (!ex.is_ok) goto corrupt;
-                val.i64 = (int64_t)ntohll(val.i64);
+                val.i64 = (int64_t)ntohll((uint32_t)val.i64);
                 break;
             case SOLU_TBOOL:
                 ex = sf_buffer_autoread(buf, &val.boolean);

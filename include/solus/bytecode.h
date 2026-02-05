@@ -10,7 +10,7 @@
 #include <string.h>
 
 #ifndef _WIN32
-#define _strdup strdup
+#define _strdup _strdup
 #endif
 
 /// Bytecode version
@@ -361,7 +361,7 @@ static inline char *solu_realpath(const char *path) {
     char buf[_MAX_PATH];
     if (!_fullpath(buf, path, _MAX_PATH))
         return NULL;
-    return strdup
+    return _strdup(buf);
 #else
     return realpath(path, NULL);
 #endif

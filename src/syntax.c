@@ -113,7 +113,7 @@ solu_token solu_scanstr(solu_scanner *s) {
 
     buf[len] = 0;
     s->cc = cc;
-    s->current.column += (cc - s->cc);
+    s->current.column += (uint16_t)(cc - s->cc);
 
     return (solu_token){
         TK_STRING,
