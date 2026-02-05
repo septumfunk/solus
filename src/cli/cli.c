@@ -53,15 +53,15 @@ void cli_highlight_line(sf_str src, sf_str err, uint16_t line, uint16_t column) 
 sf_str cli_load_file(char *name) {
     sf_str f = sf_lit(name);
     if (!sf_file_exists(f)) {
-        fprintf(stderr, TUI_ERR "error: file '%s' not found.", name);
+        fprintf(stderr, TUI_ERR "error: file '%s' not found.\n", name);
         return SF_STR_EMPTY;
     }
     sf_fsb_ex fsb = sf_file_buffer(f);
     if (!fsb.is_ok) {
         switch (fsb.err) {
-            case SF_FILE_NOT_FOUND: fprintf(stderr, TUI_ERR "error: file '%s' not found" TUI_CLR, name); break;
-            case SF_OPEN_FAILURE: fprintf(stderr, TUI_ERR "error: file '%s' failed to open" TUI_CLR, name); break;
-            case SF_READ_FAILURE: fprintf(stderr, TUI_ERR "error: file '%s' failed to read" TUI_CLR, name); break;
+            case SF_FILE_NOT_FOUND: fprintf(stderr, TUI_ERR "error: file '%s' not found\n" TUI_CLR, name); break;
+            case SF_OPEN_FAILURE: fprintf(stderr, TUI_ERR "error: file '%s' failed to open\n" TUI_CLR, name); break;
+            case SF_READ_FAILURE: fprintf(stderr, TUI_ERR "error: file '%s' failed to read\n" TUI_CLR, name); break;
         }
         return SF_STR_EMPTY;
     }
@@ -78,7 +78,7 @@ int cli_run(char *path, sf_str src) {
 
     sf_fsb_ex fsb = sf_file_buffer(sf_ref(path));
     if (!fsb.is_ok) {
-        fprintf(stderr, TUI_ERR "error: File '%s' not found" TUI_CLR, path);
+        fprintf(stderr, TUI_ERR "error: File '%s' not found\n" TUI_CLR, path);
         solu_state_free(s);
         return -1;
     }
@@ -160,7 +160,7 @@ int cli_compile(char *path, sf_str src) {
     solu_savefun(&comp_ex.ok, pstr.c_str);
     solu_fproto_free(&comp_ex.ok);
     solu_state_free(s);
-    printf(TUI_BLD "Compiled file '%s' successfully.", pstr.c_str);
+    printf(TUI_BLD "Compiled file '%s' successfully.\n", pstr.c_str);
     sf_str_free(pstr);
     return 0;
 }

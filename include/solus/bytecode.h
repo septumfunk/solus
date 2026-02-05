@@ -2,6 +2,7 @@
 #define BYTECODE_H
 
 #include "sf/containers/buffer.h"
+#include "sf/fs.h"
 #include "sf/str.h"
 #include <stddef.h>
 #include <stdint.h>
@@ -354,18 +355,20 @@ static inline double solu_timesec(void) {
 #endif
 
 /// Canonize path
-static inline char *solu_realpath(const char *path) {
 #ifdef _WIN32
-    #define WIN32_LEAN_AND_MEAN
-    #include <windows.h>
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+static inline char *solu_realpath(const char *path) {
     char buf[_MAX_PATH];
     if (!_fullpath(buf, path, _MAX_PATH))
         return NULL;
+    if (!sf_file_exists(sf_ref(path)))
+        return NULL;
     return _strdup(buf);
-#else
-    return realpath(path, NULL);
-#endif
 }
+#else
+#define solu_realpath realpath
+#endif
 /// Get dir of canonized path
 char *solu_realdir(const char *rp);
 char *solu_findfile(const char *cwd, const char *rel_path);
