@@ -1,6 +1,8 @@
 #ifndef BYTECODE_H
 #define BYTECODE_H
 
+#include "sf/containers/buffer.h"
+#include "sf/fs.h"
 #include "sf/str.h"
 #include <stddef.h>
 #include <stdint.h>
@@ -9,11 +11,11 @@
 #include <string.h>
 
 #ifndef _WIN32
-#define _strdup strdup
+#define _strdup _strdup
 #endif
 
 /// Bytecode version
-#define SOLU_VERSION "0.6"
+#define SOLU_VERSION "0.7"
 /// Git repository, hosted on GitHub for now
 #define SOLU_GIT "https://github.com/solus-lang/solus"
 
@@ -162,12 +164,13 @@ extern const char *SOLU_TYPE_NAMES[(size_t)SOLU_TCOUNT + (size_t)SOLU_DCOUNT];
 typedef enum {
     SOLU_DYN_WHITE, /// Not yet marked, will be swept if it's not
     SOLU_DYN_BLACK, /// Marked valid
+    SOLU_DYN_SHARED, /// Thread shared
     SOLU_DYN_GREEN, /// Reference held by C
 } solu_dstate;
 /// GC header
 typedef struct solu_dalloc {
     struct solu_dalloc *next;
-    size_t size;
+    size_t size, thread;
     solu_dtype tt;
     solu_dstate mark;
 } solu_dalloc;
@@ -201,6 +204,7 @@ typedef struct {
         uint32_t ref;
     };
     uint32_t frame;
+    bool mut;
 } solu_upvalue;
 
 struct solu_state;
@@ -216,7 +220,7 @@ typedef struct {
     } tt;
     union {
         struct {
-            uint16_t line_c, code_c; // lines/instruction count
+            uint16_t code_c, line_c; // lines/instruction count
             uint32_t dbg_res, dbg_ll; // debug resume/line
             sf_str file_name;
             solu_instruction *code; // bytecode
@@ -349,6 +353,25 @@ static inline double solu_timesec(void) {
 #endif
 }
 #endif
+
+/// Canonize path
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+static inline char *solu_realpath(const char *path) {
+    char buf[_MAX_PATH];
+    if (!_fullpath(buf, path, _MAX_PATH))
+        return NULL;
+    if (!sf_file_exists(sf_ref(path)))
+        return NULL;
+    return _strdup(buf);
+}
+#else
+#define solu_realpath realpath
+#endif
+/// Get dir of canonized path
+char *solu_realdir(const char *rp);
+char *solu_findfile(const char *cwd, const char *rel_path);
 
 /// Disassemble instruction
 EXPORT sf_str solu_dasmi(solu_instruction ins);

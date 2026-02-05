@@ -2,7 +2,7 @@
 
 static solu_call_ex gc_collect(solu_state *s) {
     solu_dcollect(s);
-    return solu_call_ex_ok(SOLU_NIL);
+    return solu_ok(SOLU_NIL);
 }
 
 void solu_mod_gc(solu_state *s) {

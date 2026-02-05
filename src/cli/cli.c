@@ -18,6 +18,7 @@ typedef enum {
     CLI_RUN,
     CLI_DBG,
     CLI_TEST,
+    CLI_COMPILE,
 } cli_mode;
 
 void cli_highlight_line(sf_str src, sf_str err, uint16_t line, uint16_t column) {
@@ -52,43 +53,66 @@ void cli_highlight_line(sf_str src, sf_str err, uint16_t line, uint16_t column) 
 sf_str cli_load_file(char *name) {
     sf_str f = sf_lit(name);
     if (!sf_file_exists(f)) {
-        fprintf(stderr, TUI_ERR "error: file '%s' not found.", name);
+        fprintf(stderr, TUI_ERR "error: file '%s' not found.\n", name);
         return SF_STR_EMPTY;
     }
     sf_fsb_ex fsb = sf_file_buffer(f);
     if (!fsb.is_ok) {
         switch (fsb.err) {
-            case SF_FILE_NOT_FOUND: fprintf(stderr, TUI_ERR "error: file '%s' not found" TUI_CLR, name); break;
-            case SF_OPEN_FAILURE: fprintf(stderr, TUI_ERR "error: file '%s' failed to open" TUI_CLR, name); break;
-            case SF_READ_FAILURE: fprintf(stderr, TUI_ERR "error: file '%s' failed to read" TUI_CLR, name); break;
+            case SF_FILE_NOT_FOUND: fprintf(stderr, TUI_ERR "error: file '%s' not found\n" TUI_CLR, name); break;
+            case SF_OPEN_FAILURE: fprintf(stderr, TUI_ERR "error: file '%s' failed to open\n" TUI_CLR, name); break;
+            case SF_READ_FAILURE: fprintf(stderr, TUI_ERR "error: file '%s' failed to read\n" TUI_CLR, name); break;
         }
         return SF_STR_EMPTY;
     }
     fsb.ok.flags = SF_BUFFER_GROW;
+    sf_buffer_seek(&fsb.ok, SF_BUFFER_END, 0);
     sf_buffer_autoins(&fsb.ok, ""); // [\0]
+    sf_buffer_seek(&fsb.ok, SF_BUFFER_START, 0);
     return sf_own((char *)fsb.ok.ptr);
 }
 
 int cli_run(char *path, sf_str src) {
     solu_state *s = solu_state_new();
     solu_usestd(s);
-    solu_compile_ex comp_ex = solu_cfile(s, path);
-    if (!comp_ex.is_ok) {
-        fprintf(stderr, TUI_ERR "error: %s:%u:%u\n" TUI_CLR, path, comp_ex.err.line, comp_ex.err.column);
-        cli_highlight_line(src, solu_err_string(comp_ex.err.tt), comp_ex.err.line, comp_ex.err.column);
+
+    sf_fsb_ex fsb = sf_file_buffer(sf_ref(path));
+    if (!fsb.is_ok) {
+        fprintf(stderr, TUI_ERR "error: File '%s' not found\n" TUI_CLR, path);
         solu_state_free(s);
         return -1;
     }
+    bool is_solc = memcmp(fsb.ok.ptr, "[SOLC]", 6) == 0;
+    solu_fproto fb;
+    if (is_solc) {
+        solu_load_ex lex = solu_loadfun(s, path);
+        if (!lex.is_ok) {
+            fprintf(stderr, TUI_ERR "error: %s\n" TUI_CLR, solu_err_string(lex.err).c_str);
+            solu_state_free(s);
+            return -1;
+        }
+        fb = lex.ok;
+    } else {
+        solu_compile_ex comp_ex = solu_cfile(s, path);
+        if (!comp_ex.is_ok) {
+            if (comp_ex.err.line) {
+                fprintf(stderr, TUI_ERR "error: %s:%u:%u\n" TUI_CLR, path, comp_ex.err.line, comp_ex.err.column);
+                cli_highlight_line(src, solu_err_string(comp_ex.err.tt), comp_ex.err.line, comp_ex.err.column);
+            } else fprintf(stderr, TUI_ERR "error: %s\n" TUI_CLR, solu_err_string(comp_ex.err.tt).c_str);            solu_state_free(s);
+            return -1;
+        }
+        fb = comp_ex.ok;
+    }
+    sf_buffer_clear(&fsb.ok);
 
-    solu_fproto *fun = &comp_ex.ok;
-    solu_call_ex call_ex = solu_call(s, fun, NULL, 0);
+    solu_call_ex call_ex = solu_call(s, &fb, NULL, 0);
     if (!call_ex.is_ok) {
-        uint16_t line = SOLU_DBG_LINE(fun->dbg[call_ex.err.pc]), col = SOLU_DBG_COL(fun->dbg[call_ex.err.pc]);
+        uint16_t line = SOLU_DBG_LINE(fb.dbg[call_ex.err.pc]), col = SOLU_DBG_COL(fb.dbg[call_ex.err.pc]);
         fprintf(stderr, TUI_ERR "error: %s:%u:%u\n" TUI_CLR, path, line, col);
 
         if (call_ex.err.panic) {
             sf_str full = sf_str_fmt("%s: %s", solu_err_string(call_ex.err.tt).c_str, call_ex.err.panic);
-            cli_highlight_line(src, full, line, col);
+            if (line) cli_highlight_line(src, full, line, col);
             free(call_ex.err.panic);
             sf_str_free(full);
         } else
@@ -101,8 +125,43 @@ int cli_run(char *path, sf_str src) {
         solu_typename(call_ex.ok).c_str, ret);
 
     free(ret);
-    solu_fproto_free(fun);
+    solu_fproto_free(&fb);
     solu_state_free(s);
+    return 0;
+}
+
+int cli_compile(char *path, sf_str src) {
+    solu_state *s = solu_state_new();
+    solu_usestd(s);
+    solu_compile_ex comp_ex = solu_cfile(s, path);
+    if (!comp_ex.is_ok) {
+        if (comp_ex.err.line) {
+            fprintf(stderr, TUI_ERR "error: %s:%u:%u\n" TUI_CLR, path, comp_ex.err.line, comp_ex.err.column);
+            cli_highlight_line(src, solu_err_string(comp_ex.err.tt), comp_ex.err.line, comp_ex.err.column);
+        } else fprintf(stderr, TUI_ERR "error: %s\n" TUI_CLR, solu_err_string(comp_ex.err.tt).c_str);
+        solu_state_free(s);
+        return -1;
+    }
+
+    sf_str pstr = sf_own(solu_realpath(path));
+    if (!pstr.c_str) {
+        fprintf(stderr, TUI_ERR "error: Unknown\n" TUI_CLR);
+        solu_fproto_free(&comp_ex.ok);
+        solu_state_free(s);
+        return -1;
+    }
+    char *end = pstr.c_str + pstr.len;
+    if (pstr.len >= 5 && strcmp(end - 5, ".solu") == 0) {
+        memcpy(pstr.c_str + pstr.len - 5, ".solc", 5);
+    } else if (pstr.len >= 6 && strcmp(end - 6, ".solus") == 0) {
+        memcpy(pstr.c_str + pstr.len - 6, ".solc\0", 6);
+    }
+
+    solu_savefun(&comp_ex.ok, pstr.c_str);
+    solu_fproto_free(&comp_ex.ok);
+    solu_state_free(s);
+    printf(TUI_BLD "Compiled file '%s' successfully.\n", pstr.c_str);
+    sf_str_free(pstr);
     return 0;
 }
 
@@ -192,7 +251,7 @@ int cli_test(char *dirpath) {
 
 int main(int argc, char **argv) {
     if (argc == 1) {
-        printf("Usage: %s [run|dbg|test] <file>\n", argv[0]);
+        printf("Usage: %s [run|compile|dbg|test] <file>\n", argv[0]);
         return 1;
     }
 
@@ -215,6 +274,12 @@ int main(int argc, char **argv) {
             return 1;
         }
         mode = CLI_TEST;
+    } else if (!strcmp(argv[1], "compile")) {
+        if (argc == 2) {
+            printf("Usage: %s compile <entry>\n", argv[0]);
+            return 1;
+        }
+        mode = CLI_COMPILE;
     } else {
         printf("Unknown option '%s'.\nUsage: %s [run|dbg|test] <file|dir>\n", argv[1], argv[0]);
         return 1;
@@ -224,13 +289,14 @@ int main(int argc, char **argv) {
         return cli_test(argv[2]);
 
     sf_str src = cli_load_file(argv[2]);
-    if (sf_isempty(src))
+    if (sf_isempty(src) || src.len == 0)
         return 1;
 
     int ret = 0;
     switch (mode) {
         case CLI_RUN: ret = cli_run(argv[2], src); break;
         case CLI_DBG: ret = solu_cli_cbg(argv[2], src); break;
+        case CLI_COMPILE: ret = cli_compile(argv[2], src); break;
         default: ret = -1; break;
     }
     sf_str_free(src);

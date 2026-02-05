@@ -6,21 +6,21 @@ static solu_call_ex math_mini(solu_state *s) {
     expect_type(SOLU_TI64, a);
     solu_val b = solu_get(s, 0);
     expect_type(SOLU_TI64, b);
-    return solu_call_ex_ok((solu_val){SOLU_TI64, .i64 = min(a.i64, b.i64)});
+    return solu_ok((solu_val){SOLU_TI64, .i64 = min(a.i64, b.i64)});
 }
 static solu_call_ex math_maxi(solu_state *s) {
     solu_val a = solu_get(s, 0);
     expect_type(SOLU_TI64, a);
     solu_val b = solu_get(s, 0);
     expect_type(SOLU_TI64, b);
-    return solu_call_ex_ok((solu_val){SOLU_TI64, .i64 = max(a.i64, b.i64)});
+    return solu_ok((solu_val){SOLU_TI64, .i64 = max(a.i64, b.i64)});
 }
 static solu_call_ex math_minf(solu_state *s) {
     solu_val a = solu_get(s, 0);
     expect_type(SOLU_TF64, a);
     solu_val b = solu_get(s, 0);
     expect_type(SOLU_TF64, b);
-    return solu_call_ex_ok((solu_val){SOLU_TF64, .f64 = min(a.f64, b.f64)});
+    return solu_ok((solu_val){SOLU_TF64, .f64 = min(a.f64, b.f64)});
 }
 static solu_call_ex math_randi(solu_state *s) {
     solu_val min_v = solu_get(s, 0);
@@ -29,17 +29,13 @@ static solu_call_ex math_randi(solu_state *s) {
     if (min_v.tt != SOLU_TI64) {
         if (min_v.tt == SOLU_TF64) min = min_v.i64;
         else {
-            return solu_call_ex_err((solu_call_err){SOLU_ERRV_TYPE_MISMATCH,
-                sf_str_fmt("'min' expected i64, found %s", solu_typename(min_v).c_str).c_str,
-            0});
+            return solu_panic("'min' expected i64, found %s", solu_typename(min_v).c_str);
         }
     } else min = min_v.i64;
     if (max_v.tt != SOLU_TI64) {
         if (max_v.tt == SOLU_TF64) max = max_v.i64;
         else {
-            return solu_call_ex_err((solu_call_err){SOLU_ERRV_TYPE_MISMATCH,
-                sf_str_fmt("'max' expected i64, found %s", solu_typename(max_v).c_str).c_str,
-            0});
+            return solu_panic("'max' expected i64, found %s", solu_typename(max_v).c_str);
         }
     } else max = max_v.i64;
 
@@ -51,7 +47,7 @@ static solu_call_ex math_randi(solu_state *s) {
 #else
     uint64_t r = (uint64_t)rand();
 #endif
-    return solu_call_ex_ok((solu_val){ .tt = SOLU_TI64, .i64 = (int64_t)(r % range) + min });
+    return solu_ok((solu_val){ .tt = SOLU_TI64, .i64 = (int64_t)(r % range) + min });
 }
 static solu_call_ex math_randf(solu_state *s) {
     solu_val min_v = solu_get(s, 0);
@@ -61,17 +57,13 @@ static solu_call_ex math_randf(solu_state *s) {
     if (min_v.tt == SOLU_TF64) min = min_v.f64;
     else if (min_v.tt == SOLU_TI64) min = (double)min_v.i64;
     else {
-        return solu_call_ex_err((solu_call_err){SOLU_ERRV_TYPE_MISMATCH,
-            sf_str_fmt("'min' expected f64, found %s", solu_typename(min_v).c_str).c_str,
-        0});
+        return solu_panic("'min' expected f64, found %s", solu_typename(min_v).c_str);
     }
 
     if (max_v.tt == SOLU_TF64) max = max_v.f64;
     else if (max_v.tt == SOLU_TI64) max = (double)max_v.i64;
     else {
-        return solu_call_ex_err((solu_call_err){SOLU_ERRV_TYPE_MISMATCH,
-            sf_str_fmt("'max' expected f64, found %s", solu_typename(max_v).c_str).c_str,
-        0});
+        return solu_panic("'max' expected f64, found %s", solu_typename(max_v).c_str);
     }
 
     if (min > max) { double tmp = min; min = max; max = tmp; }
@@ -79,7 +71,7 @@ static solu_call_ex math_randf(solu_state *s) {
     double frac = (double)rand() / (double)RAND_MAX; // [0, 1]
     double val = min + frac * (max - min);
 
-    return solu_call_ex_ok((solu_val){ .tt = SOLU_TF64, .f64 = val });
+    return solu_ok((solu_val){ .tt = SOLU_TF64, .f64 = val });
 }
 
 void solu_mod_math(solu_state *s) {

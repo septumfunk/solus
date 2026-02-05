@@ -23,7 +23,7 @@
 /// A simple representation of a local variable (or upvalue)
 typedef struct {
     uint32_t reg, scope;
-    bool upval;
+    bool upval, mut;
     uint32_t frame;
 } solu_local;
 
@@ -161,9 +161,9 @@ solu_compile_ex solu_cfun(uint32_t frame, solu_dalloc *alloc, solu_node *ast, ui
     c.proto.arg_c = arg_c;
     solu_scopes_push(&c.scopes, solu_scope_new());
     for (uint32_t i = 0; i < arg_c; ++i)
-        solu_scope_set(c.scopes.data + c.scopes.count - 1, sf_str_cdup(args[i].dyn), (solu_local){i, 0, false, 0});
+        solu_scope_set(c.scopes.data + c.scopes.count - 1, sf_str_cdup(args[i].dyn), (solu_local){i, 0, false, true, 0});
     for (uint32_t i = 0; i < up_c; ++i)
-        solu_scope_set(c.scopes.data + c.scopes.count - 1, upvals[i].name, (solu_local){i, 0, true, upvals[i].frame});
+        solu_scope_set(c.scopes.data + c.scopes.count - 1, upvals[i].name, (solu_local){i, 0, true, upvals[i].mut, upvals[i].frame});
 
     solu_kadd(&c, (solu_val){.tt = SOLU_TBOOL, .boolean = false});
     solu_kadd(&c, (solu_val){.tt = SOLU_TBOOL, .boolean = true});
@@ -184,17 +184,19 @@ solu_compile_ex solu_cfun(uint32_t frame, solu_dalloc *alloc, solu_node *ast, ui
 solu_cnode_ex solu_cnode(solu_compiler *c, solu_node *node, uint32_t t_reg) {
     switch (node->tt) {
         // statements
-        case SOLU_ND_LET: {
-            solu_scope_ex exists = solu_scope_get(c->scopes.data + c->scopes.count - 1, sf_ref(node->n_let.name.dyn));
+        case SOLU_ND_LOCAL: {
+            solu_scope_ex exists = solu_scope_get(c->scopes.data + c->scopes.count - 1, sf_ref(node->n_local.name.dyn));
             if (exists.is_ok)
                 return solu_cerr(SOLU_ERRC_REDEFINED_LOCAL);
             uint32_t rhs = solu_rlocal(c);
-            solu_cnode_ex rv_ex = solu_cnode(c, node->n_let.value, rhs);
+            solu_cnode_ex rv_ex = solu_cnode(c, node->n_local.value, rhs);
             if (!rv_ex.is_ok) return rv_ex;
 
-            solu_scope_set(c->scopes.data + c->scopes.count - 1, sf_str_cdup(node->n_let.name.dyn), (solu_local){rhs, c->scopes.count - 1, false, 0});
+            solu_scope_set(c->scopes.data + c->scopes.count - 1, sf_str_cdup(node->n_local.name.dyn), (solu_local){
+                rhs, c->scopes.count - 1, false, node->n_local.mut, 0
+            });
 
-            if (node->n_let.value->tt == SOLU_ND_BINARY && solu_niscondition(node->n_let.value)) { // Conditions
+            if (node->n_local.value->tt == SOLU_ND_BINARY && solu_niscondition(node->n_local.value)) { // Conditions
                 solu_cemit(c, solu_ins_ab(SOLU_OP_LOAD, rhs, 0));
                 solu_cemit(c, solu_ins_ab(SOLU_OP_LOAD, rhs, 1));
             }
@@ -378,7 +380,7 @@ solu_cnode_ex solu_cnode(solu_compiler *c, solu_node *node, uint32_t t_reg) {
         }
         case SOLU_ND_BINARY: {
             bool ll = false, rl = false;
-            uint32_t left, right;
+            uint32_t left = UINT32_MAX, right;
             if (node->n_binary.op != TK_EQUAL && node->n_binary.op != TK_PLUS_EQUAL && node->n_binary.op != TK_MINUS_EQUAL) {
                 if (node->n_binary.left->tt == SOLU_ND_LITERAL) {
                     if (!solu_kfind(c, node->n_binary.left->n_literal, &left))
@@ -408,6 +410,7 @@ solu_cnode_ex solu_cnode(solu_compiler *c, solu_node *node, uint32_t t_reg) {
                     if (node->n_binary.left->tt == SOLU_ND_IDENTIFIER) {
                         solu_local loc;
                         if (solu_lexists(c, node->n_binary.left->n_identifier.dyn, &loc)) { // Local/Upval
+                            if (!loc.mut) return solu_cerr(SOLU_ERRC_REASSIGNED_VAL);
                             if (loc.upval) {
                                 if (node->n_binary.op == TK_EQUAL)
                                     solu_cemit(c, solu_ins_ab(SOLU_OP_SETU, loc.reg, rl ? solu_const(right) : solu_reg(right)));
@@ -618,9 +621,22 @@ solu_cnode_ex solu_cnode(solu_compiler *c, solu_node *node, uint32_t t_reg) {
                 r_asm = (uint32_t)node->n_asm.temps;
                 node = node->n_asm.n_fun;
             }
-            // Shared upvals
-            solu_upvalue *upvals = malloc((c->proto.up_c + node->n_fun.cap_c) * sizeof(solu_upvalue));
-            memcpy(upvals, c->proto.upvals, c->proto.up_c * sizeof(solu_upvalue));
+            // Propagate _g
+            solu_upvalue *upvals;
+            uint32_t ofs = 0;
+            if (c->proto.upvals && sf_str_eq(c->proto.upvals[0].name, sf_lit("_g"))) {
+                solu_upvalue upv = c->proto.upvals[0];
+                upvals = malloc((1 + node->n_fun.cap_c) * sizeof(solu_upvalue));
+                upvals[0] = (solu_upvalue){
+                    sf_islit(upv.name) ? upv.name : sf_str_dup(upv.name),
+                    upv.tt,
+                    .mut = upv.mut,
+                };
+                if (upv.tt == SOLU_UP_REF)
+                    upvals[0].ref = upv.ref;
+                else upvals[0].value = upv.value;
+                ofs = 1;
+            } else upvals = malloc(node->n_fun.cap_c * sizeof(solu_upvalue));
 
             for (uint32_t i = 0; i < node->n_fun.cap_c; ++i) {
                 solu_val *cap = node->n_fun.captures + i;
@@ -628,15 +644,15 @@ solu_cnode_ex solu_cnode(solu_compiler *c, solu_node *node, uint32_t t_reg) {
                 // Self capture (reserved name)
                 solu_local loc;
                 if (c->obj_r != UINT_MAX && strcmp(name, "self") == 0)
-                    upvals[c->proto.up_c + i] = (solu_upvalue){sf_str_cdup(name), .tt = SOLU_UP_REF, .ref = c->obj_r, .frame = c->frame};
+                    upvals[ofs + i] = (solu_upvalue){sf_str_cdup(name), .tt = SOLU_UP_REF, .ref = c->obj_r, .frame = c->frame, .mut = false};
                 else {
                     if (!solu_lexists(c, name, &loc))
                         return solu_cerr(SOLU_ERRC_UNKNOWN_LOCAL);
                     if (loc.upval)
-                        upvals[c->proto.up_c + i] = (solu_upvalue){sf_str_cdup(name), .tt = SOLU_UP_REF, .ref = loc.reg, .frame = loc.frame};
+                        upvals[ofs + i] = (solu_upvalue){sf_str_cdup(name), .tt = SOLU_UP_REF, .ref = loc.reg, .frame = loc.frame, .mut = loc.mut };
                     else {
                         solu_cemit(c, solu_ins_a(SOLU_OP_REFU, loc.reg));
-                        upvals[c->proto.up_c + i] = (solu_upvalue){sf_str_cdup(name), .tt = SOLU_UP_REF, .ref = loc.reg, .frame = c->frame};
+                        upvals[ofs + i] = (solu_upvalue){sf_str_cdup(name), .tt = SOLU_UP_REF, .ref = loc.reg, .frame = c->frame, .mut = loc.mut };
                     }
                 }
             }
@@ -646,9 +662,9 @@ solu_cnode_ex solu_cnode(solu_compiler *c, solu_node *node, uint32_t t_reg) {
                 c->alloc,
                 node->n_fun.block,
                 node->n_fun.arg_c, node->n_fun.args,
-                c->proto.up_c + node->n_fun.cap_c, upvals
+                ofs + node->n_fun.cap_c, upvals
             );
-            free(upvals);
+            if (upvals) free(upvals);
 
             if (!ex.is_ok) return solu_cnode_ex_err(ex.err);
             if (r_asm != 0) ex.ok.reg_c += r_asm;
@@ -657,6 +673,7 @@ solu_cnode_ex solu_cnode(solu_compiler *c, solu_node *node, uint32_t t_reg) {
             *dh = (solu_dalloc){
                 .next = NULL,
                 .size = sizeof(solu_fproto),
+                .thread = 1,
                 .tt = SOLU_DFUN,
                 .mark = SOLU_DYN_GREEN,
             };
@@ -669,22 +686,23 @@ solu_cnode_ex solu_cnode(solu_compiler *c, solu_node *node, uint32_t t_reg) {
             *(solu_fproto *)fun.dyn = ex.ok;
 
             solu_kadd(c, fun);
-            solu_cemit(c, solu_ins_ab(SOLU_OP_LOAD, t_reg, c->proto.constants.count - 1));
+            if (node->n_fun.include) {
+                uint32_t r = solu_rtemp(c);
+                solu_cemit(c, solu_ins_ab(SOLU_OP_LOAD, r, c->proto.constants.count - 1));
+                solu_cemit(c, solu_ins_abc(SOLU_OP_CALL, t_reg, r, 0)); // Includes never have args
+                solu_ctemps(c, 1);
+            } else solu_cemit(c, solu_ins_ab(SOLU_OP_LOAD, t_reg, c->proto.constants.count - 1));
             return solu_cnode_ex_ok();
         }
         default: return solu_cerr(SOLU_ERRC_UNKNOWN);
     }
 }
 
-solu_compile_ex solu_cproto(char *src, uint32_t arg_c, solu_val *args, uint32_t up_c, solu_upvalue *upvals) {
+solu_compile_ex solu_cproto(sf_str path, char *src, uint32_t arg_c, solu_val *args, uint32_t up_c, solu_upvalue *upvals) {
+    if (memcmp(src, "[SOLC]", 6) == 0)
+        return solu_compile_ex_err((solu_compile_err){SOLU_ERRP_EXPECTED_SOURCE, 0, 0});
     solu_scan_ex scan_ex = solu_scan(sf_ref(src));
-    if (!scan_ex.is_ok)
-        return solu_compile_ex_err((solu_compile_err){
-            .tt = scan_ex.err.tt,
-            .line = scan_ex.err.line,
-            .column = scan_ex.err.column,
-        });
-    solu_parse_ex par_ex = solu_parse(&scan_ex.ok.tv);
+    solu_parse_ex par_ex = solu_parse(path, scan_ex);
     if (!par_ex.is_ok)
         return solu_compile_ex_err((solu_compile_err){
             .tt = par_ex.err.tt,
