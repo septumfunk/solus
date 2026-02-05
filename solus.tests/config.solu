@@ -18,3 +18,5 @@ while x < cfg.repeat: {
     io.println(math.randi(cfg.min_i, cfg.max_i));
     x += 1;
 }
+
+
