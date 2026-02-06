@@ -1,8 +1,14 @@
+
+
+
 val default = {
     repeat = 5
     min_i = -256
     max_i = 256
 };
+
+val xc = [](a, b, c) { io.println(f64(a) * f64(b) / f64(c)); };
+xc(1+8,2/4/8, 91);
 
 val cfg = attempt([]() {
     val f = io.fread("solus.tests/test.cfg");

@@ -1,3 +1,12 @@
+var f = asm(2) [](x) {
+    GUPO 2 0 "type";
+    CALL 2 2 0;
+    GUPO 1 0 "io";
+    GET  1 1 "println";
+    CALL 1 1 1;
+};
+f();
+
 {
     name = "Jessica"
     fav_food = "Meow Mix"
