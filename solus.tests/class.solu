@@ -1,3 +1,5 @@
+
+
 var f = asm(2) [](x) {
     GUPO 2 0 "type";
     CALL 2 2 0;
@@ -5,7 +7,12 @@ var f = asm(2) [](x) {
     GET  1 1 "println";
     CALL 1 1 1;
 };
-f();
+
+for var i = 0; i < 20; ++i:
+    io.println(i);
+for (var i = 0; i < 20000; ++i): {
+    io.println(i);
+}
 
 {
     name = "Jessica"

@@ -261,8 +261,8 @@ solu_scan_ex solu_scan(sf_str src) {
             solu_scancase(':', TK_COLON);
             solu_scancase(';', TK_SEMICOLON);
             solu_scancase('*', TK_ASTERISK);
-            solu_scancase('+', solu_scanpeek(&s, '=') ? TK_PLUS_EQUAL : TK_PLUS);
-            solu_scancase('-', solu_scanpeek(&s, '=') ? TK_MINUS_EQUAL : TK_MINUS);
+            solu_scancase('+', solu_scanpeek(&s, '=') ? TK_PLUS_EQUAL : (solu_scanpeek(&s, '+') ? TK_INCREMENT : TK_PLUS));
+            solu_scancase('-', solu_scanpeek(&s, '=') ? TK_MINUS_EQUAL : (solu_scanpeek(&s, '-') ? TK_DECREMENT : TK_MINUS));
             solu_scancase('!', solu_scanpeek(&s, '=') ? TK_NOT_EQUAL : TK_BANG);
             solu_scancase('<', solu_scanpeek(&s, '=') ? TK_LESS_EQUAL : TK_LESS);
             solu_scancase('>', solu_scanpeek(&s, '=') ? TK_GREATER_EQUAL : TK_GREATER);
@@ -442,7 +442,7 @@ size_t solu_precedence(solu_tokentype tt) {
 bool solu_niscondition(solu_node *node) {
     if (node->tt == SOLU_ND_IDENTIFIER ||
         node->tt == SOLU_ND_CALL ||
-        (node->tt == SOLU_ND_UNARY && node->n_unary.op == TK_BANG) ||
+        (node->tt == SOLU_ND_UNARY && (node->n_unary.op == TK_BANG || node->n_unary.op == TK_INCREMENT || node->n_unary.op == TK_DECREMENT)) ||
        (node->tt == SOLU_ND_LITERAL && node->n_literal.tt == SOLU_TBOOL))
         return true;
     if (node->tt != SOLU_ND_BINARY)
@@ -505,6 +505,8 @@ solu_parse_ex solu_pprimary(solu_parser *p) {
             return solu_pblock(p);
         case TK_BANG:
         case TK_MINUS:
+        case TK_INCREMENT:
+        case TK_DECREMENT:
             return solu_punary(p);
         case TK_LEFT_BRACKET: return solu_pfun(p);
         case TK_ASM: return solu_pasm(p);
@@ -539,6 +541,25 @@ solu_parse_ex solu_punary(solu_parser *p) {
     solu_tokentype tt = (p->tok++)->tt;
     solu_parse_ex expr = solu_pexpr(p, 0);
     if (!expr.ok) return expr;
+    if (tt == TK_INCREMENT || tt == TK_DECREMENT) {
+        if (expr.ok->tt != SOLU_ND_IDENTIFIER) {
+            solu_node_free(expr.ok);
+            return solu_perr(SOLU_ERRP_EXPECTED_IDENTIFIER);
+        }
+        solu_node *n_binary = malloc(sizeof(solu_node));
+        solu_node *n_literal = malloc(sizeof(solu_node));
+        *n_literal = (solu_node){ SOLU_ND_LITERAL, (p->tok-1)->line, (p->tok-1)->column, .n_literal = (solu_val){SOLU_TI64, .i64 = 1}};
+        *n_binary = (solu_node){
+            SOLU_ND_BINARY,
+            (p->tok-1)->line, (p->tok-1)->column,
+            .n_binary = {
+                .op = tt == TK_INCREMENT ? TK_PLUS_EQUAL : TK_MINUS_EQUAL,
+                .left = expr.ok,
+                .right = n_literal,
+            }
+        };
+        return solu_parse_ex_ok(n_binary);
+    }
 
     solu_node *n_unary = malloc(sizeof(solu_node));
     *n_unary = (solu_node){
