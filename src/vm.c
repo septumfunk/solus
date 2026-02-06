@@ -428,22 +428,6 @@ static inline uint64_t htonll(uint64_t x) { return x; }
 static inline uint64_t ntohll(uint64_t x) { return x; }
 #else
 #include <arpa/inet.h>
-static inline uint64_t htonll(uint64_t x) {
-#if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
-    return ((uint64_t)htonl((uint32_t)(x & 0xffffffffULL)) << 32) |
-            htonl((uint32_t)(x >> 32));
-#else
-    return x;
-#endif
-}
-static inline uint64_t ntohll(uint64_t x) {
-#if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
-    return ((uint64_t)ntohl((uint32_t)(x & 0xffffffffULL)) << 32) |
-            ntohl((uint32_t)(x >> 32));
-#else
-    return x;
-#endif
-}
 #endif
 
 sf_buffer solu_fproto_serialize(solu_fproto *proto) {
@@ -817,7 +801,8 @@ solu_call_ex solu_call_bc(solu_state *s, solu_fproto *proto, const solu_val *arg
             DISPATCH();
         }
         CASE(SOLU_OP_CALL) {
-            solu_val fun = solu_get(s, solu_iabc_bx(ins));
+            uint32_t fun_r = solu_iabc_bx(ins);
+            solu_val fun = solu_get(s, fun_r);
             if (!solu_isdtype(fun, SOLU_DFUN)) {
                 if (solu_isdtype(fun, SOLU_DERR))
                     return solu_callerr(SOLU_ERRV_TYPE_MISMATCH, "Attempted to call type %s: %s", solu_typename(fun).c_str, fun.dyn);
@@ -826,11 +811,11 @@ solu_call_ex solu_call_bc(solu_state *s, solu_fproto *proto, const solu_val *arg
 
             solu_fproto *f = fun.dyn;
             solu_call_ex fex;
-            if (f->arg_c > 0) {
-                solu_val *argv = calloc(f->arg_c, sizeof(solu_val));
-                uint32_t argc = 0;
-                for (; argc < f->arg_c && argc < s->frames.data[s->frames.count - 1].size; ++argc)
-                    argv[argc] = solu_get(s, solu_iabc_cx(ins) + argc);
+            uint32_t argc = solu_iabc_cx(ins);
+            if (argc > 0) {
+                solu_val *argv = calloc(argc, sizeof(solu_val));
+                for (uint32_t i = 0; i < argc && i < s->frames.data[s->frames.count - 1].size; ++i)
+                    argv[i] = solu_get(s, fun_r + i + 1);
                 fex = solu_call(s, f, argv, argc);
                 free(argv);
             } else fex = solu_call(s, f, NULL, 0);

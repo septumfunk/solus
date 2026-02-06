@@ -45,6 +45,7 @@ X(C, NONE, "You shouldn't be seeing this...") \
 X(C, EXPECTED_BLOCK, "Expected block") \
 X(C, EXPECTED_FUN, "Expected function") \
 X(C, EXPECTED_EXPRESSION, "Expected expression") \
+X(C, UNEXPECTED_BREAK, "break can only be used within loops") \
 X(C, UNKNOWN_LOCAL, "Unknown local variable") \
 X(C, REDEFINED_LOCAL, "Redefined local variable") \
 X(C, REASSIGNED_VAL, "Attempted to reassign a value. vals are immutable, did you mean var?") \

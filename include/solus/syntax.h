@@ -7,7 +7,8 @@
 /// Token type, or character
 typedef enum {
     // Statements
-    TK_VAL, TK_VAR, TK_DO, TK_IF, TK_ELSE, TK_WHILE, TK_RETURN, TK_INCLUDE,
+    TK_VAL, TK_VAR, TK_DO, TK_IF, TK_ELSE, TK_FOR, TK_WHILE, TK_RETURN, TK_INCLUDE,
+    TK_BREAK,
     // Operators
     TK_PLUS, TK_MINUS, TK_BANG, TK_ASTERISK, TK_SLASH, TK_EQUAL, TK_PLUS_EQUAL,
     TK_NOT_EQUAL, TK_MINUS_EQUAL, TK_DOUBLE_EQUAL, TK_GREATER, TK_GREATER_EQUAL,
@@ -66,7 +67,8 @@ EXPORT solu_scan_ex solu_scan(sf_str src);
 /// Node types that the parser is capable of producing
 typedef enum {
     // Statements
-    SOLU_ND_LOCAL, SOLU_ND_IF, SOLU_ND_WHILE, SOLU_ND_INS, SOLU_ND_RETURN,
+    SOLU_ND_LOCAL, SOLU_ND_IF, SOLU_ND_FOR, SOLU_ND_WHILE, SOLU_ND_INS, SOLU_ND_RETURN,
+    SOLU_ND_BREAK,
     // Operators
     SOLU_ND_UNARY, SOLU_ND_BINARY, SOLU_ND_MEMBER, SOLU_ND_CALL,
     // Literals
@@ -118,6 +120,10 @@ typedef struct solu_node {
             struct solu_node **args;
             uint32_t arg_c;
         } n_call;
+        struct {
+            struct solu_node *pre, *condition, *post;
+            struct solu_node *body;
+        } n_for;
         struct { // while c {b}
             struct solu_node *condition;
             struct solu_node *stmt;

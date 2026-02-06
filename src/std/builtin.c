@@ -146,7 +146,6 @@ static solu_call_ex builtin_f64(solu_state *s) {
 
 void solu_mod_builtin(solu_state *s) {
     solu_dobj *_g = s->global.dyn;
-    solu_dobj_set(_g, sf_lit("str"), solu_wrapcfun(s, builtin_str, 1, 0));
     solu_dobj_set(_g, sf_lit("err"), solu_wrapcfun(s, builtin_err, 1, 0));
     solu_dobj_set(_g, sf_lit("panic"), solu_wrapcfun(s, builtin_panic, 1, 0));
     solu_dobj_set(_g, sf_lit("attempt"), solu_wrapcfun(s, builtin_attempt, 2, 0));
@@ -158,4 +157,8 @@ void solu_mod_builtin(solu_state *s) {
     solu_dobj_set(_g, sf_lit("eval"), solu_wrapcfun(s, builtin_eval, 1, 0));
     solu_dobj_set(_g, sf_lit("import"), solu_wrapcfun(s, builtin_import, 1, 0));
     solu_dobj_set(_g, sf_lit("require"), solu_wrapcfun(s, builtin_require, 1, 0));
+
+    solu_dobj_set(_g, sf_lit("str"), solu_wrapcfun(s, builtin_str, 1, 0));
+    solu_dobj_set(_g, sf_lit("i64"), solu_wrapcfun(s, builtin_i64, 1, 0));
+    solu_dobj_set(_g, sf_lit("f64"), solu_wrapcfun(s, builtin_f64, 1, 0));
 }

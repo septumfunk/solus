@@ -2,7 +2,6 @@
 #define BYTECODE_H
 
 #include "sf/containers/buffer.h"
-#include "sf/fs.h"
 #include "sf/str.h"
 #include <stddef.h>
 #include <stdint.h>
@@ -11,11 +10,11 @@
 #include <string.h>
 
 #ifndef _WIN32
-#define _strdup _strdup
+#define _strdup strdup
 #endif
 
 /// Bytecode version
-#define SOLU_VERSION "0.7"
+#define SOLU_VERSION "0.7.1"
 /// Git repository, hosted on GitHub for now
 #define SOLU_GIT "https://github.com/solus-lang/solus"
 
@@ -367,7 +366,9 @@ static inline char *solu_realpath(const char *path) {
     return _strdup(buf);
 }
 #else
-#define solu_realpath realpath
+static inline char *solu_realpath(const char *path) {
+    return realpath(path, NULL);
+}
 #endif
 /// Get dir of canonized path
 char *solu_realdir(const char *rp);
