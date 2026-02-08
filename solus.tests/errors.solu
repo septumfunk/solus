@@ -6,4 +6,4 @@ var mod = attempt(
     []() { return import("doesnt-exist.solu"); },
     [](err) { io.println(err); return {}; }
 );
-io.println(type(mod));
+io.println(type(mod)); 

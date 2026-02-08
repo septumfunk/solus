@@ -51,7 +51,7 @@ void cli_highlight_line(sf_str src, sf_str err, uint16_t line, uint16_t column) 
 }
 
 sf_str cli_load_file(char *name) {
-    sf_str f = sf_lit(name);
+    sf_str f = sf_own(name);
     if (!sf_file_exists(f)) {
         fprintf(stderr, TUI_ERR "error: file '%s' not found.\n", name);
         return SF_STR_EMPTY;
@@ -251,6 +251,15 @@ int cli_test(char *dirpath) {
 
 int main(int argc, char **argv) {
     if (argc == 1) {
+        char *fp = strcat(solu_realdir(argv[0]), "/bundle.solc");
+        if (sf_file_exists(sf_ref(fp))) {
+            sf_str src = cli_load_file(fp);
+            free(fp);
+            if (sf_isempty(src) || src.len == 0)
+                return 1;
+            return cli_run("bundle.solc", src);
+        }
+        free(fp);
         printf("Usage: %s [run|compile|dbg|test] <file>\n", argv[0]);
         return 1;
     }

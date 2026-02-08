@@ -38,8 +38,6 @@ static solu_call_ex builtin_import(solu_state *s) {
         solu_fproto_free(&cm_ex.ok);
     }
 
-
-
     if (!cl_ex.is_ok)
         return solu_ok(solu_dnerr(s, cl_ex.err.panic));
     return cl_ex;
@@ -62,11 +60,12 @@ static solu_call_ex builtin_eval(solu_state *s) {
         return solu_ok(solu_dnerr(s, solu_err_string(cm_ex.err.tt).c_str));
     solu_call_ex cl_ex = solu_call(s, &cm_ex.ok, NULL, 0);
     solu_fproto_free(&cm_ex.ok);
-    if (!cl_ex.is_ok)
+    if (!cl_ex.is_ok) {
         return solu_ok(solu_dnerr(s, cl_ex.err.tt == SOLU_ERRV_PANIC ?
             cl_ex.err.panic :
             solu_err_string(cm_ex.err.tt).c_str
         ));
+    }
     return cl_ex;
 }
 static solu_call_ex builtin_err(solu_state *s) {
@@ -83,10 +82,8 @@ static solu_call_ex builtin_catch(solu_state *s) {
     solu_val try = solu_get(s, 0);
     expect_dtype(SOLU_DFUN, try);
     solu_call_ex try_ex = solu_call(s, try.dyn, NULL, 0);
-    if (!try_ex.is_ok) {
-        solu_popframe(s); // Frame remains after panic!
+    if (!try_ex.is_ok)
         return solu_ok(solu_dnerr(s, try_ex.err.panic));
-    }
     return solu_ok(try_ex.ok);
 }
 static solu_call_ex builtin_attempt(solu_state *s) {
@@ -96,7 +93,6 @@ static solu_call_ex builtin_attempt(solu_state *s) {
     expect_dtype(SOLU_DFUN, handler);
     solu_call_ex try_ex = solu_call(s, try.dyn, NULL, 0);
     if (!try_ex.is_ok) {
-        solu_popframe(s); // Frame remains after panic!
         solu_val err = solu_dnerr(s, try_ex.err.panic);
         solu_call_ex hand_ex = solu_call(s, handler.dyn, (solu_val[]){err}, 1);
         if (!hand_ex.is_ok) return hand_ex;
