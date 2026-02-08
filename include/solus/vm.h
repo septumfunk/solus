@@ -30,6 +30,7 @@ typedef struct solu_state {
     solu_frames frames; // stack frames
     solu_filenames files; // filename stack
     solu_val global; // _g
+    uint32_t call_stack;
 
     bool collect;
     solu_dalloc *alloc, *alloc_tail; // gc allocations
@@ -62,13 +63,9 @@ EXPORT solu_val solu_dnew(solu_state *state, solu_dtype type);
 /// User types are managed by the GC so make sure you use solu_dhold if you don't want them to be!
 EXPORT solu_val solu_dnusr(solu_state *state, size_t size, const char *name, void *value, solu_usrdel del, solu_usrtostring tostring);
 /// Shorthand for using solu_dnew and assigning a string value.
-solu_val solu_dnstr(solu_state *state, const char *str);
+EXPORT solu_val solu_dnstr(solu_state *state, const char *str);
 /// Shorthand for using solu_dnew and assigning a string value.
-static inline solu_val solu_dnerr(solu_state *state, const char *str) {
-    solu_val err = solu_dnstr(state, str);
-    solu_dheader(err)->tt = SOLU_DERR;
-    return err;
-}
+EXPORT solu_val solu_dnerr(solu_state *state, const char *str);
 
 /// Hold a reference to the a dyn value for the C API.
 /// This marks the object as green, meaning collection is skipped
@@ -82,12 +79,14 @@ static inline void solu_drelease(solu_val val) {
     solu_dheader(val)->mark = SOLU_DYN_WHITE;
 }
 
+/// Join two dobjects into a single dobj.
+/// Passing SOLU_NIL for obj2 will just copy obj1
+EXPORT solu_val solu_djoin(solu_state *s, solu_val obj1, solu_val obj2);
+/// Add all fields from obj2 into obj1
+EXPORT void solu_dappend(solu_val obj1, solu_val obj2);
+
 /// Mark and Sweep garbage collection
 EXPORT void solu_dcollect(solu_state *state);
-
-/// Converts a value to a string.
-/// You are responsible for freeing this string
-EXPORT char *solu_tostring(solu_val val);
 
 /// Get the value of a register from a specific stack frame
 static inline solu_val solu_rawget(solu_state *state, uint32_t index, uint32_t frame) {
@@ -104,6 +103,7 @@ static inline solu_val solu_getk(solu_fproto *proto, uint32_t index) { return *(
 
 /// Set the value of a register in a specific stack frame
 static inline void solu_rawset(solu_state *state, uint32_t index, solu_val val, uint32_t frame) {
+    solu_dalloc *dh = solu_dheader(val); (void)dh;
     solu_valvec_set(&state->stack, state->frames.data[frame].bottom_o + index, val);
 }
 /// Set the value of a register in the current stack frame
@@ -111,14 +111,12 @@ static inline void solu_set(solu_state *state, uint32_t index, solu_val val) {
     solu_rawset(state, index, val, state->frames.count - 1);
 }
 /// Get a global value by name. Returns nil if it's not found
-static inline solu_val solu_getg(solu_state *state, sf_str name) {
-    solu_dobj_ex ex = solu_dobj_get((solu_dobj *)state->global.dyn, name);
-    if (!ex.is_ok) return SOLU_NIL;
-    return ex.ok;
+static inline solu_val solu_getg(solu_state *state, char *name) {
+    return solu_dobj_strget(state->global.dyn, name);
 }
 /// Set a global value by name
 static inline void solu_setg(solu_state *state, char *name, solu_val value) {
-    solu_dobj_set((solu_dobj *)state->global.dyn, sf_str_cdup(name), value);
+    solu_dobj_strset(state->global.dyn, name, value);
 }
 /// Push a stack frame to the VM
 static inline uint32_t solu_pushframe(solu_state *state, uint32_t reg_c) {

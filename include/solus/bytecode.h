@@ -15,7 +15,7 @@
 #endif
 
 /// Bytecode version
-#define SOLU_VERSION "0.7.2"
+#define SOLU_VERSION "0.8"
 /// Git repository, hosted on GitHub for now
 #define SOLU_GIT "https://github.com/solus-lang/solus"
 
@@ -50,6 +50,7 @@ typedef enum {
     SOLU_OP_NEW,
     SOLU_OP_SET,
     SOLU_OP_GET,
+    SOLU_OP_PUSH,
 
     SOLU_OP_SUPO,
     SOLU_OP_GUPO,
@@ -185,6 +186,10 @@ typedef struct {
         solu_dyn dyn;
     };
 } solu_val;
+/// Converts a value to a string.
+/// You are responsible for freeing this string
+EXPORT char *solu_tostring(solu_val val);
+
 #define SOLU_NIL (solu_val){.tt = SOLU_TNIL}
 #define SOLU_TRUE (solu_val){.tt = SOLU_TBOOL, .boolean = true}
 #define SOLU_FALSE (solu_val){.tt = SOLU_TBOOL, .boolean = false}
@@ -240,16 +245,38 @@ EXPORT void solu_fproto_free(solu_fproto *proto);
 typedef sf_str solu_dstr;
 
 // dobj
-struct solu_dobj;
-void _solu_dobj_cleanup(struct solu_dobj *obj);
-#define MAP_NAME solu_dobj
+struct solu_valmap;
+void _solu_valmap_cleanup(struct solu_valmap *obj);
+#define MAP_NAME solu_valmap
 #define MAP_K sf_str
 #define MAP_V solu_val
 #define EQUAL_FN(s1, s2) (sf_str_eq(s1, s2))
 #define HASH_FN(s) (sf_str_hash(s))
-#define CLEANUP_FN _solu_dobj_cleanup
+#define CLEANUP_FN _solu_valmap_cleanup
 #define KCLEANUP sf_str_free
 #include <sf/containers/map.h>
+
+typedef enum {
+    SOLU_META_GET,
+    SOLU_META_SET,
+
+    SOLU_META_COUNT,
+} solu_metafun;
+
+typedef struct {
+    solu_valmap map;
+    solu_valvec array;
+    solu_val meta;
+    bool metafuns[SOLU_META_COUNT];
+} solu_dobj;
+EXPORT solu_dobj solu_dobj_new(void);
+EXPORT void solu_dobj_free(solu_dobj *obj);
+EXPORT solu_val solu_dobj_get(solu_dobj *obj, solu_val key);
+EXPORT void solu_dobj_set(solu_dobj *obj, solu_val key, solu_val val);
+EXPORT solu_val solu_dobj_strget(solu_dobj *obj, char *key);
+/// You do NOT need to pass an owned string
+EXPORT void solu_dobj_strset(solu_dobj *obj, char *key, solu_val val);
+// fun
 typedef solu_fproto *solu_dfun;
 
 /// Strings 40 characters or less are cached

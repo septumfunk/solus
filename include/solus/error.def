@@ -15,12 +15,14 @@ X(P, EXPECTED_IDENTIFIER, "Expected identifier") \
 X(P, EXPECTED_LITERAL, "Expected str literal") \
 X(P, EXPECTED_LPAREN, "Expected '('") \
 X(P, EXPECTED_RPAREN, "Expected ')'") \
-X(P, EXPECTED_RBRACE, "Expected ']'") \
+X(P, EXPECTED_RBRACKET, "Expected ']'") \
 X(P, EXPECTED_EQUAL, "Expected '='") \
+X(P, EXPECTED_COMMA, "Expected ','") \
 X(P, EXPECTED_COLON, "Expected ':'") \
 X(P, EXPECTED_SEMICOLON, "Expected ';'") \
+X(P, EXPECTED_MINUS, "Expected '-'") \
 X(P, UNEXPECTED_SEMICOLON, "Unexpected ';'") \
-X(P, UNEXPECTED_SEMICOLON_OBJ, "Unexpected ';', did you mean (optionally) ','?") \
+X(P, UNEXPECTED_SEMICOLON_OBJ, "Unexpected ';', did you mean ','?") \
 X(P, EXPECTED_CONDITION, "Expected condition") \
 X(P, EXPECTED_BLOCK, "Expected block") \
 X(P, EXPECTED_ELSE, "Expected else or ';'") \
@@ -46,6 +48,7 @@ X(C, EXPECTED_BLOCK, "Expected block") \
 X(C, EXPECTED_FUN, "Expected function") \
 X(C, EXPECTED_EXPRESSION, "Expected expression") \
 X(C, UNEXPECTED_BREAK, "break can only be used within loops") \
+X(C, UNEXPECTED_CONTINUE, "continue can only be used within loops") \
 X(C, UNKNOWN_LOCAL, "Unknown local variable") \
 X(C, REDEFINED_LOCAL, "Redefined local variable") \
 X(C, REASSIGNED_VAL, "Attempted to reassign a value. vals are immutable, did you mean var?") \
