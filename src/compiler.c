@@ -833,7 +833,7 @@ solu_cnode_ex solu_cnode(solu_compiler *c, solu_node *node, uint32_t t_reg) {
                 // Self capture (reserved name)
                 solu_local loc;
                 if (c->obj_r != UINT_MAX && strcmp(name, "self") == 0)
-                    upvals[ofs + i] = (solu_upvalue){sf_str_cdup(name), .tt = SOLU_UP_REF, .ref = c->obj_r, .frame = c->frame, .mut = false};
+                    upvals[ofs + i] = (solu_upvalue){sf_lit("self"), .tt = SOLU_UP_REF, .ref = c->obj_r, .frame = c->frame, .mut = false};
                 else {
                     if (!solu_lexists(c, name, &loc))
                         return solu_cerr(SOLU_ERRC_UNKNOWN_LOCAL);

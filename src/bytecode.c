@@ -1,6 +1,7 @@
 #include "solus/bytecode.h"
 #include "sf/containers/buffer.h"
 #include "sf/str.h"
+#include <stdbool.h>
 #include <stdlib.h>
 
 void _valmap_foreach(void *_u, sf_str k, solu_val _v) { (void)_u;(void)_v; sf_str_free(k); }
@@ -68,6 +69,20 @@ solu_val solu_dobj_get(solu_dobj *obj, solu_val key) {
     return ex.is_ok ? ex.ok : SOLU_NIL;
 }
 void solu_dobj_set(solu_dobj *obj, solu_val key, solu_val val) {
+    if (solu_isdtype(val, SOLU_DFUN)) {
+        solu_fproto *fp = val.dyn;
+        uint32_t self = UINT32_MAX;
+        for (uint32_t i = 0; i < fp->up_c; ++i) {
+            if (sf_str_eq(fp->upvals[i].name, sf_lit("self"))) {
+                self = i;
+                break;
+            }
+        }
+        if (self != UINT32_MAX) {
+            solu_upvalue op = fp->upvals[self];
+            fp->upvals[self] = (solu_upvalue){ op.name, SOLU_UP_VAL, .value = (solu_val){SOLU_TDYN, .dyn = obj} };
+        }
+    }
     if ((key.tt == SOLU_TI64 && key.i64 >= 0) || (key.tt == SOLU_TF64 && key.f64 >= 0)) {
         uint32_t nkey = (uint32_t)(key.tt == SOLU_TI64 ? key.i64 : (solu_i64)key.f64);
         if (nkey == obj->array.count)
