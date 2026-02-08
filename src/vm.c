@@ -151,12 +151,13 @@ solu_val solu_dnew(solu_state *s, solu_dtype tt) {
     return (solu_val){ .tt = SOLU_TDYN, .dyn = p };
 }
 
-solu_val solu_dnusr(solu_state *s, size_t size, const char *name, void *value, solu_usrdel del, solu_usrtostring tostring) {
+solu_val solu_dnusr(solu_state *s, size_t size, const char *name, void *value,
+    solu_usrdel del, solu_usrtostring tostring, solu_usrmark mark) {
     solu_dyn p = calloc(1, sizeof(solu_dalloc) + size + sizeof(solu_usrwrap));
     solu_dalloc *dh = p;
     *dh = (solu_dalloc){
         .next = NULL,
-        .size = size + sizeof(solu_usrwrap),
+        .size = size,
         .thread = 1,
         .tt = SOLU_DUSR,
         .mark = SOLU_DYN_WHITE,
@@ -167,6 +168,7 @@ solu_val solu_dnusr(solu_state *s, size_t size, const char *name, void *value, s
         .name = sf_str_cdup(name),
         .del = del,
         .tostring = tostring,
+        .mark = mark,
     };
 
     solu_dpush(s, dh);
@@ -310,15 +312,15 @@ solu_val solu_dcopy(solu_state *state, solu_val val) {
     return val;
 }
 
-static void solu_dmarkfun(solu_fproto *fp) {
+void solu_dmarkfun(solu_fproto *fp) {
     for (solu_upvalue *v = fp->upvals; v && v < fp->upvals + fp->up_c; ++v) {
         if (v->tt == SOLU_UP_VAL && v->value.tt == SOLU_TDYN)
             solu_dheader(v->value)->mark = SOLU_DYN_BLACK;
     }
 }
 
-static void solu_dmarkref(solu_val r);
-static void solu_dmarkobj(solu_val obj);
+void solu_dmarkref(solu_val r);
+void solu_dmarkobj(solu_val obj);
 static void solu_dcollect_obj(void *ud, sf_str _k, solu_val member) {
     (void)_k; (void)ud;
     if (member.tt != SOLU_TDYN || solu_dheader(member)->mark != SOLU_DYN_WHITE) return;
@@ -331,7 +333,7 @@ static void solu_dcollect_obj(void *ud, sf_str _k, solu_val member) {
         solu_dmarkref(member);
 }
 
-static void solu_dmarkobj(solu_val obj) {
+void solu_dmarkobj(solu_val obj) {
     solu_dobj *dobj = (solu_dobj *)obj.dyn;
     for (uint32_t i = 0; i < dobj->array.count; ++i) {
         solu_val member = dobj->array.data[i];
@@ -376,7 +378,10 @@ void solu_dcollect(solu_state *s) {
         if (r->tt == SOLU_TDYN) {
             solu_dalloc *ac = solu_dheader(*r);
             ac->mark = SOLU_DYN_BLACK;
-
+            if (ac->tt == SOLU_DUSR) {
+                solu_usrmark mark = solu_uheader(*r)->mark;
+                if (mark) mark(r->dyn);
+            }
             if (ac->tt == SOLU_DOBJ)
                 solu_dmarkobj(*r);
             if (ac->tt == SOLU_DFUN)
@@ -835,6 +840,11 @@ solu_call_ex solu_call_bc(solu_state *s, solu_fproto *proto, const solu_val *arg
         CASE(SOLU_OP_CALL) {
             uint32_t fun_r = solu_iabc_bx(ins);
             solu_val fun = solu_get(s, fun_r);
+            if (solu_isdtype(fun, SOLU_DOBJ)) {
+                solu_dobj *dobj = fun.dyn;
+                if (dobj->metafuns[SOLU_META_CALL])
+                    fun = solu_dobj_strget(dobj->meta.dyn, "_call");
+            }
             if (!solu_isdtype(fun, SOLU_DFUN)) {
                 if (solu_isdtype(fun, SOLU_DERR))
                     return solu_callerr(SOLU_ERRV_TYPE_MISMATCH, "Attempted to call type %s: %s", solu_typename(fun).c_str, fun.dyn);

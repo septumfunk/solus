@@ -1,4 +1,5 @@
 #include "solus/bytecode.h"
+#include "solus/vm.h"
 #include "std.h"
 #include <setjmp.h>
 
@@ -35,6 +36,7 @@ static solu_call_ex obj_usemeta(solu_state *s) {
 
     objp->metafuns[SOLU_META_GET] = solu_valmap_get(&metap->map, sf_lit("_get")).is_ok;
     objp->metafuns[SOLU_META_SET] = solu_valmap_get(&metap->map, sf_lit("_set")).is_ok;
+    objp->metafuns[SOLU_META_CALL] = solu_valmap_get(&metap->map, sf_lit("_call")).is_ok;
 
     return solu_ok(SOLU_NIL);
 }
@@ -83,6 +85,11 @@ static void _stringify_fe(void *u, sf_str key, solu_val val) {
         }
         default: {
             char *s = solu_tostring(val);
+            if (solu_isdtype(val, SOLU_DSTR)) {
+                sf_str s2 = sf_str_fmt("\"%s\"", s);
+                free(s);
+                s = s2.c_str;
+            }
             sf_str_append(args->out, sf_ref(s));
             free(s);
             break;
@@ -168,6 +175,35 @@ static solu_call_ex obj_len(solu_state *s) {
     return solu_ok((solu_val){SOLU_TI64, .i64 = (solu_i64)((solu_dobj *)obj.dyn)->array.count});
 }
 
+typedef struct {
+    solu_state *s;
+    solu_val fun;
+} solu_template;
+static char *template_tostring(void *_temp) {
+    solu_template *temp = _temp;
+    solu_call_ex ex = solu_call(temp->s, temp->fun.dyn, NULL, 0);
+    if (!ex.is_ok) {
+        sf_str fmt = sf_str_fmt("<%s>", ex.err.panic ? ex.err.panic : solu_err_string(ex.err.tt));
+        solu_panic_cleanup(ex);
+        return fmt.c_str;
+    }
+    return solu_tostring(ex.ok);
+}
+static void template_mark(void *_temp) {
+    solu_template *temp = _temp;
+    solu_dheader(temp->fun)->mark = SOLU_DYN_BLACK;
+    solu_dmarkfun(temp->fun.dyn);
+}
+
+static solu_call_ex obj_template(solu_state *s) {
+    solu_val serialize = solu_get(s, 0);
+    expect_dtype(SOLU_DFUN, serialize);
+    solu_val ud = solu_dnusr(s, sizeof(solu_template), "template", &(solu_template){
+        s, serialize,
+    }, NULL, template_tostring, template_mark);
+    return solu_ok(ud);
+}
+
 void solu_mod_obj(solu_state *s) {
     solu_val obj = solu_dnew(s, SOLU_DOBJ);
     solu_dobj_strset(obj.dyn, "new", solu_wrapcfun(s, obj_new, 0, 0));
@@ -181,6 +217,8 @@ void solu_mod_obj(solu_state *s) {
 
     solu_dobj_strset(obj.dyn, "members", solu_wrapcfun(s, obj_members, 1, 0));
     solu_dobj_strset(obj.dyn, "len", solu_wrapcfun(s, obj_len, 1, 0));
+
+    solu_dobj_strset(obj.dyn, "template", solu_wrapcfun(s, obj_template, 1, 0));
 
     solu_dobj_strset(s->global.dyn, "obj", obj);
 }

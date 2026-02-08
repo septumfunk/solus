@@ -68,7 +68,7 @@ typedef enum {
     SOLU_ERR_COUNT
 } solu_error;
 extern const char *SOLU_ERR_STRINGS[SOLU_ERR_COUNT];
-#define solu_err_string(err) (sf_ref(SOLU_ERR_STRINGS[(err)]))
+#define solu_err_string(err) (SOLU_ERR_STRINGS[(err)])
 
 /// Masking functions
 #define MASKI(n) ((1U << (n)) - 1U)
@@ -259,6 +259,7 @@ void _solu_valmap_cleanup(struct solu_valmap *obj);
 typedef enum {
     SOLU_META_GET,
     SOLU_META_SET,
+    SOLU_META_CALL,
 
     SOLU_META_COUNT,
 } solu_metafun;
@@ -294,10 +295,12 @@ void _solu_strcache_cleanup(struct solu_strcache *self);
 
 typedef void (*solu_usrdel)(void *);
 typedef char *(*solu_usrtostring)(void *);
+typedef void (*solu_usrmark)(void *);
 typedef struct {
     sf_str name;
     solu_usrdel del;
     solu_usrtostring tostring;
+    solu_usrmark mark;
 } solu_usrwrap;
 
 /// Cleanup functions for dynamic types
