@@ -456,13 +456,7 @@ solu_val solu_wrapcfun(solu_state *state, solu_cfunction fptr, uint32_t arg_c, u
 
 
 #if defined(_WIN32)
-// Windows is always little-endian
-static inline uint16_t htons(uint16_t x) { return x; }
-static inline uint16_t ntohs(uint16_t x) { return x; }
-static inline uint32_t htonl(uint32_t x) { return x; }
-static inline uint32_t ntohl(uint32_t x) { return x; }
-static inline uint64_t htonll(uint64_t x) { return x; }
-static inline uint64_t ntohll(uint64_t x) { return x; }
+#include <winsock2.h>
 #else
 #include <arpa/inet.h>
 #endif
