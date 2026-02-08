@@ -351,9 +351,9 @@ static void solu_dmarkobj(solu_val obj) {
 
 void solu_dmarkref(solu_val r) {
     solu_val inner = solu_dval(r);
-    if (solu_dheader(inner)->mark == SOLU_DYN_BLACK)
-        return;
     while (inner.tt == SOLU_TDYN) {
+        if (solu_dheader(inner)->mark == SOLU_DYN_BLACK)
+            return;
         solu_dheader(inner)->mark = SOLU_DYN_BLACK;
         switch (solu_dtypeof(inner)) {
             case SOLU_DOBJ:
