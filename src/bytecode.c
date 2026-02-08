@@ -3,14 +3,93 @@
 #include "sf/str.h"
 #include <stdlib.h>
 
-void _dobj_foreach(void *_u, sf_str k, solu_val _v) { (void)_u;(void)_v; sf_str_free(k); }
-void _solu_dobj_cleanup(solu_dobj *obj) {
-    solu_dobj_foreach(obj, _dobj_foreach, NULL);
+void _valmap_foreach(void *_u, sf_str k, solu_val _v) { (void)_u;(void)_v; sf_str_free(k); }
+void _solu_valmap_cleanup(solu_valmap *map) {
+    solu_valmap_foreach(map, _valmap_foreach, NULL);
 }
 
 void _strcache_foreach(void *_u, sf_str k, solu_dalloc *_v) { (void)_u;(void)_v; sf_str_free(k); }
 void _solu_strcache_cleanup(solu_strcache *obj) {
     solu_strcache_foreach(obj, _strcache_foreach, NULL);
+}
+
+char *solu_tostring(solu_val val) {
+    switch (val.tt) {
+        case SOLU_TNIL: return _strdup("nil");
+        case SOLU_TF64: return sf_str_fmt("%f", val.f64).c_str;
+        case SOLU_TI64: return sf_str_fmt("%lld", val.i64).c_str;
+        case SOLU_TBOOL: return _strdup(val.boolean ? "true" : "false");
+        case SOLU_TDYN: {
+            switch (solu_dheader(val)->tt) {
+                case SOLU_DSTR:
+                case SOLU_DERR:
+                return _strdup(val.dyn); break;
+                case SOLU_DOBJ:
+                case SOLU_DFUN: return sf_str_fmt("%p", val.dyn).c_str;
+                case SOLU_DREF: return solu_tostring(*(solu_val *)val.dyn);
+
+                case SOLU_DUSR: {
+                    solu_usrwrap *w = solu_uheader(val);
+                    return w->tostring ? w->tostring(val.dyn) : sf_str_fmt("%p", val.dyn).c_str;
+                }
+                case SOLU_DCOUNT: return NULL;
+            }
+        }
+        default: return NULL;
+    }
+}
+
+solu_dobj solu_dobj_new(void) {
+    return (solu_dobj){
+        solu_valmap_new(),
+        solu_valvec_new(),
+        SOLU_NIL,
+        .metafuns = {
+            [SOLU_META_GET] = false,
+            [SOLU_META_SET] = false,
+        }
+    };
+}
+void solu_dobj_free(solu_dobj *obj) {
+    solu_valmap_free(&obj->map);
+    solu_valvec_free(&obj->array);
+}
+solu_val solu_dobj_get(solu_dobj *obj, solu_val key) {
+    if ((key.tt == SOLU_TI64 && key.i64 >= 0) || (key.tt == SOLU_TF64 && key.f64 >= 0)) {
+        uint32_t nkey = (uint32_t)(key.tt == SOLU_TI64 ? key.i64 : (solu_i64)key.f64);
+        if (obj->array.count == 0 || nkey > obj->array.count - 1)
+            return SOLU_NIL;
+        return solu_valvec_get(&obj->array, nkey);
+    }
+    char *nkey = solu_isdtype(key, SOLU_DSTR) ? key.dyn : solu_tostring(key);
+    solu_valmap_ex ex = solu_valmap_get(&obj->map, sf_ref(nkey));
+    if (!solu_isdtype(key, SOLU_DSTR))
+        free(nkey);
+    return ex.is_ok ? ex.ok : SOLU_NIL;
+}
+void solu_dobj_set(solu_dobj *obj, solu_val key, solu_val val) {
+    if ((key.tt == SOLU_TI64 && key.i64 >= 0) || (key.tt == SOLU_TF64 && key.f64 >= 0)) {
+        uint32_t nkey = (uint32_t)(key.tt == SOLU_TI64 ? key.i64 : (solu_i64)key.f64);
+        if (nkey == obj->array.count)
+            solu_valvec_push(&obj->array, val);
+        else if (nkey < obj->array.count)
+            solu_valvec_set(&obj->array, nkey, val);
+        else {
+            while (obj->array.count < nkey)
+                solu_valvec_push(&obj->array, SOLU_NIL);
+            solu_valvec_push(&obj->array, val);
+        }
+        return;
+    }
+    char *nkey = solu_tostring(key);
+    solu_valmap_set(&obj->map, sf_own(nkey), val);
+}
+solu_val solu_dobj_strget(solu_dobj *obj, char *key) {
+    solu_valmap_ex ex = solu_valmap_get(&obj->map, sf_ref(key));
+    return ex.is_ok ? ex.ok : SOLU_NIL;
+}
+void solu_dobj_strset(solu_dobj *obj, char *key, solu_val val) {
+    solu_valmap_set(&obj->map, sf_str_cdup(key), val);
 }
 
 solu_fproto solu_fproto_new(void) {
@@ -307,6 +386,11 @@ const solu_inssig SOLU_OP_INFO[SOLU_OP_COUNT] = {
         .opcode = SOLU_OP_GET,
         .mnemonic = "GET",
         .type = SOLU_INS_ABC,
+    },
+    [SOLU_OP_PUSH] = {
+        .opcode = SOLU_OP_PUSH,
+        .mnemonic = "PUSH",
+        .type = SOLU_INS_AB,
     },
 
     [SOLU_OP_SUPO] = {

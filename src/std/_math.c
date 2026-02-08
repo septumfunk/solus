@@ -76,8 +76,8 @@ static solu_call_ex math_randf(solu_state *s) {
 
 void solu_mod_math(solu_state *s) {
     solu_val math = solu_dnew(s, SOLU_DOBJ);
-    solu_dobj_set(math.dyn, sf_lit("randi"), solu_wrapcfun(s, math_randi, 2, 0));
-    solu_dobj_set(math.dyn, sf_lit("randf"), solu_wrapcfun(s, math_randf, 2, 0));
-    solu_dobj_set(s->global.dyn, sf_lit("math"), math);
+    solu_dobj_strset(math.dyn, "randi", solu_wrapcfun(s, math_randi, 2, 0));
+    solu_dobj_strset(math.dyn, "randf", solu_wrapcfun(s, math_randf, 2, 0));
+    solu_dobj_strset(s->global.dyn, "math", math);
     srand((unsigned)time(NULL));
 }

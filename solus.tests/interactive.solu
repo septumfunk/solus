@@ -1,0 +1,13 @@
+var should_exit = false;
+exit = [should_exit]() {
+    should_exit = true;
+};
+
+io.println("solus " + str(solus.version) + " interactive prompt script");
+io.println("call 'exit()' to leave");
+
+while !should_exit: {
+    val result = catch([](){ eval(io.input("> ")) });
+    if result != nil:
+        io.println("res: " + str(result));
+}

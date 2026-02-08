@@ -1,22 +1,6 @@
-
-
-var f = asm(2) [](x) {
-    GUPO 2 0 "type";
-    CALL 2 2 0;
-    GUPO 1 0 "io";
-    GET  1 1 "println";
-    CALL 1 1 1;
-};
-
-for var i = 0; i < 20; ++i:
-    io.println(i);
-for (var i = 0; i < 20000; ++i): {
-    io.println(i);
-}
-
 {
     name = "Jessica"
-    fav_food = "Meow Mix"
+    fav_food = "Meow Mix Turkey"
     color = "Brown"
     babies = 0
 
@@ -31,5 +15,3 @@ for (var i = 0; i < 20000; ++i): {
         io.println("I've had " + str(self.babies) + " babies so far.");
     }
 }
-
-

@@ -1,5 +1,8 @@
+#include "sf/containers/buffer.h"
+#include "solus/bytecode.h"
 #include "solus/vm.h"
 #include "std.h"
+#include <stdlib.h>
 #include <string.h>
 
 static inline sf_str solu_cwd(solu_state *state) {
@@ -130,35 +133,42 @@ static solu_call_ex builtin_type(solu_state *s) {
 static solu_call_ex builtin_str(solu_state *s) {
     char *e = solu_tostring(solu_get(s, 0));
     solu_call_ex ex = solu_ok(solu_dnstr(s, e));
+    solu_dalloc *dh = solu_dheader(ex.ok); (void)dh;
     free(e);
     return ex;
 }
 static solu_call_ex builtin_i64(solu_state *s) {
-    solu_val f64 = solu_get(s, 0);
-    expect_type(SOLU_TF64, f64);
-    return solu_ok((solu_val){SOLU_TI64, .i64 = (solu_i64)f64.f64});
+    solu_val conv = solu_get(s, 0);
+    if (conv.tt != SOLU_TF64 && !solu_isdtype(conv, SOLU_DSTR))
+        return solu_panic("'%s' expected f64|str, found %s", solu_typename(conv).c_str);
+    return conv.tt == SOLU_TF64 ?
+        solu_ok((solu_val){SOLU_TI64, .i64 = (solu_i64)conv.f64}) :
+        solu_ok((solu_val){SOLU_TI64, .i64 = (solu_i64)strtoll(conv.dyn, NULL, 10)});
 }
 static solu_call_ex builtin_f64(solu_state *s) {
-    solu_val i64 = solu_get(s, 0);
-    expect_type(SOLU_TI64, i64);
-    return solu_ok((solu_val){SOLU_TF64, .f64 = (solu_f64)i64.i64});
+    solu_val conv = solu_get(s, 0);
+    if (conv.tt != SOLU_TI64 && !solu_isdtype(conv, SOLU_DSTR))
+        return solu_panic("'%s' expected i64|str, found %s", solu_typename(conv).c_str);
+    return conv.tt == SOLU_TI64 ?
+        solu_ok((solu_val){SOLU_TF64, .f64 = (solu_f64)conv.i64}) :
+        solu_ok((solu_val){SOLU_TF64, .f64 = (solu_f64)strtod(conv.dyn, NULL)});
 }
 
 void solu_mod_builtin(solu_state *s) {
     solu_dobj *_g = s->global.dyn;
-    solu_dobj_set(_g, sf_lit("err"), solu_wrapcfun(s, builtin_err, 1, 0));
-    solu_dobj_set(_g, sf_lit("panic"), solu_wrapcfun(s, builtin_panic, 1, 0));
-    solu_dobj_set(_g, sf_lit("attempt"), solu_wrapcfun(s, builtin_attempt, 2, 0));
-    solu_dobj_set(_g, sf_lit("catch"), solu_wrapcfun(s, builtin_catch, 1, 0));
-    solu_dobj_set(_g, sf_lit("unwrap"), solu_wrapcfun(s, builtin_unwrap, 1, 0));
-    solu_dobj_set(_g, sf_lit("unwrap_or"), solu_wrapcfun(s, builtin_unwrap_or, 2, 0));
-    solu_dobj_set(_g, sf_lit("assert"), solu_wrapcfun(s, builtin_assert, 1, 0));
-    solu_dobj_set(_g, sf_lit("type"), solu_wrapcfun(s, builtin_type, 1, 0));
-    solu_dobj_set(_g, sf_lit("eval"), solu_wrapcfun(s, builtin_eval, 1, 0));
-    solu_dobj_set(_g, sf_lit("import"), solu_wrapcfun(s, builtin_import, 1, 0));
-    solu_dobj_set(_g, sf_lit("require"), solu_wrapcfun(s, builtin_require, 1, 0));
+    solu_dobj_strset(_g, "err", solu_wrapcfun(s, builtin_err, 1, 0));
+    solu_dobj_strset(_g, "panic", solu_wrapcfun(s, builtin_panic, 1, 0));
+    solu_dobj_strset(_g, "attempt", solu_wrapcfun(s, builtin_attempt, 2, 0));
+    solu_dobj_strset(_g, "catch", solu_wrapcfun(s, builtin_catch, 1, 0));
+    solu_dobj_strset(_g, "unwrap", solu_wrapcfun(s, builtin_unwrap, 1, 0));
+    solu_dobj_strset(_g, "unwrap_or", solu_wrapcfun(s, builtin_unwrap_or, 2, 0));
+    solu_dobj_strset(_g, "assert", solu_wrapcfun(s, builtin_assert, 1, 0));
+    solu_dobj_strset(_g, "type", solu_wrapcfun(s, builtin_type, 1, 0));
+    solu_dobj_strset(_g, "eval", solu_wrapcfun(s, builtin_eval, 1, 0));
+    solu_dobj_strset(_g, "import", solu_wrapcfun(s, builtin_import, 1, 0));
+    solu_dobj_strset(_g, "require", solu_wrapcfun(s, builtin_require, 1, 0));
 
-    solu_dobj_set(_g, sf_lit("str"), solu_wrapcfun(s, builtin_str, 1, 0));
-    solu_dobj_set(_g, sf_lit("i64"), solu_wrapcfun(s, builtin_i64, 1, 0));
-    solu_dobj_set(_g, sf_lit("f64"), solu_wrapcfun(s, builtin_f64, 1, 0));
+    solu_dobj_strset(_g, "str", solu_wrapcfun(s, builtin_str, 1, 0));
+    solu_dobj_strset(_g, "i64", solu_wrapcfun(s, builtin_i64, 1, 0));
+    solu_dobj_strset(_g, "f64", solu_wrapcfun(s, builtin_f64, 1, 0));
 }

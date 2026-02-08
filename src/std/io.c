@@ -1,3 +1,4 @@
+#include "solus/vm.h"
 #include "std.h"
 
 static solu_call_ex io_print(solu_state *s) {
@@ -69,13 +70,30 @@ static solu_call_ex io_fwrite(solu_state *s) {
 
     return solu_ok(SOLU_NIL);
 }
+static solu_call_ex io_input(solu_state *s) {
+    solu_val prefix = solu_get(s, 0);
+    expect_dtype(SOLU_DSTR, prefix);
+
+    char *line = NULL;
+    size_t cap = 0;
+    printf("%s", (char *)prefix.dyn);
+    ssize_t n = getline(&line, &cap, stdin);
+    if (n == -1)
+        return solu_ok(solu_dnerr(s, "Failed to get input"));
+
+    solu_val str = solu_dnstr(s, line);
+    free(line);
+
+    return solu_ok(str);
+}
 
 void solu_mod_io(solu_state *s) {
     solu_val io = solu_dnew(s, SOLU_DOBJ);
-    solu_dobj_set(io.dyn, sf_lit("print"), solu_wrapcfun(s, io_print, 1, 0));
-    solu_dobj_set(io.dyn, sf_lit("println"), solu_wrapcfun(s, io_println, 1, 0));
-    solu_dobj_set(io.dyn, sf_lit("time"), solu_wrapcfun(s, io_time, 0, 0));
-    solu_dobj_set(io.dyn, sf_lit("fread"), solu_wrapcfun(s, io_fread, 1, 0));
-    solu_dobj_set(io.dyn, sf_lit("fwrite"), solu_wrapcfun(s, io_fwrite, 2, 0));
-    solu_dobj_set(s->global.dyn, sf_lit("io"), io);
+    solu_dobj_strset(io.dyn, "print", solu_wrapcfun(s, io_print, 1, 0));
+    solu_dobj_strset(io.dyn, "println", solu_wrapcfun(s, io_println, 1, 0));
+    solu_dobj_strset(io.dyn, "time", solu_wrapcfun(s, io_time, 0, 0));
+    solu_dobj_strset(io.dyn, "fread", solu_wrapcfun(s, io_fread, 1, 0));
+    solu_dobj_strset(io.dyn, "fwrite", solu_wrapcfun(s, io_fwrite, 2, 0));
+    solu_dobj_strset(io.dyn, "input", solu_wrapcfun(s, io_input, 1, 0));
+    solu_dobj_strset(s->global.dyn, "io", io);
 }

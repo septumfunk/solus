@@ -7,6 +7,7 @@
       "program": "${workspaceRoot}/build/solus",
       "args": ["${input:cliMode}", "solus.tests/${input:scriptName}"],
       "cwd": "${workspaceRoot}",
+      "terminal": "integrated",
 
       // Defaults (Linux/macOS)
       "type": "lldb",

@@ -1,3 +1,4 @@
+#include "solus/bytecode.h"
 #include "std.h"
 
 static solu_call_ex string_len(solu_state *s) {
@@ -55,11 +56,84 @@ static solu_call_ex string_repeat(solu_state *s) {
     solu_dpush(s, dh);
     return solu_ok((solu_val){SOLU_TDYN, .dyn = dh + 1});
 }
+static solu_call_ex string_join(solu_state *s) {
+    solu_val obj = solu_get(s, 0);
+    expect_dtype(SOLU_DOBJ, obj);
+    solu_dobj *dobj = obj.dyn;
+    sf_str final = sf_str_cdup("");
+    for (solu_val *v = dobj->array.data; v < dobj->array.data + dobj->array.count; ++v) {
+        if (solu_isdtype(*v, SOLU_DSTR))
+            sf_str_append(&final, sf_ref(v->dyn));
+    }
+    solu_val str = solu_dnstr(s, final.c_str);
+    sf_str_free(final);
+    return solu_ok(str);
+}
+static solu_call_ex string_split(solu_state *s) {
+    solu_val str = solu_get(s, 0);
+    expect_dtype(SOLU_DSTR, str);
+    solu_val delim = solu_get(s, 1);
+    expect_dtype(SOLU_DSTR, delim);
+
+    char *src = str.dyn;
+    size_t len = strlen(src);
+    char *d = delim.dyn;
+    size_t dlen = strlen(d);
+
+    solu_val out = solu_dnew(s, SOLU_DOBJ);
+    solu_dobj *o = out.dyn;
+
+    if (len == 0) {
+        solu_val empty = solu_dnstr(s, "");
+        solu_valvec_push(&o->array, empty);
+        return solu_ok(out);
+    }
+    if (dlen == 0) {
+        solu_val whole = solu_dnstr(s, src);
+        solu_valvec_push(&o->array, whole);
+        return solu_ok(out);
+    }
+
+    const char *p = src;
+    const char *end = src + len;
+    const char *start = p;
+    while (p <= end - (ptrdiff_t)dlen) {
+        if (memcmp(p, d, dlen) == 0) {
+            size_t tok_len = (size_t)(p - start);
+            char *buf = malloc(tok_len + 1);
+            memcpy(buf, start, tok_len);
+            buf[tok_len] = 0;
+
+            solu_val part = solu_dnstr(s, buf);
+            free(buf);
+            solu_valvec_push(&o->array, part);
+
+            p += dlen;
+            start = p;
+            continue;
+        }
+        ++p;
+    }
+
+    size_t tok_len = (size_t)(end - start);
+    char *buf = malloc(tok_len + 1);
+    memcpy(buf, start, tok_len);
+    buf[tok_len] = 0;
+
+    solu_val part = solu_dnstr(s, buf);
+    free(buf);
+    solu_valvec_push(&o->array, part);
+
+    return solu_ok(out);
+}
+
 
 void solu_mod_string(solu_state *s) {
     solu_val string = solu_dnew(s, SOLU_DOBJ);
-    solu_dobj_set(string.dyn, sf_lit("len"), solu_wrapcfun(s, string_len, 1, 0));
-    solu_dobj_set(string.dyn, sf_lit("sub"), solu_wrapcfun(s, string_sub, 3, 0));
-    solu_dobj_set(string.dyn, sf_lit("repeat"), solu_wrapcfun(s, string_repeat, 2, 0));
-    solu_dobj_set(s->global.dyn, sf_lit("string"), string);
+    solu_dobj_strset(string.dyn, "len", solu_wrapcfun(s, string_len, 1, 0));
+    solu_dobj_strset(string.dyn, "sub", solu_wrapcfun(s, string_sub, 3, 0));
+    solu_dobj_strset(string.dyn, "repeat", solu_wrapcfun(s, string_repeat, 2, 0));
+    solu_dobj_strset(string.dyn, "join", solu_wrapcfun(s, string_join, 1, 0));
+    solu_dobj_strset(string.dyn, "split", solu_wrapcfun(s, string_split, 2, 0));
+    solu_dobj_strset(s->global.dyn, "string", string);
 }

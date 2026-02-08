@@ -10,6 +10,8 @@
 #include "sf/str.h"
 #include "std/std.h"
 
+#define CALL_STACK_MAX 1024
+
 solu_state *solu_state_new(void) {
     solu_dyn p = calloc(1, sizeof(solu_dalloc) + sizeof(solu_dobj));
     *(solu_dalloc *)p = (solu_dalloc){NULL, sizeof(solu_dobj), 1, SOLU_DOBJ, SOLU_DYN_GREEN};
@@ -23,6 +25,7 @@ solu_state *solu_state_new(void) {
         .strcache = solu_strcache_new(),
         .global = {SOLU_TDYN, .dyn = p},
         .lb = 1<<20, .cb = 0, .nb = 0,
+        .call_stack = 0,
 
         .collect = false,
         .alloc = NULL,
@@ -40,9 +43,9 @@ void solu_state_free(solu_state *state) {
 
 void solu_usestd(solu_state *s) {
     solu_val solus = solu_dnew(s, SOLU_DOBJ);
-    solu_dobj_set(solus.dyn, sf_lit("version"), solu_dnstr(s, SOLU_VERSION));
-    solu_dobj_set(solus.dyn, sf_lit("git"), solu_dnstr(s, SOLU_GIT));
-    solu_dobj_set(s->global.dyn, sf_lit("solus"), solus);
+    solu_dobj_strset(solus.dyn, "version", solu_dnstr(s, SOLU_VERSION));
+    solu_dobj_strset(solus.dyn, "git", solu_dnstr(s, SOLU_GIT));
+    solu_dobj_strset(s->global.dyn, "solus", solus);
 
     solu_mod_builtin(s);
     solu_mod_io(s);
@@ -195,30 +198,41 @@ solu_val solu_dnstr(solu_state *s, const char *str) {
     return (solu_val){ .tt = SOLU_TDYN, .dyn = p };
 }
 
-char *solu_tostring(solu_val val) {
-    switch (val.tt) {
-        case SOLU_TNIL: return _strdup("nil");
-        case SOLU_TF64: return sf_str_fmt("%f", val.f64).c_str;
-        case SOLU_TI64: return sf_str_fmt("%lld", val.i64).c_str;
-        case SOLU_TBOOL: return _strdup(val.boolean ? "true" : "false");
-        case SOLU_TDYN: {
-            switch (solu_dheader(val)->tt) {
-                case SOLU_DSTR:
-                case SOLU_DERR:
-                return _strdup(val.dyn); break;
-                case SOLU_DOBJ:
-                case SOLU_DFUN: return sf_str_fmt("%p", val.dyn).c_str;
-                case SOLU_DREF: return solu_tostring(*(solu_val *)val.dyn);
+solu_val solu_dnerr(solu_state *s, const char *str) {
+    size_t size = strlen(str) + 1;
+    solu_dyn p = calloc(1, sizeof(solu_dalloc) + size);
+    solu_dalloc *dh = p;
+    *dh = (solu_dalloc){
+        .next = NULL,
+        .size = size,
+        .thread = 1,
+        .tt = SOLU_DSTR,
+        .mark = SOLU_DYN_WHITE,
+    };
+    p = (char *)p + sizeof(solu_dalloc);
+    memcpy(p, str, size);
+    solu_dpush(s, dh);
+    return (solu_val){ .tt = SOLU_TDYN, .dyn = p };
+}
 
-                case SOLU_DUSR: {
-                    solu_usrwrap *w = solu_uheader(val);
-                    return w->tostring ? w->tostring(val.dyn) : sf_str_fmt("%p", val.dyn).c_str;
-                }
-                case SOLU_DCOUNT: return NULL;
-            }
-        }
-        default: return NULL;
-    }
+static void obj_copy(void *dest, sf_str key, solu_val val) {
+    solu_dobj_strset(dest, key.c_str, val);
+}
+solu_val solu_djoin(solu_state *s, solu_val obj1, solu_val obj2) {
+    if (!solu_isdtype(obj1, SOLU_DOBJ))
+        return SOLU_NIL;
+    solu_val nobj = solu_dnew(s, SOLU_DOBJ);
+    *(solu_dobj *)nobj.dyn = solu_dobj_new();
+    solu_dappend(nobj, obj1);
+    if (solu_isdtype(obj2, SOLU_DOBJ))
+        solu_dappend(nobj, obj2);
+    return nobj;
+}
+void solu_dappend(solu_val obj1, solu_val obj2) {
+    solu_dobj *obj1p = obj1.dyn, *obj2p = obj2.dyn;
+    solu_valmap_foreach(&obj2p->map, obj_copy, &obj1p->map);
+    if (obj2p->array.count)
+        solu_valvec_append(&obj1p->array, obj2p->array.data, obj2p->array.count);
 }
 
 solu_val solu_dscopy(solu_state *state, solu_val val, bool kconst) {
@@ -234,6 +248,10 @@ solu_val solu_dscopy(solu_state *state, solu_val val, bool kconst) {
     solu_val nv = (solu_val){SOLU_TDYN, .dyn=(char*)ac + sizeof(solu_dalloc)};
 
     switch (solu_dheader(nv)->tt) {
+        case SOLU_DOBJ:
+            *(solu_dobj *)nv.dyn = solu_dobj_new();
+            solu_dappend(nv, val);
+            break;
         case SOLU_DSTR:
             memcpy(nv.dyn, val.dyn, ac->size);
             break;
@@ -292,35 +310,54 @@ solu_val solu_dcopy(solu_state *state, solu_val val) {
     return val;
 }
 
-void solu_dmarkfun(solu_fproto *fp) {
+static void solu_dmarkfun(solu_fproto *fp) {
     for (solu_upvalue *v = fp->upvals; v && v < fp->upvals + fp->up_c; ++v) {
         if (v->tt == SOLU_UP_VAL && v->value.tt == SOLU_TDYN)
             solu_dheader(v->value)->mark = SOLU_DYN_BLACK;
     }
 }
 
-void solu_dmarkref(solu_val *r);
-void solu_dcollect_obj(void *ud, sf_str _k, solu_val member) {
-    (void)_k;
+static void solu_dmarkref(solu_val r);
+static void solu_dmarkobj(solu_val obj);
+static void solu_dcollect_obj(void *ud, sf_str _k, solu_val member) {
+    (void)_k; (void)ud;
     if (member.tt != SOLU_TDYN || solu_dheader(member)->mark != SOLU_DYN_WHITE) return;
     solu_dheader(member)->mark = SOLU_DYN_BLACK;
-    if (solu_dtypeof(member) == SOLU_DOBJ)
-        solu_dobj_foreach(member.dyn, solu_dcollect_obj, ud);
-    else if (solu_dtypeof(member) == SOLU_DFUN)
+    if (solu_dtypeof(member) == SOLU_DOBJ) {
+        solu_dmarkobj(member);
+    } else if (solu_dtypeof(member) == SOLU_DFUN)
         solu_dmarkfun(member.dyn);
     else if (solu_dtypeof(member) == SOLU_DREF)
-        solu_dmarkref(&member);
+        solu_dmarkref(member);
 }
 
-void solu_dmarkref(solu_val *r) {
-    solu_val inner = solu_dval(*r);
+static void solu_dmarkobj(solu_val obj) {
+    solu_dobj *dobj = (solu_dobj *)obj.dyn;
+    for (uint32_t i = 0; i < dobj->array.count; ++i) {
+        solu_val member = dobj->array.data[i];
+        if (member.tt != SOLU_TDYN || solu_dheader(member)->mark != SOLU_DYN_WHITE) continue;
+        solu_dheader(member)->mark = SOLU_DYN_BLACK;
+        if (solu_dtypeof(member) == SOLU_DOBJ) {
+            solu_dmarkobj(obj);
+        } else if (solu_dtypeof(member) == SOLU_DFUN)
+            solu_dmarkfun(member.dyn);
+        else if (solu_dtypeof(member) == SOLU_DREF)
+            solu_dmarkref(member);
+    }
+    solu_valmap_foreach(obj.dyn, solu_dcollect_obj, NULL);
+    if (dobj->meta.tt == SOLU_TDYN)
+        solu_dheader(dobj->meta)->mark = SOLU_DYN_BLACK;
+}
+
+void solu_dmarkref(solu_val r) {
+    solu_val inner = solu_dval(r);
     if (solu_dheader(inner)->mark == SOLU_DYN_BLACK)
         return;
     while (inner.tt == SOLU_TDYN) {
         solu_dheader(inner)->mark = SOLU_DYN_BLACK;
         switch (solu_dtypeof(inner)) {
             case SOLU_DOBJ:
-                solu_dobj_foreach(inner.dyn, solu_dcollect_obj, NULL);
+                solu_dmarkobj(inner);
                 break;
             case SOLU_DFUN:
                 solu_dmarkfun(inner.dyn);
@@ -341,14 +378,14 @@ void solu_dcollect(solu_state *s) {
             ac->mark = SOLU_DYN_BLACK;
 
             if (ac->tt == SOLU_DOBJ)
-                solu_dobj_foreach(r->dyn, solu_dcollect_obj, NULL);
+                solu_dmarkobj(*r);
             if (ac->tt == SOLU_DFUN)
                 solu_dmarkfun((solu_fproto *)((char *)ac + sizeof(solu_dalloc)));
             if (ac->tt == SOLU_DREF)
-                solu_dmarkref(r);
+                solu_dmarkref(*r);
         }
     }
-    solu_dobj_foreach(s->global.dyn, solu_dcollect_obj, NULL);
+    solu_dmarkobj(s->global);
 
     solu_dalloc **ac = &s->alloc;
     solu_dalloc *last = NULL;
@@ -744,6 +781,7 @@ solu_call_ex solu_call_bc(solu_state *s, solu_fproto *proto, const solu_val *arg
         LABEL(SOLU_OP_NEW),
         LABEL(SOLU_OP_SET),
         LABEL(SOLU_OP_GET),
+        LABEL(SOLU_OP_PUSH),
 
         LABEL(SOLU_OP_SUPO),
         LABEL(SOLU_OP_GUPO),
@@ -824,11 +862,6 @@ solu_call_ex solu_call_bc(solu_state *s, solu_fproto *proto, const solu_val *arg
                 fex.err.pc = pc - 1;
                 return fex;
             }
-            #ifdef SOLU_DBG_LOG
-            sf_str ret = solu_tostring(fex.ok);
-            printf("[RET] [Type: %s] %s\n", solu_typename(fex.ok).c_str, ret.c_str);
-            sf_str_free(ret);
-            #endif
             solu_set(s, solu_iabc_a(ins), fex.ok);
             DISPATCH();
         }
@@ -841,12 +874,15 @@ solu_call_ex solu_call_bc(solu_state *s, solu_fproto *proto, const solu_val *arg
             if (solu_isdtype(rhs, SOLU_DERR))
                 return solu_callerr(SOLU_ERRV_PANIC, "%s", rhs.dyn);
 
-            if (lhs.tt != rhs.tt) {
-                if (lhs.tt == SOLU_TDYN || rhs.tt == SOLU_TDYN)
-                    return solu_callerr(SOLU_ERRV_TYPE_MISMATCH, "Implicit conversion %s into %s", solu_typename(rhs).c_str, solu_typename(lhs).c_str);
+            if (lhs.tt != rhs.tt || (solu_isdtype(lhs, SOLU_DOBJ) && !solu_isdtype(rhs, SOLU_DOBJ))) {
                 switch (lhs.tt) {
                     case SOLU_TI64: rhs = (solu_val){.tt = SOLU_TI64, .i64 = (solu_i64)rhs.f64}; break;
                     case SOLU_TF64: rhs = (solu_val){.tt = SOLU_TF64, .f64 = (solu_f64)rhs.i64}; break;
+                    case SOLU_TDYN:
+                        if (!solu_isdtype(lhs, SOLU_DOBJ))
+                            return solu_callerr(SOLU_ERRV_TYPE_MISMATCH, "Implicit conversion %s into %s", solu_typename(rhs).c_str, solu_typename(lhs).c_str);
+                        solu_valvec_push(&((solu_dobj *)lhs.dyn)->array, rhs);
+                        DISPATCH();
                     default: return solu_callerr(SOLU_ERRV_TYPE_MISMATCH, "Implicit conversion %s into %s", solu_typename(rhs).c_str, solu_typename(lhs).c_str);
                 }
             }
@@ -858,14 +894,26 @@ solu_call_ex solu_call_bc(solu_state *s, solu_fproto *proto, const solu_val *arg
                     solu_set(s, solu_iabc_a(ins), (solu_val){.tt = SOLU_TI64, .i64 = lhs.i64 + rhs.i64});
                     break;
                 case SOLU_TDYN: {
-                    if (!solu_isdtype(lhs, SOLU_DSTR))
-                        return solu_callerr(SOLU_ERRV_TYPE_MISMATCH, "Type %s does not support operator '+'", solu_typename(lhs).c_str);
-                    sf_str l =  sf_str_join(sf_ref(lhs.dyn), sf_ref(rhs.dyn));
-                    solu_set(s, solu_iabc_a(ins), solu_dnstr(s, l.c_str));
-                    sf_str_free(l);
+                    switch (solu_dtypeof(lhs)) {
+                        case SOLU_DSTR: {
+                            sf_str l =  sf_str_join(sf_ref(lhs.dyn), sf_ref(rhs.dyn));
+                            solu_set(s, solu_iabc_a(ins), solu_dnstr(s, l.c_str));
+                            sf_str_free(l);
+                            break;
+                        }
+                        case SOLU_DOBJ: {
+                            if (solu_iabc_a(ins) == solu_iabc_bx(ins))
+                                solu_dappend(lhs, rhs);
+                            else solu_set(s, solu_iabc_a(ins), solu_djoin(s, lhs, rhs));
+                            break;
+                        }
+                        default:
+                            return solu_callerr(SOLU_ERRV_TYPE_MISMATCH, "Type %s does not support operator '+'", solu_typename(lhs).c_str);
+                    }
                     break;
                 }
-                default: return solu_callerr(SOLU_ERRV_TYPE_MISMATCH, "Type %s does not support operator '+'", solu_typename(lhs).c_str);
+                default:
+                    return solu_callerr(SOLU_ERRV_TYPE_MISMATCH, "Type %s does not support operator '+'", solu_typename(lhs).c_str);
             }
             DISPATCH();
         }
@@ -876,6 +924,12 @@ solu_call_ex solu_call_bc(solu_state *s, solu_fproto *proto, const solu_val *arg
                 return solu_callerr(SOLU_ERRV_PANIC, "%s", lhs.dyn);
             if (solu_isdtype(rhs, SOLU_DERR))
                 return solu_callerr(SOLU_ERRV_PANIC, "%s", rhs.dyn);
+
+            if (solu_isdtype(lhs, SOLU_DOBJ) && solu_isdtype(rhs, SOLU_DSTR) &&
+                solu_iabc_a(ins) == solu_iabc_bx(ins)) {
+                solu_valmap_delete(&((solu_dobj *)lhs.dyn)->map, sf_ref(rhs.dyn));
+                DISPATCH();
+            }
 
             if (lhs.tt != SOLU_TI64 && lhs.tt != SOLU_TF64)
                 return solu_callerr(SOLU_ERRV_TYPE_MISMATCH, "Type %s does not support operator '-'", solu_typename(lhs).c_str);
@@ -1128,9 +1182,18 @@ solu_call_ex solu_call_bc(solu_state *s, solu_fproto *proto, const solu_val *arg
             solu_val val = solu_iabc_ck(ins) ? solu_getk(proto, solu_iabc_cx(ins)) : solu_get(s, solu_iabc_cx(ins));
             if (!solu_isdtype(obj, SOLU_DOBJ))
                 return solu_callerr(SOLU_ERRV_TYPE_MISMATCH, "Attempted to index type %s", solu_typename(obj).c_str);
-            if (!solu_isdtype(key, SOLU_DSTR))
-                return solu_callerr(SOLU_ERRV_TYPE_MISMATCH, "Attempted to index type %s", solu_typename(key).c_str);
-            solu_dobj_set((solu_dobj *)obj.dyn, sf_str_cdup(key.dyn), val);
+            solu_dobj *dobj = obj.dyn;
+            if (dobj->metafuns[SOLU_META_SET]) {
+                solu_val set = solu_dobj_strget(dobj->meta.dyn, "_set");
+                if (solu_isdtype(set, SOLU_DFUN)) {
+                    solu_call_ex ex = solu_call(s, set.dyn, (solu_val[]){key, val}, 2);
+                    if (!ex.is_ok) return ex;
+                    DISPATCH();
+                }
+                dobj->metafuns[SOLU_META_SET] = false;
+            }
+            solu_dalloc *dh = solu_dheader(val); (void)dh;
+            solu_dobj_set(dobj, key, val);
             DISPATCH();
         }
         CASE(SOLU_OP_GET) {
@@ -1138,16 +1201,25 @@ solu_call_ex solu_call_bc(solu_state *s, solu_fproto *proto, const solu_val *arg
             solu_val key = solu_iabc_ck(ins) ? solu_getk(proto, solu_iabc_cx(ins)) : solu_get(s, solu_iabc_cx(ins));
             if (!solu_isdtype(obj, SOLU_DOBJ))
                 return solu_callerr(SOLU_ERRV_TYPE_MISMATCH, "Attempted to index type %s", solu_typename(obj).c_str);
-            if (!solu_isdtype(key, SOLU_DSTR))
-                return solu_callerr(SOLU_ERRV_TYPE_MISMATCH, "Attempted to index object with type '%s", solu_typename(key).c_str);
-            solu_dobj_ex ex = solu_dobj_get(obj.dyn, sf_ref(key.dyn));
-            if (!ex.is_ok) {
-                sf_str fm = sf_str_fmt("Member '%s' not found", key.dyn);
-                solu_set(s, solu_iabc_a(ins), solu_dnerr(s, fm.c_str));
-                sf_str_free(fm);
-                DISPATCH();
+            solu_dobj *dobj = obj.dyn;
+            if (dobj->metafuns[SOLU_META_GET]) {
+                solu_val get = solu_dobj_strget(dobj->meta.dyn, "_get");
+                if (solu_isdtype(get, SOLU_DFUN)) {
+                    solu_call_ex ex = solu_call(s, get.dyn, (solu_val[]){key}, 1);
+                    if (!ex.is_ok) return ex;
+                    solu_set(s, solu_iabc_a(ins), ex.ok);
+                    DISPATCH();
+                }
+                dobj->metafuns[SOLU_META_GET] = false;
             }
-            solu_set(s, solu_iabc_a(ins), ex.ok);
+            solu_set(s, solu_iabc_a(ins), solu_dobj_get(dobj, key));
+            DISPATCH();
+        }
+        CASE(SOLU_OP_PUSH) {
+            solu_val obj = solu_get(s, solu_iab_a(ins));
+            if (!solu_isdtype(obj, SOLU_DOBJ))
+                return solu_callerr(SOLU_ERRV_TYPE_MISMATCH, "Attempted to push to type %s", solu_typename(obj).c_str);
+            solu_valvec_push(&((solu_dobj *)obj.dyn)->array, solu_get(s, solu_iab_b(ins)));
             DISPATCH();
         }
 
@@ -1159,8 +1231,8 @@ solu_call_ex solu_call_bc(solu_state *s, solu_fproto *proto, const solu_val *arg
             solu_val kkey = solu_valvec_get(&proto->constants, solu_iabc_bx(ins));
             if (!solu_isdtype(kkey, SOLU_DSTR))
                 return solu_callerr(SOLU_ERRV_CORRUPT, "Corrupt bytecode", NULL);
-            solu_val val = solu_get(s, solu_iabc_cx(ins));
-            solu_dobj_set((solu_dobj *)upo.dyn, sf_str_cdup(kkey.dyn), val);
+            solu_val val = solu_iabc_ck(ins) ? solu_getk(proto, solu_iabc_cx(ins)) : solu_get(s, solu_iabc_cx(ins));
+            solu_dobj_strset(upo.dyn, kkey.dyn, val);
             DISPATCH();
         }
         CASE(SOLU_OP_GUPO) {
@@ -1171,16 +1243,7 @@ solu_call_ex solu_call_bc(solu_state *s, solu_fproto *proto, const solu_val *arg
             solu_val kkey = solu_valvec_get(&proto->constants, solu_iabc_cx(ins));
             if (!solu_isdtype(kkey, SOLU_DSTR))
                 return solu_callerr(SOLU_ERRV_CORRUPT, "Corrupt bytecode", NULL);
-
-            solu_dalloc *dh = solu_dheader(kkey); (void)dh;
-            solu_dobj_ex ex = solu_dobj_get((solu_dobj *)upo.dyn, sf_ref(kkey.dyn));
-            if (!ex.is_ok) {
-                sf_str e = sf_str_fmt("Member '%s' not found", kkey.dyn);
-                solu_set(s, solu_iabc_a(ins), solu_dnerr(s, e.c_str));
-                sf_str_free(e);
-                DISPATCH();
-            }
-            solu_set(s, solu_iabc_a(ins), ex.ok);
+            solu_set(s, solu_iabc_a(ins), solu_dobj_strget(upo.dyn, kkey.dyn));
             DISPATCH();
         }
 
@@ -1200,23 +1263,37 @@ ret: {}
 }
 
 solu_call_ex solu_call(solu_state *state, solu_fproto *proto, const solu_val *args, uint32_t arg_c) {
+    if (state->call_stack > CALL_STACK_MAX)
+        return solu_panic("Stack Overflow");
+
+    ++state->call_stack;
     if (proto->tt == SOLU_FPROTO_BC) {
         solu_call_ex ex = solu_call_bc(state, proto, args, arg_c, NULL);
         if (!ex.is_ok)
             sf_str_free(solu_filenames_pop(&state->files));
+        --state->call_stack;
         return ex;
     }
-    return solu_call_cfun(state, proto, args, arg_c);
+    solu_call_ex ex = solu_call_cfun(state, proto, args, arg_c);
+    --state->call_stack;
+    return ex;
 }
 
 solu_call_ex solu_dcall(solu_state *state, solu_fproto *proto, const solu_val *args, uint32_t arg_c, bool *bps) {
+    if (state->call_stack > CALL_STACK_MAX)
+        return solu_panic("Stack Overflow");
+
+    ++state->call_stack;
     if (proto->tt == SOLU_FPROTO_BC) {
         solu_call_ex ex = solu_call_bc(state, proto, args, arg_c, bps);
         if (!ex.is_ok)
             sf_str_free(solu_filenames_pop(&state->files));
+        --state->call_stack;
         return ex;
     }
-    return solu_call_cfun(state, proto, args, arg_c);
+    solu_call_ex ex = solu_call_cfun(state, proto, args, arg_c);
+    --state->call_stack;
+    return ex;
 }
 
 #if (defined(__GNUC__) || defined(__clang__)) && !defined(SOLU_DBG_NOCOMPUTE)
