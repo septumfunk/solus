@@ -1263,8 +1263,10 @@ solu_call_ex solu_call(solu_state *state, solu_fproto *proto, const solu_val *ar
     ++state->call_stack;
     if (proto->tt == SOLU_FPROTO_BC) {
         solu_call_ex ex = solu_call_bc(state, proto, args, arg_c, NULL);
-        if (!ex.is_ok)
+        if (!ex.is_ok) {
+            solu_popframe(state);
             sf_str_free(solu_filenames_pop(&state->files));
+        }
         --state->call_stack;
         return ex;
     }

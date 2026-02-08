@@ -118,7 +118,6 @@ static int solu_rdcmd(void) {
         dbg.proto.dbg_res = 0;
         dbg.proto.dbg_ll = 0;
         dbg._break = 0;
-        solu_popframe(dbg.s);
         if (!rs) {
             solu_cmdc();
             return 0;
