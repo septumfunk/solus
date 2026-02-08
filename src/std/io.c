@@ -70,6 +70,56 @@ static solu_call_ex io_fwrite(solu_state *s) {
 
     return solu_ok(SOLU_NIL);
 }
+
+#if defined(_WIN32) && !defined(HAVE_GETLINE)
+
+#if defined(_MSC_VER)
+  #include <BaseTsd.h>
+  typedef SSIZE_T ssize_t;
+#else
+  typedef long ssize_t;
+#endif
+static ssize_t getline(char **lineptr, size_t *n, FILE *stream) {
+    if (lineptr == NULL || n == NULL || stream == NULL) {
+        errno = EINVAL;
+        return -1;
+    }
+    if (*lineptr == NULL || *n == 0) {
+        *n = 128;
+        *lineptr = (char*)malloc(*n);
+        if (*lineptr == NULL) {
+            errno = ENOMEM;
+            return -1;
+        }
+    }
+
+    size_t len = 0;
+    for (;;) {
+        int ch = fgetc(stream);
+        if (ch == EOF) {
+            if (ferror(stream)) {
+                return -1;
+            }
+            if (len == 0) return -1;
+            break;
+        }
+        if (len + 1 >= *n) {
+            size_t newcap = (*n < 1024) ? (*n * 2) : (*n + 1024);
+            char *tmp = (char*)realloc(*lineptr, newcap);
+            if (tmp == NULL) {
+                errno = ENOMEM;
+                return -1;
+            }
+            *lineptr = tmp;
+            *n = newcap;
+        }
+        (*lineptr)[len++] = (char)ch;
+        if (ch == '\n') break;
+    }
+    (*lineptr)[len] = '\0';
+    return (ssize_t)len;
+}
+#endif
 static solu_call_ex io_input(solu_state *s) {
     solu_val prefix = solu_get(s, 0);
     expect_dtype(SOLU_DSTR, prefix);
