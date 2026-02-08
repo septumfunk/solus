@@ -61,7 +61,8 @@ void solu_dpush(solu_state *s, solu_dalloc *ac);
 EXPORT solu_val solu_dnew(solu_state *state, solu_dtype type);
 /// Constructs a dynamic usertype object, a dynamic type with extra user info.
 /// User types are managed by the GC so make sure you use solu_dhold if you don't want them to be!
-EXPORT solu_val solu_dnusr(solu_state *state, size_t size, const char *name, void *value, solu_usrdel del, solu_usrtostring tostring);
+EXPORT solu_val solu_dnusr(solu_state *state, size_t size, const char *name, void *value,
+    solu_usrdel del, solu_usrtostring tostring, solu_usrmark mark);
 /// Shorthand for using solu_dnew and assigning a string value.
 EXPORT solu_val solu_dnstr(solu_state *state, const char *str);
 /// Shorthand for using solu_dnew and assigning a string value.
@@ -87,6 +88,9 @@ EXPORT void solu_dappend(solu_val obj1, solu_val obj2);
 
 /// Mark and Sweep garbage collection
 EXPORT void solu_dcollect(solu_state *state);
+EXPORT void solu_dmarkfun(solu_fproto *fp);
+EXPORT void solu_dmarkref(solu_val r);
+EXPORT void solu_dmarkobj(solu_val obj);
 
 /// Get the value of a register from a specific stack frame
 static inline solu_val solu_rawget(solu_state *state, uint32_t index, uint32_t frame) {
@@ -171,5 +175,9 @@ static inline solu_call_ex solu_ok(solu_val return_val) {
 EXPORT solu_call_ex solu_err(solu_state *state, char *fmt, ...);
 /// Convenience function for returning panic in API functions
 EXPORT solu_call_ex solu_panic(char *fmt, ...);
+/// Convenience function for cleaning up a panic
+static inline void solu_panic_cleanup(solu_call_ex panic) {
+    if (panic.err.panic) free(panic.err.panic);
+}
 
 #endif // VM_H

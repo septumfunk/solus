@@ -87,7 +87,7 @@ int cli_run(char *path, sf_str src) {
     if (is_solc) {
         solu_load_ex lex = solu_loadfun(s, path);
         if (!lex.is_ok) {
-            fprintf(stderr, TUI_ERR "error: %s\n" TUI_CLR, solu_err_string(lex.err).c_str);
+            fprintf(stderr, TUI_ERR "error: %s\n" TUI_CLR, solu_err_string(lex.err));
             solu_state_free(s);
             return -1;
         }
@@ -97,8 +97,8 @@ int cli_run(char *path, sf_str src) {
         if (!comp_ex.is_ok) {
             if (comp_ex.err.line) {
                 fprintf(stderr, TUI_ERR "error: %s:%u:%u\n" TUI_CLR, path, comp_ex.err.line, comp_ex.err.column);
-                cli_highlight_line(src, solu_err_string(comp_ex.err.tt), comp_ex.err.line, comp_ex.err.column);
-            } else fprintf(stderr, TUI_ERR "error: %s\n" TUI_CLR, solu_err_string(comp_ex.err.tt).c_str);            solu_state_free(s);
+                cli_highlight_line(src, sf_ref(solu_err_string(comp_ex.err.tt)), comp_ex.err.line, comp_ex.err.column);
+            } else fprintf(stderr, TUI_ERR "error: %s\n" TUI_CLR, solu_err_string(comp_ex.err.tt));            solu_state_free(s);
             return -1;
         }
         fb = comp_ex.ok;
@@ -111,12 +111,12 @@ int cli_run(char *path, sf_str src) {
         fprintf(stderr, TUI_ERR "error: %s:%u:%u\n" TUI_CLR, path, line, col);
 
         if (call_ex.err.panic) {
-            sf_str full = sf_str_fmt("%s: %s", solu_err_string(call_ex.err.tt).c_str, call_ex.err.panic);
+            sf_str full = sf_str_fmt("%s: %s", solu_err_string(call_ex.err.tt), call_ex.err.panic);
             if (line) cli_highlight_line(src, full, line, col);
             free(call_ex.err.panic);
             sf_str_free(full);
         } else
-            cli_highlight_line(src, solu_err_string(call_ex.err.tt), line, col);
+            cli_highlight_line(src, sf_ref(solu_err_string(call_ex.err.tt)), line, col);
         return -1;
     }
 
@@ -137,8 +137,8 @@ int cli_compile(char *path, sf_str src) {
     if (!comp_ex.is_ok) {
         if (comp_ex.err.line) {
             fprintf(stderr, TUI_ERR "error: %s:%u:%u\n" TUI_CLR, path, comp_ex.err.line, comp_ex.err.column);
-            cli_highlight_line(src, solu_err_string(comp_ex.err.tt), comp_ex.err.line, comp_ex.err.column);
-        } else fprintf(stderr, TUI_ERR "error: %s\n" TUI_CLR, solu_err_string(comp_ex.err.tt).c_str);
+            cli_highlight_line(src, sf_ref(solu_err_string(comp_ex.err.tt)), comp_ex.err.line, comp_ex.err.column);
+        } else fprintf(stderr, TUI_ERR "error: %s\n" TUI_CLR, solu_err_string(comp_ex.err.tt));
         solu_state_free(s);
         return -1;
     }

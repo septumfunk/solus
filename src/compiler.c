@@ -477,10 +477,18 @@ solu_cnode_ex solu_cnode(solu_compiler *c, solu_node *node, uint32_t t_reg) {
         case SOLU_ND_RETURN: {
             if (node->n_return.implicit && t_reg != UINT_MAX) {
                 solu_cnode_ex ex = solu_cnode(c, node->n_return.expr, t_reg);
+                if (node->n_return.expr->tt == SOLU_ND_BINARY && solu_niscondition(node->n_return.expr)) { // Conditions
+                    solu_cemit(c, solu_ins_ab(SOLU_OP_LOAD, t_reg, 0));
+                    solu_cemit(c, solu_ins_ab(SOLU_OP_LOAD, t_reg, 1));
+                }
                 return ex;
             }
             uint32_t r = solu_rtemp(c);
             solu_cnode_ex ex = solu_cnode(c, node->n_return.expr, r);
+            if (node->n_return.expr->tt == SOLU_ND_BINARY && solu_niscondition(node->n_return.expr)) { // Conditions
+                solu_cemit(c, solu_ins_ab(SOLU_OP_LOAD, r, 0));
+                solu_cemit(c, solu_ins_ab(SOLU_OP_LOAD, r, 1));
+            }
             if (!ex.is_ok) return ex;
             solu_cemit(c, solu_ins_a(SOLU_OP_RET, r));
             return solu_cnode_ex_ok();
@@ -547,131 +555,137 @@ solu_cnode_ex solu_cnode(solu_compiler *c, solu_node *node, uint32_t t_reg) {
 
             uint32_t ot = UINT32_MAX;
             switch (node->n_binary.op) {
-                case TK_PLUS_EQUAL:
-                case TK_MINUS_EQUAL:
-                case TK_EQUAL: {
-                    if (node->n_binary.left->tt == SOLU_ND_IDENTIFIER) {
-                        solu_local loc;
-                        if (solu_lexists(c, node->n_binary.left->n_identifier.dyn, &loc)) {
-                            if (!loc.mut) return solu_cerr(SOLU_ERRC_REASSIGNED_VAL);
-                            if (loc.upval) {
-                                if (node->n_binary.op == TK_EQUAL) {
-                                    if (rl) {
-                                        ot = solu_rtemp(c);
-                                        solu_cemit(c, solu_ins_ab(SOLU_OP_LOAD, ot, right));
-                                    }
-                                    solu_cemit(c, solu_ins_ab(SOLU_OP_SETU, loc.reg, rl ? ot : right));
-                                } else if (node->n_binary.op == TK_PLUS_EQUAL && node->n_binary.right->tt == SOLU_ND_OBJ) {
+            case TK_PLUS_EQUAL:
+            case TK_MINUS_EQUAL:
+            case TK_EQUAL: {
+                if (node->n_binary.left->tt == SOLU_ND_IDENTIFIER) {
+                    solu_local loc;
+                    if (solu_lexists(c, node->n_binary.left->n_identifier.dyn, &loc)) {
+                        if (!loc.mut) return solu_cerr(SOLU_ERRC_REASSIGNED_VAL);
+                        if (loc.upval) {
+                            if (node->n_binary.op == TK_EQUAL) {
+                                if (rl) {
                                     ot = solu_rtemp(c);
-                                    solu_cemit(c, solu_ins_ab(SOLU_OP_GETU, ot, loc.reg));
-                                    solu_cnode_ex ex = solu_cmembers(c, node->n_binary.right, ot);
-                                    if (!ex.is_ok) return ex;
-                                } else {
-                                    ot = solu_rtemp(c);
-                                    solu_cemit(c, solu_ins_ab(SOLU_OP_GETU, ot, loc.reg));
-                                    solu_cemit(c, solu_ins_abc(node->n_binary.op == TK_PLUS_EQUAL ? SOLU_OP_ADD : SOLU_OP_SUB, ot, solu_reg(ot), rl ? solu_const(right) : solu_reg(right)));
-                                    solu_cemit(c, solu_ins_ab(SOLU_OP_SETU, loc.reg, ot));
-                                    if (t_reg != UINT32_MAX)
-                                        solu_cemit(c, solu_ins_ab(SOLU_OP_MOVE, t_reg, ot));
+                                    solu_cemit(c, solu_ins_ab(SOLU_OP_LOAD, ot, right));
                                 }
+                                solu_cemit(c, solu_ins_ab(SOLU_OP_SETU, loc.reg, rl ? ot : right));
+                                if (t_reg != UINT32_MAX)
+                                    solu_cemit(c, solu_ins_ab(SOLU_OP_MOVE, t_reg, rl ? ot : right));
+                            } else if (node->n_binary.op == TK_PLUS_EQUAL && node->n_binary.right->tt == SOLU_ND_OBJ) {
+                                ot = solu_rtemp(c);
+                                solu_cemit(c, solu_ins_ab(SOLU_OP_GETU, ot, loc.reg));
+                                solu_cnode_ex ex = solu_cmembers(c, node->n_binary.right, ot);
+                                if (!ex.is_ok) return ex;
+                                if (t_reg != UINT32_MAX)
+                                    solu_cemit(c, solu_ins_ab(SOLU_OP_MOVE, t_reg, ot));
                             } else {
-                                if (node->n_binary.op == TK_PLUS_EQUAL && node->n_binary.right->tt == SOLU_ND_OBJ) {
-                                    solu_cnode_ex ex = solu_cmembers(c, node->n_binary.right, loc.reg);
-                                    if (!ex.is_ok) return ex;
-                                } else if (node->n_binary.op != TK_EQUAL) {
-                                    solu_cemit(c, solu_ins_abc(node->n_binary.op == TK_PLUS_EQUAL ? SOLU_OP_ADD : SOLU_OP_SUB, loc.reg,
-                                    solu_reg(loc.reg), rl ? solu_const(right) : solu_reg(right)));
-                                    if (t_reg != UINT32_MAX)
-                                        solu_cemit(c, solu_ins_ab(SOLU_OP_MOVE, t_reg, loc.reg));
-                                } else solu_cemit(c, solu_ins_ab(rl ? SOLU_OP_LOAD : SOLU_OP_MOVE, loc.reg, right));
-                            }
-                        } else {
-                            uint32_t name_i;
-                            if (!solu_kfind(c, node->n_binary.left->n_identifier, &name_i))
-                                name_i = solu_kadd(c, node->n_binary.left->n_identifier);
-                            if (node->n_binary.op != TK_EQUAL) {
                                 ot = solu_rtemp(c);
-                                solu_cemit(c, solu_ins_abc(SOLU_OP_GUPO, ot, solu_reg(0), solu_const(name_i)));
+                                solu_cemit(c, solu_ins_ab(SOLU_OP_GETU, ot, loc.reg));
                                 solu_cemit(c, solu_ins_abc(node->n_binary.op == TK_PLUS_EQUAL ? SOLU_OP_ADD : SOLU_OP_SUB, ot, solu_reg(ot), rl ? solu_const(right) : solu_reg(right)));
+                                solu_cemit(c, solu_ins_ab(SOLU_OP_SETU, loc.reg, ot));
                                 if (t_reg != UINT32_MAX)
                                     solu_cemit(c, solu_ins_ab(SOLU_OP_MOVE, t_reg, ot));
                             }
-                            solu_cemit(c, solu_ins_abc(SOLU_OP_SUPO, 0, solu_const(name_i), ot == UINT32_MAX ?
-                                (rl ? solu_const(right) : solu_reg(right)) : solu_reg(ot)));
-                        }
-                    } else if (node->n_binary.left->tt == SOLU_ND_POSTFIX) {
-                        uint32_t obj = solu_rtemp(c);
-                        solu_cnode_ex ex = solu_cnode(c, node->n_binary.left->n_postfix.expr, obj);
-                        uint32_t key_r;
-                        if (!ex.is_ok) return ex;
-
-                        if (node->n_binary.left->n_postfix.postfix->tt == SOLU_ND_LITERAL) {
-                            uint32_t name_i;
-                            if (!solu_kfind(c, node->n_binary.left->n_postfix.postfix->n_identifier, &name_i))
-                                name_i = solu_kadd(c, node->n_binary.left->n_postfix.postfix->n_identifier);
-                            key_r = solu_const(name_i);
                         } else {
-                            uint32_t eval = solu_rtemp(c);
-                            solu_cnode_ex ex = solu_cnode(c, node->n_binary.left->n_postfix.postfix, eval);
-                            if (!ex.is_ok) return ex;
-                            key_r = solu_reg(eval);
+                            if (node->n_binary.op == TK_PLUS_EQUAL && node->n_binary.right->tt == SOLU_ND_OBJ) {
+                                solu_cnode_ex ex = solu_cmembers(c, node->n_binary.right, loc.reg);
+                                if (!ex.is_ok) return ex;
+                            } else if (node->n_binary.op != TK_EQUAL) {
+                                solu_cemit(c, solu_ins_abc(node->n_binary.op == TK_PLUS_EQUAL ? SOLU_OP_ADD : SOLU_OP_SUB, loc.reg,
+                                solu_reg(loc.reg), rl ? solu_const(right) : solu_reg(right)));
+                            } else solu_cemit(c, solu_ins_ab(rl ? SOLU_OP_LOAD : SOLU_OP_MOVE, loc.reg, right));
+                            if (t_reg != UINT32_MAX)
+                                solu_cemit(c, solu_ins_ab(SOLU_OP_MOVE, t_reg, loc.reg));
                         }
-
-                        if (node->n_binary.op == TK_PLUS_EQUAL && node->n_binary.right->tt == SOLU_ND_OBJ) {
+                    } else { // global
+                        uint32_t name_i;
+                        if (!solu_kfind(c, node->n_binary.left->n_identifier, &name_i))
+                            name_i = solu_kadd(c, node->n_binary.left->n_identifier);
+                        if (node->n_binary.op != TK_EQUAL) {
                             ot = solu_rtemp(c);
-                            solu_instruction ins = solu_ins_abc(SOLU_OP_GET, ot, solu_reg(obj), key_r);
-                            solu_cemit(c, ins);
-                            solu_cnode_ex ex = solu_cmembers(c, node->n_binary.right, ot);
-                            if (!ex.is_ok) return ex;
-                            solu_ctemps(c, solu_iabc_bk(ins) ? 1 : 2);
-                        } else {
-                            if (node->n_binary.op != TK_EQUAL) {
-                                ot = solu_rtemp(c);
-                                solu_cemit(c, solu_ins_abc(SOLU_OP_GET, ot, solu_reg(obj), key_r));
-                                solu_cemit(c, solu_ins_abc(node->n_binary.op == TK_PLUS_EQUAL ? SOLU_OP_ADD : SOLU_OP_SUB, ot, solu_reg(ot), rl ? solu_const(right) : solu_reg(right)));
-                                if (t_reg != UINT32_MAX)
-                                    solu_cemit(c, solu_ins_ab(SOLU_OP_MOVE, t_reg, ot));
-                            }
-                            solu_instruction ins = solu_ins_abc(SOLU_OP_SET, obj, key_r, ot == UINT32_MAX ?
-                                (rl ? solu_const(right) : solu_reg(right)) : solu_reg(ot));
-                            solu_cemit(c, ins);
-                            solu_ctemps(c, solu_iabc_bk(ins) ? 1 : 2);
+                            solu_cemit(c, solu_ins_abc(SOLU_OP_GUPO, ot, solu_reg(0), solu_const(name_i)));
+                            solu_cemit(c, solu_ins_abc(node->n_binary.op == TK_PLUS_EQUAL ? SOLU_OP_ADD : SOLU_OP_SUB, ot, solu_reg(ot), rl ? solu_const(right) : solu_reg(right)));
                         }
-                    } else return solu_cerr(SOLU_ERRC_INVALID_ASSIGN);
+                        solu_cemit(c, solu_ins_abc(SOLU_OP_SUPO, 0, solu_const(name_i), ot == UINT32_MAX ?
+                            (rl ? solu_const(right) : solu_reg(right)) : solu_reg(ot)));
+                        if (t_reg != UINT32_MAX)
+                            solu_cemit(c, ot == UINT32_MAX ? solu_ins_abc(SOLU_OP_GUPO, t_reg, solu_reg(0), solu_const(name_i))
+                                : solu_ins_ab(SOLU_OP_MOVE, t_reg, ot));
+                    }
+                } else if (node->n_binary.left->tt == SOLU_ND_POSTFIX) {
+                    uint32_t obj = solu_rtemp(c);
+                    solu_cnode_ex ex = solu_cnode(c, node->n_binary.left->n_postfix.expr, obj);
+                    uint32_t key_r;
+                    if (!ex.is_ok) return ex;
 
-                    if (ot != UINT32_MAX) solu_ctemps(c, 1);
-                    if (rt) solu_ctemps(c, 1);
-                    if (lt) solu_ctemps(c, 1);
-                    if (t_reg != UINT32_MAX)
-                        return solu_cerr(SOLU_ERRC_EXPECTED_EXPRESSION);
-                    return solu_cnode_ex_ok();
-                }
+                    if (node->n_binary.left->n_postfix.postfix->tt == SOLU_ND_LITERAL) {
+                        uint32_t name_i;
+                        if (!solu_kfind(c, node->n_binary.left->n_postfix.postfix->n_identifier, &name_i))
+                            name_i = solu_kadd(c, node->n_binary.left->n_postfix.postfix->n_identifier);
+                        key_r = solu_const(name_i);
+                    } else {
+                        uint32_t eval = solu_rtemp(c);
+                        solu_cnode_ex ex = solu_cnode(c, node->n_binary.left->n_postfix.postfix, eval);
+                        if (!ex.is_ok) return ex;
+                        key_r = solu_reg(eval);
+                    }
 
-                case TK_PLUS: solu_cemit(c, solu_ins_abc(SOLU_OP_ADD, t_reg, ll ? solu_const(left) : solu_reg(left),
-                    rl ? solu_const(right) : solu_reg(right))); break;
-                case TK_MINUS: solu_cemit(c, solu_ins_abc(SOLU_OP_SUB, t_reg, ll ? solu_const(left) : solu_reg(left),
-                    rl ? solu_const(right) : solu_reg(right))); break;
-                case TK_ASTERISK: solu_cemit(c, solu_ins_abc(SOLU_OP_MUL, t_reg, ll ? solu_const(left) : solu_reg(left),
-                    rl ? solu_const(right) : solu_reg(right))); break;
-                case TK_SLASH: solu_cemit(c, solu_ins_abc(SOLU_OP_DIV, t_reg, ll ? solu_const(left) : solu_reg(left),
-                    rl ? solu_const(right) : solu_reg(right))); break;
+                    if (node->n_binary.op == TK_PLUS_EQUAL && node->n_binary.right->tt == SOLU_ND_OBJ) {
+                        ot = solu_rtemp(c);
+                        solu_instruction ins = solu_ins_abc(SOLU_OP_GET, ot, solu_reg(obj), key_r);
+                        solu_cemit(c, ins);
+                        solu_cnode_ex ex = solu_cmembers(c, node->n_binary.right, ot);
+                        if (!ex.is_ok) return ex;
+                        solu_ctemps(c, solu_iabc_bk(ins) ? 1 : 2);
+                        if (t_reg != UINT32_MAX)
+                            solu_cemit(c, solu_ins_ab(SOLU_OP_MOVE, t_reg, ot));
+                    } else {
+                        if (node->n_binary.op != TK_EQUAL) {
+                            ot = solu_rtemp(c);
+                            solu_cemit(c, solu_ins_abc(SOLU_OP_GET, ot, solu_reg(obj), key_r));
+                            solu_cemit(c, solu_ins_abc(node->n_binary.op == TK_PLUS_EQUAL ? SOLU_OP_ADD : SOLU_OP_SUB, ot, solu_reg(ot), rl ? solu_const(right) : solu_reg(right)));
+                        }
+                        solu_instruction ins = solu_ins_abc(SOLU_OP_SET, obj, key_r, ot == UINT32_MAX ?
+                            (rl ? solu_const(right) : solu_reg(right)) : solu_reg(ot));
+                        solu_cemit(c, ins);
+                        if (t_reg != UINT32_MAX)
+                            solu_cemit(c, ot == UINT32_MAX ? solu_ins_abc(SOLU_OP_GET, t_reg, solu_reg(obj), key_r) :
+                                solu_ins_ab(SOLU_OP_MOVE, t_reg, ot));
+                        solu_ctemps(c, solu_iabc_bk(ins) ? 1 : 2);
+                    }
+                } else return solu_cerr(SOLU_ERRC_INVALID_ASSIGN);
 
-                case TK_DOUBLE_EQUAL: solu_cemit(c, solu_ins_abc(SOLU_OP_EQ, 0, ll ? solu_const(left) : solu_reg(left),
-                    rl ? solu_const(right) : solu_reg(right))); break;
-                case TK_LESS: solu_cemit(c, solu_ins_abc(SOLU_OP_LT, 0, ll ? solu_const(left) : solu_reg(left),
-                    rl ? solu_const(right) : solu_reg(right))); break;
-                case TK_LESS_EQUAL: solu_cemit(c, solu_ins_abc(SOLU_OP_LE, 0, ll ? solu_const(left) : solu_reg(left),
-                    rl ? solu_const(right) : solu_reg(right))); break;
+                if (ot != UINT32_MAX) solu_ctemps(c, 1);
+                if (rt) solu_ctemps(c, 1);
+                if (lt) solu_ctemps(c, 1);
+                return solu_cnode_ex_ok();
+            }
 
-                case TK_NOT_EQUAL: solu_cemit(c, solu_ins_abc(SOLU_OP_EQ, 1, ll ? solu_const(left) : solu_reg(left),
-                    rl ? solu_const(right) : solu_reg(right))); break;
-                case TK_GREATER: solu_cemit(c, solu_ins_abc(SOLU_OP_LT, 1, ll ? solu_const(left) : solu_reg(left),
-                    rl ? solu_const(right) : solu_reg(right))); break;
-                case TK_GREATER_EQUAL: solu_cemit(c, solu_ins_abc(SOLU_OP_LE, 1, ll ? solu_const(left) : solu_reg(left),
-                    rl ? solu_const(right) : solu_reg(right))); break;
+            case TK_PLUS: solu_cemit(c, solu_ins_abc(SOLU_OP_ADD, t_reg, ll ? solu_const(left) : solu_reg(left),
+                rl ? solu_const(right) : solu_reg(right))); break;
+            case TK_MINUS: solu_cemit(c, solu_ins_abc(SOLU_OP_SUB, t_reg, ll ? solu_const(left) : solu_reg(left),
+                rl ? solu_const(right) : solu_reg(right))); break;
+            case TK_ASTERISK: solu_cemit(c, solu_ins_abc(SOLU_OP_MUL, t_reg, ll ? solu_const(left) : solu_reg(left),
+                rl ? solu_const(right) : solu_reg(right))); break;
+            case TK_SLASH: solu_cemit(c, solu_ins_abc(SOLU_OP_DIV, t_reg, ll ? solu_const(left) : solu_reg(left),
+                rl ? solu_const(right) : solu_reg(right))); break;
 
-                default:
-                    return solu_cerr(SOLU_ERRC_UNKNOWN_OPERATION);
+            case TK_DOUBLE_EQUAL: solu_cemit(c, solu_ins_abc(SOLU_OP_EQ, 0, ll ? solu_const(left) : solu_reg(left),
+                rl ? solu_const(right) : solu_reg(right))); break;
+            case TK_LESS: solu_cemit(c, solu_ins_abc(SOLU_OP_LT, 0, ll ? solu_const(left) : solu_reg(left),
+                rl ? solu_const(right) : solu_reg(right))); break;
+            case TK_LESS_EQUAL: solu_cemit(c, solu_ins_abc(SOLU_OP_LE, 0, ll ? solu_const(left) : solu_reg(left),
+                rl ? solu_const(right) : solu_reg(right))); break;
+
+            case TK_NOT_EQUAL: solu_cemit(c, solu_ins_abc(SOLU_OP_EQ, 1, ll ? solu_const(left) : solu_reg(left),
+                rl ? solu_const(right) : solu_reg(right))); break;
+            case TK_GREATER: solu_cemit(c, solu_ins_abc(SOLU_OP_LT, 1, ll ? solu_const(left) : solu_reg(left),
+                rl ? solu_const(right) : solu_reg(right))); break;
+            case TK_GREATER_EQUAL: solu_cemit(c, solu_ins_abc(SOLU_OP_LE, 1, ll ? solu_const(left) : solu_reg(left),
+                rl ? solu_const(right) : solu_reg(right))); break;
+
+            default:
+                return solu_cerr(SOLU_ERRC_UNKNOWN_OPERATION);
             }
 
             if (rt) solu_ctemps(c, 1);

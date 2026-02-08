@@ -24,7 +24,7 @@ static solu_call_ex builtin_import(solu_state *s) {
     if (memcmp(rpath + strlen(rpath) - 4, "solc", 4) == 0) {
         solu_load_ex ld_ex = solu_loadfun(s, rpath);
         free(rpath);
-        if (!ld_ex.is_ok) return solu_err(s, solu_err_string(ld_ex.err).c_str);
+        if (!ld_ex.is_ok) return solu_err(s, "%s", solu_err_string(ld_ex.err));
         s->rcmp = true;
         cl_ex = solu_call(s, &ld_ex.ok, NULL, 0);
         s->rcmp = false;
@@ -33,7 +33,7 @@ static solu_call_ex builtin_import(solu_state *s) {
         solu_compile_ex cm_ex = solu_cfile(s, rpath);
         free(rpath);
         if (!cm_ex.is_ok)
-            return solu_ok(solu_dnerr(s, solu_err_string(cm_ex.err.tt).c_str));
+            return solu_ok(solu_dnerr(s, solu_err_string(cm_ex.err.tt)));
         cl_ex = solu_call(s, &cm_ex.ok, NULL, 0);
         solu_fproto_free(&cm_ex.ok);
     }
@@ -57,13 +57,13 @@ static solu_call_ex builtin_eval(solu_state *s) {
 
     solu_compile_ex cm_ex = solu_csrc(s, src.dyn);
     if (!cm_ex.is_ok)
-        return solu_ok(solu_dnerr(s, solu_err_string(cm_ex.err.tt).c_str));
+        return solu_ok(solu_dnerr(s, solu_err_string(cm_ex.err.tt)));
     solu_call_ex cl_ex = solu_call(s, &cm_ex.ok, NULL, 0);
     solu_fproto_free(&cm_ex.ok);
     if (!cl_ex.is_ok) {
-        return solu_ok(solu_dnerr(s, cl_ex.err.tt == SOLU_ERRV_PANIC ?
+        return solu_ok(solu_dnerr(s, cl_ex.err.panic ?
             cl_ex.err.panic :
-            solu_err_string(cm_ex.err.tt).c_str
+            solu_err_string(cm_ex.err.tt)
         ));
     }
     return cl_ex;

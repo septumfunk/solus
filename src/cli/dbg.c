@@ -151,7 +151,7 @@ static int solu_rdcmd(void) {
         } else {
             uint16_t line = SOLU_DBG_LINE(dbg.proto.dbg[e.err.pc]), column = SOLU_DBG_COL(dbg.proto.dbg[e.err.pc]);
             sf_str p = sf_str_fmt(e.err.tt == SOLU_ERRV_PANIC ? "panic: %s:%u:%u %s\n" : "error: %s:%u:%u %s\n", dbg.path, line, column,
-                e.err.panic ? e.err.panic : solu_err_string(e.err.tt).c_str
+                e.err.panic ? e.err.panic : solu_err_string(e.err.tt)
             );
             solu_writeout(p);
             dbg.pane = SOLU_DBG_OUT;
@@ -186,7 +186,7 @@ static int solu_rdcmd(void) {
         dbg.pane = SOLU_DBG_OUT;
         solu_compile_ex comp_ex = solu_csrc(dbg.s, dbg.cmd + 1);
         if (!comp_ex.is_ok) {
-            sf_str e = sf_str_fmt("error: %s\n", solu_err_string(comp_ex.err.tt).c_str);
+            sf_str e = sf_str_fmt("error: %s\n", solu_err_string(comp_ex.err.tt));
             solu_cmderr(e);
             sf_str_free(e);
             return 0;
@@ -194,7 +194,7 @@ static int solu_rdcmd(void) {
         solu_call_ex call_ex = solu_call(dbg.s, &comp_ex.ok, NULL, 0);
         if (!call_ex.is_ok) {
             sf_str e = sf_str_fmt(call_ex.err.tt == SOLU_ERRV_PANIC ? "panic: %s\n" : "error: %s\n",
-                call_ex.err.tt == SOLU_ERRV_PANIC ? call_ex.err.panic : solu_err_string(call_ex.err.tt).c_str
+                call_ex.err.tt == SOLU_ERRV_PANIC ? call_ex.err.panic : solu_err_string(call_ex.err.tt)
             );
             solu_cmderr(e);
             sf_str_free(e);
@@ -428,7 +428,7 @@ int solu_cli_cbg(char *path, sf_str src) {
     solu_compile_ex comp_ex = solu_cfile(s, path);
     if (!comp_ex.is_ok) {
         fprintf(stderr, TUI_ERR "error: %s:%u:%u\n" TUI_CLR, path, comp_ex.err.line, comp_ex.err.column);
-        cli_highlight_line(src, solu_err_string(comp_ex.err.tt), comp_ex.err.line, comp_ex.err.column);
+        cli_highlight_line(src, sf_ref(solu_err_string(comp_ex.err.tt)), comp_ex.err.line, comp_ex.err.column);
         solu_state_free(s);
         return -1;
     }

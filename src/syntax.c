@@ -1163,7 +1163,8 @@ solu_parse_ex solu_preturn(solu_parser *p) {
     uint16_t line = p->tok->line, column = p->tok->column;
     ++p->tok;
     solu_parse_ex expr = solu_pexpr(p, 0);
-    if (!expr.is_ok) return expr;
+    if (!expr.is_ok) return expr.err.tt == SOLU_ERRP_EXPECTED_EXPRESSION ?
+        solu_perr(SOLU_ERRP_EXPECTED_SEMICOLON) : expr;
     if (p->tok->tt != TK_SEMICOLON) {
         --p->tok;
         solu_node_free(expr.ok);
