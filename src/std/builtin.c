@@ -61,7 +61,7 @@ static solu_call_ex builtin_eval(solu_state *s) {
     solu_call_ex cl_ex = solu_call(s, &cm_ex.ok, NULL, 0);
     solu_fproto_free(&cm_ex.ok);
     if (!cl_ex.is_ok) {
-        return solu_ok(solu_dnerr(s, cl_ex.err.tt == SOLU_ERRV_PANIC ?
+        return solu_ok(solu_dnerr(s, cl_ex.err.panic ?
             cl_ex.err.panic :
             solu_err_string(cm_ex.err.tt)
         ));

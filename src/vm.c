@@ -1261,7 +1261,7 @@ ret: {}
     proto->dbg_res = 0;
     proto->dbg_ll = 0;
     solu_popframe(s);
-    if (proto->tt == SOLU_FPROTO_BC && !sf_isempty(proto->file_name))
+    if (proto->tt == SOLU_FPROTO_BC && proto->file_name.len > 0)
         sf_str_free(solu_filenames_pop(&s->files));
     return solu_call_ex_ok(return_val);
 }
