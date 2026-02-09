@@ -9,13 +9,13 @@ static solu_call_ex obj_new(solu_state *s) {
 static solu_call_ex obj_set(solu_state *s) {
     solu_val obj = solu_get(s, 0);
     expect_dtype(SOLU_DOBJ, obj);
-    solu_dobj_set(obj.dyn, solu_get(s, 1), solu_get(s, 2));
+    solu_dobj_set(s, obj.dyn, solu_get(s, 1), solu_get(s, 2));
     return solu_ok(SOLU_NIL);
 }
 static solu_call_ex obj_get(solu_state *s) {
     solu_val obj = solu_get(s, 0);
     expect_dtype(SOLU_DOBJ, obj);
-    return solu_ok(solu_dobj_get(obj.dyn, solu_get(s, 1)));
+    return solu_ok(solu_dobj_get(s, obj.dyn, solu_get(s, 1)));
 }
 
 static solu_call_ex obj_usemeta(solu_state *s) {
@@ -24,19 +24,20 @@ static solu_call_ex obj_usemeta(solu_state *s) {
     solu_val meta = solu_get(s, 1);
     solu_dobj *objp = obj.dyn;
     if (meta.tt == SOLU_TNIL) {
-        memset(&objp->metafuns, 0, SOLU_META_COUNT);
+        memset(&objp->metafuns, 0, SOLU_META_COUNT * sizeof(solu_val));
         objp->meta = meta;
         return solu_ok(SOLU_NIL);
     }
     expect_dtype(SOLU_DOBJ, meta);
 
     solu_dobj *metap = meta.dyn;
-    memset(&objp->metafuns, 0, SOLU_META_COUNT);
+    memset(&objp->metafuns, 0, SOLU_META_COUNT * sizeof(solu_val));
     objp->meta = meta;
 
-    objp->metafuns[SOLU_META_GET] = solu_valmap_get(&metap->map, sf_lit("_get")).is_ok;
-    objp->metafuns[SOLU_META_SET] = solu_valmap_get(&metap->map, sf_lit("_set")).is_ok;
-    objp->metafuns[SOLU_META_CALL] = solu_valmap_get(&metap->map, sf_lit("_call")).is_ok;
+    objp->metafuns[SOLU_META_GET] = solu_dobj_strget(metap, "_get");
+    objp->metafuns[SOLU_META_SET] = solu_dobj_strget(metap, "_set");
+    objp->metafuns[SOLU_META_CALL] = solu_dobj_strget(metap, "_call");
+    objp->metafuns[SOLU_META_STR] = solu_dobj_strget(metap, "_str");
 
     return solu_ok(SOLU_NIL);
 }
@@ -47,15 +48,16 @@ static solu_call_ex obj_meta(solu_state *s) {
 }
 
 typedef struct {
+    solu_state *s;
     sf_str *out;
     bool pretty, commas;
     uint32_t id;
 } _solu_stringify_args;
 static void _stringify_fe(void *u, sf_str key, solu_val val);
-static sf_str _stringify(solu_dobj *obj, bool pretty, bool commas, uint32_t id) {
+static sf_str _stringify(solu_state *s, solu_dobj *obj, bool pretty, bool commas, uint32_t id) {
     if (obj->map.pair_count == 0) return sf_lit("{}");
     sf_str out = sf_str_cdup(pretty ? "{\n" : "{ ");
-    solu_valmap_foreach(&obj->map, _stringify_fe, &(_solu_stringify_args){&out, pretty, commas, id});
+    solu_valmap_foreach(&obj->map, _stringify_fe, &(_solu_stringify_args){s, &out, pretty, commas, id});
 
     if (pretty && id) {
         size_t s = sizeof(char) * (id-1) * 2;
@@ -80,11 +82,11 @@ static void _stringify_fe(void *u, sf_str key, solu_val val) {
     sf_str_append(args->out, sf_lit(" = "));
     switch (val.tt) {
         case SOLU_TDYN: if (solu_isdtype(val, SOLU_DOBJ)) {
-            sf_str_append(args->out, _stringify(val.dyn, args->pretty, args->commas, args->id + 1));
+            sf_str_append(args->out, _stringify(args->s, val.dyn, args->pretty, args->commas, args->id + 1));
             break;
         }
         default: {
-            char *s = solu_tostring(val);
+            char *s = solu_tostr(args->s, val);
             if (solu_isdtype(val, SOLU_DSTR)) {
                 sf_str s2 = sf_str_fmt("\"%s\"", s);
                 free(s);
@@ -111,6 +113,7 @@ solu_call_ex obj_stringify(solu_state *s) {
     solu_val commas = solu_get(s, 2);
 
     sf_str e = _stringify(
+        s,
         obj.dyn,
         pretty.tt == SOLU_TBOOL ? pretty.boolean : true,
         commas.tt == SOLU_TBOOL ? commas.boolean : false,
@@ -187,7 +190,7 @@ static char *template_tostring(void *_temp) {
         solu_panic_cleanup(ex);
         return fmt.c_str;
     }
-    return solu_tostring(ex.ok);
+    return solu_tostr(temp->s, ex.ok);
 }
 static void template_mark(void *_temp) {
     solu_template *temp = _temp;

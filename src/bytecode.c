@@ -14,90 +14,22 @@ void _solu_strcache_cleanup(solu_strcache *obj) {
     solu_strcache_foreach(obj, _strcache_foreach, NULL);
 }
 
-char *solu_tostring(solu_val val) {
-    switch (val.tt) {
-        case SOLU_TNIL: return _strdup("nil");
-        case SOLU_TF64: return sf_str_fmt("%.10f", val.f64).c_str;
-        case SOLU_TI64: return sf_str_fmt("%lld", val.i64).c_str;
-        case SOLU_TBOOL: return _strdup(val.boolean ? "true" : "false");
-        case SOLU_TDYN: {
-            switch (solu_dheader(val)->tt) {
-                case SOLU_DSTR:
-                case SOLU_DERR:
-                return _strdup(val.dyn); break;
-                case SOLU_DOBJ:
-                case SOLU_DFUN: return sf_str_fmt("%p", val.dyn).c_str;
-                case SOLU_DREF: return solu_tostring(*(solu_val *)val.dyn);
-
-                case SOLU_DUSR: {
-                    solu_usrwrap *w = solu_uheader(val);
-                    return w->tostring ? w->tostring(val.dyn) : sf_str_fmt("%p", val.dyn).c_str;
-                }
-                case SOLU_DCOUNT: return NULL;
-            }
-        }
-        default: return NULL;
-    }
-}
-
 solu_dobj solu_dobj_new(void) {
     return (solu_dobj){
         solu_valmap_new(),
         solu_valvec_new(),
         SOLU_NIL,
         .metafuns = {
-            [SOLU_META_GET] = false,
-            [SOLU_META_SET] = false,
+            [SOLU_META_GET] = SOLU_NIL,
+            [SOLU_META_SET] = SOLU_NIL,
+            [SOLU_META_CALL] = SOLU_NIL,
+            [SOLU_META_STR] = SOLU_NIL,
         }
     };
 }
 void solu_dobj_free(solu_dobj *obj) {
     solu_valmap_free(&obj->map);
     solu_valvec_free(&obj->array);
-}
-solu_val solu_dobj_get(solu_dobj *obj, solu_val key) {
-    if ((key.tt == SOLU_TI64 && key.i64 >= 0) || (key.tt == SOLU_TF64 && key.f64 >= 0)) {
-        uint32_t nkey = (uint32_t)(key.tt == SOLU_TI64 ? key.i64 : (solu_i64)key.f64);
-        if (obj->array.count == 0 || nkey > obj->array.count - 1)
-            return SOLU_NIL;
-        return solu_valvec_get(&obj->array, nkey);
-    }
-    char *nkey = solu_isdtype(key, SOLU_DSTR) ? key.dyn : solu_tostring(key);
-    solu_valmap_ex ex = solu_valmap_get(&obj->map, sf_ref(nkey));
-    if (!solu_isdtype(key, SOLU_DSTR))
-        free(nkey);
-    return ex.is_ok ? ex.ok : SOLU_NIL;
-}
-void solu_dobj_set(solu_dobj *obj, solu_val key, solu_val val) {
-    if (solu_isdtype(val, SOLU_DFUN)) {
-        solu_fproto *fp = val.dyn;
-        uint32_t self = UINT32_MAX;
-        for (uint32_t i = 0; i < fp->up_c; ++i) {
-            if (sf_str_eq(fp->upvals[i].name, sf_lit("self"))) {
-                self = i;
-                break;
-            }
-        }
-        if (self != UINT32_MAX) {
-            solu_upvalue op = fp->upvals[self];
-            fp->upvals[self] = (solu_upvalue){ op.name, SOLU_UP_VAL, .value = (solu_val){SOLU_TDYN, .dyn = obj} };
-        }
-    }
-    if ((key.tt == SOLU_TI64 && key.i64 >= 0) || (key.tt == SOLU_TF64 && key.f64 >= 0)) {
-        uint32_t nkey = (uint32_t)(key.tt == SOLU_TI64 ? key.i64 : (solu_i64)key.f64);
-        if (nkey == obj->array.count)
-            solu_valvec_push(&obj->array, val);
-        else if (nkey < obj->array.count)
-            solu_valvec_set(&obj->array, nkey, val);
-        else {
-            while (obj->array.count < nkey)
-                solu_valvec_push(&obj->array, SOLU_NIL);
-            solu_valvec_push(&obj->array, val);
-        }
-        return;
-    }
-    char *nkey = solu_tostring(key);
-    solu_valmap_set(&obj->map, sf_own(nkey), val);
 }
 solu_val solu_dobj_strget(solu_dobj *obj, char *key) {
     solu_valmap_ex ex = solu_valmap_get(&obj->map, sf_ref(key));

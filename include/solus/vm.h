@@ -68,6 +68,13 @@ EXPORT solu_val solu_dnstr(solu_state *state, const char *str);
 /// Shorthand for using solu_dnew and assigning a string value.
 EXPORT solu_val solu_dnerr(solu_state *state, const char *str);
 
+EXPORT solu_val solu_dobj_get(solu_state *state, solu_dobj *obj, solu_val key);
+EXPORT void solu_dobj_set(solu_state *state, solu_dobj *obj, solu_val key, solu_val val);
+
+/// Converts a value to a string.
+/// You are responsible for freeing this string
+EXPORT char *solu_tostr(solu_state *state, solu_val value);
+
 /// Hold a reference to the a dyn value for the C API.
 /// This marks the object as green, meaning collection is skipped
 static inline void solu_dhold(solu_val val) {
@@ -103,7 +110,7 @@ static inline solu_val solu_rawget(solu_state *state, uint32_t index, uint32_t f
 /// In the C API this can be used to get function arguments (0, 1, 2...)
 static inline solu_val solu_get(solu_state *state, uint32_t index) { return solu_rawget(state, index, state->frames.count - 1); }
 /// Get the value of a constant from the current fun
-static inline solu_val solu_getk(solu_fproto *proto, uint32_t index) { return *(proto->constants.data + index); }
+EXPORT solu_val solu_getk(solu_state *state, solu_fproto *proto, uint32_t index);
 
 /// Set the value of a register in a specific stack frame
 static inline void solu_rawset(solu_state *state, uint32_t index, solu_val val, uint32_t frame) {

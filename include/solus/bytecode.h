@@ -15,7 +15,7 @@
 #endif
 
 /// Bytecode version
-#define SOLU_VERSION "0.8.2"
+#define SOLU_VERSION "0.8.3"
 /// Git repository, hosted on GitHub for now
 #define SOLU_GIT "https://github.com/solus-lang/solus"
 
@@ -186,9 +186,6 @@ typedef struct {
         solu_dyn dyn;
     };
 } solu_val;
-/// Converts a value to a string.
-/// You are responsible for freeing this string
-EXPORT char *solu_tostring(solu_val val);
 
 #define SOLU_NIL (solu_val){.tt = SOLU_TNIL}
 #define SOLU_TRUE (solu_val){.tt = SOLU_TBOOL, .boolean = true}
@@ -260,6 +257,7 @@ typedef enum {
     SOLU_META_GET,
     SOLU_META_SET,
     SOLU_META_CALL,
+    SOLU_META_STR,
 
     SOLU_META_COUNT,
 } solu_metafun;
@@ -268,12 +266,10 @@ typedef struct {
     solu_valmap map;
     solu_valvec array;
     solu_val meta;
-    bool metafuns[SOLU_META_COUNT];
+    solu_val metafuns[SOLU_META_COUNT];
 } solu_dobj;
 EXPORT solu_dobj solu_dobj_new(void);
 EXPORT void solu_dobj_free(solu_dobj *obj);
-EXPORT solu_val solu_dobj_get(solu_dobj *obj, solu_val key);
-EXPORT void solu_dobj_set(solu_dobj *obj, solu_val key, solu_val val);
 EXPORT solu_val solu_dobj_strget(solu_dobj *obj, char *key);
 /// You do NOT need to pass an owned string
 EXPORT void solu_dobj_strset(solu_dobj *obj, char *key, solu_val val);

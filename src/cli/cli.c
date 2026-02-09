@@ -120,7 +120,7 @@ int cli_run(char *path, sf_str src) {
         return -1;
     }
 
-    char *ret = solu_tostring(call_ex.ok);
+    char *ret = solu_tostr(s, call_ex.ok);
     printf(solu_isdtype(call_ex.ok, SOLU_DSTR) ? TUI_BLD "Returned: (%s) '%s'\n" : TUI_BLD "Returned: (%s) %s\n",
         solu_typename(call_ex.ok).c_str, ret);
 

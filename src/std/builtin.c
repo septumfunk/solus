@@ -127,7 +127,7 @@ static solu_call_ex builtin_type(solu_state *s) {
 }
 
 static solu_call_ex builtin_str(solu_state *s) {
-    char *e = solu_tostring(solu_get(s, 0));
+    char *e = solu_tostr(s, solu_get(s, 0));
     solu_call_ex ex = solu_ok(solu_dnstr(s, e));
     solu_dalloc *dh = solu_dheader(ex.ok); (void)dh;
     free(e);
