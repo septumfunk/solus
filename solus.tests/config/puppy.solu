@@ -1,0 +1,17 @@
+{
+    name = "Brenda"
+    fav_food = "GARBAGE"
+    color = "Puke Green"
+    babies = 0
+
+    give_birth = [self]() {
+        self.babies += 1;
+        io.println("A puppy is born! That's " + str(self.babies) + " children!");
+    }
+
+    describe = [self]() {
+        io.println("My name is " + self.name + ", my fav food is " + self.fav_food +
+            ", and my color is " + self.color + "!");
+        io.println("I've had " + str(self.babies) + " disgusting little children so far.");
+    }
+}

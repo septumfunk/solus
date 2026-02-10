@@ -5,7 +5,8 @@
 #include "solus/vm.h"
 #include "sf/containers/buffer.h"
 #include "sf/fs.h"
-#include "solus/bytecode.h"
+#include "sf/math.h"
+#include "solus/val.h"
 #include "solus/compiler.h"
 #include "sf/str.h"
 #include "std/std.h"
@@ -208,13 +209,92 @@ solu_val solu_dnerr(solu_state *s, const char *str) {
         .next = NULL,
         .size = size,
         .thread = 1,
-        .tt = SOLU_DSTR,
+        .tt = SOLU_DERR,
         .mark = SOLU_DYN_WHITE,
     };
     p = (char *)p + sizeof(solu_dalloc);
     memcpy(p, str, size);
     solu_dpush(s, dh);
     return (solu_val){ .tt = SOLU_TDYN, .dyn = p };
+}
+
+char *solu_tostr(solu_state *s, solu_val val) {
+    switch (val.tt) {
+        case SOLU_TNIL: return _strdup("nil");
+        case SOLU_TF64: return sf_str_fmt("%.10f", val.f64).c_str;
+        case SOLU_TI64: return sf_str_fmt("%lld", val.i64).c_str;
+        case SOLU_TBOOL: return _strdup(val.boolean ? "true" : "false");
+        case SOLU_TDYN: {
+            switch (solu_dheader(val)->tt) {
+                case SOLU_DSTR:
+                case SOLU_DERR:
+                return _strdup(val.dyn); break;
+                case SOLU_DOBJ: {
+                    solu_val f = ((solu_dobj *)val.dyn)->metafuns[SOLU_META_STR];
+                    if (solu_isdtype(f, SOLU_DFUN)) {
+                        solu_call_ex ex = solu_call(s, f.dyn, NULL, 0);
+                        if (ex.is_ok && solu_isdtype(ex.ok, SOLU_DSTR))
+                            return _strdup(ex.ok.dyn);
+                    }
+                }
+                case SOLU_DFUN: return sf_str_fmt("%p", val.dyn).c_str;
+                case SOLU_DREF: return solu_tostr(s, *(solu_val *)val.dyn);
+
+                case SOLU_DUSR: {
+                    solu_usrwrap *w = solu_uheader(val);
+                    return w->tostring ? w->tostring(val.dyn) : sf_str_fmt("%p", val.dyn).c_str;
+                }
+                case SOLU_DCOUNT: return NULL;
+            }
+        }
+        default: return NULL;
+    }
+}
+
+solu_val solu_dobj_get(solu_state *s, solu_dobj *obj, solu_val key) {
+    if ((key.tt == SOLU_TI64 && key.i64 >= 0) || (key.tt == SOLU_TF64 && key.f64 >= 0)) {
+        uint32_t nkey = (uint32_t)(key.tt == SOLU_TI64 ? key.i64 : (solu_i64)key.f64);
+        if (obj->array.count == 0 || nkey > obj->array.count - 1)
+            return SOLU_NIL;
+        return solu_valvec_get(&obj->array, nkey);
+    }
+    char *nkey = solu_isdtype(key, SOLU_DSTR) ? key.dyn : solu_tostr(s, key);
+    solu_valmap_ex ex = solu_valmap_get(&obj->map, sf_ref(nkey));
+    if (!solu_isdtype(key, SOLU_DSTR))
+        free(nkey);
+    return ex.is_ok ? ex.ok : SOLU_NIL;
+}
+
+void solu_dobj_set(solu_state *s, solu_dobj *obj, solu_val key, solu_val val) {
+    if (solu_isdtype(val, SOLU_DFUN)) {
+        solu_fproto *fp = val.dyn;
+        uint32_t self = UINT32_MAX;
+        for (uint32_t i = 0; i < fp->up_c; ++i) {
+            if (sf_str_eq(fp->upvals[i].name, sf_lit("self"))) {
+                self = i;
+                break;
+            }
+        }
+        if (self != UINT32_MAX) {
+            solu_upvalue op = fp->upvals[self];
+            fp->upvals[self] = (solu_upvalue){ op.name, SOLU_UP_VAL, .value = (solu_val){SOLU_TDYN, .dyn = obj} };
+        }
+    }
+    if ((key.tt == SOLU_TI64 && key.i64 >= 0) || (key.tt == SOLU_TF64 && key.f64 >= 0)) {
+        uint32_t nkey = (uint32_t)(key.tt == SOLU_TI64 ? key.i64 : (solu_i64)key.f64);
+        if (nkey == obj->array.count)
+            solu_valvec_push(&obj->array, val);
+        else if (nkey < obj->array.count)
+            solu_valvec_set(&obj->array, nkey, val);
+        else {
+            while (obj->array.count < nkey)
+                solu_valvec_push(&obj->array, SOLU_NIL);
+            solu_valvec_push(&obj->array, val);
+        }
+        return;
+    }
+    char *nkey = solu_tostr(s, key);
+    solu_valmap_set(&obj->map, sf_own(nkey), val);
 }
 
 static void obj_copy(void *dest, sf_str key, solu_val val) {
@@ -237,6 +317,9 @@ void solu_dappend(solu_val obj1, solu_val obj2) {
         solu_valvec_append(&obj1p->array, obj2p->array.data, obj2p->array.count);
 }
 
+/*
+ * GC
+*/
 solu_val solu_dscopy(solu_state *state, solu_val val, bool kconst) {
     if (val.tt != SOLU_TDYN)
         return val; // This function only needs to copy dynamic constants
@@ -318,39 +401,18 @@ void solu_dmarkfun(solu_fproto *fp) {
             solu_dheader(v->value)->mark = SOLU_DYN_BLACK;
     }
 }
-
-void solu_dmarkref(solu_val r);
-void solu_dmarkobj(solu_val obj);
-static void solu_dcollect_obj(void *ud, sf_str _k, solu_val member) {
+static void solu_dmarkmember(void *ud, sf_str _k, solu_val member) {
     (void)_k; (void)ud;
-    if (member.tt != SOLU_TDYN || solu_dheader(member)->mark != SOLU_DYN_WHITE) return;
-    solu_dheader(member)->mark = SOLU_DYN_BLACK;
-    if (solu_dtypeof(member) == SOLU_DOBJ) {
-        solu_dmarkobj(member);
-    } else if (solu_dtypeof(member) == SOLU_DFUN)
-        solu_dmarkfun(member.dyn);
-    else if (solu_dtypeof(member) == SOLU_DREF)
-        solu_dmarkref(member);
+    solu_dmark(member);
 }
-
 void solu_dmarkobj(solu_val obj) {
     solu_dobj *dobj = (solu_dobj *)obj.dyn;
-    for (uint32_t i = 0; i < dobj->array.count; ++i) {
-        solu_val member = dobj->array.data[i];
-        if (member.tt != SOLU_TDYN || solu_dheader(member)->mark != SOLU_DYN_WHITE) continue;
-        solu_dheader(member)->mark = SOLU_DYN_BLACK;
-        if (solu_dtypeof(member) == SOLU_DOBJ) {
-            solu_dmarkobj(obj);
-        } else if (solu_dtypeof(member) == SOLU_DFUN)
-            solu_dmarkfun(member.dyn);
-        else if (solu_dtypeof(member) == SOLU_DREF)
-            solu_dmarkref(member);
-    }
-    solu_valmap_foreach(obj.dyn, solu_dcollect_obj, NULL);
+    for (uint32_t i = 0; i < dobj->array.count; ++i)
+        solu_dmark(dobj->array.data[i]);
+    solu_valmap_foreach(obj.dyn, solu_dmarkmember, NULL);
     if (dobj->meta.tt == SOLU_TDYN)
         solu_dheader(dobj->meta)->mark = SOLU_DYN_BLACK;
 }
-
 void solu_dmarkref(solu_val r) {
     solu_val inner = solu_dval(r);
     while (inner.tt == SOLU_TDYN) {
@@ -358,38 +420,34 @@ void solu_dmarkref(solu_val r) {
             return;
         solu_dheader(inner)->mark = SOLU_DYN_BLACK;
         switch (solu_dtypeof(inner)) {
-            case SOLU_DOBJ:
-                solu_dmarkobj(inner);
-                break;
-            case SOLU_DFUN:
-                solu_dmarkfun(inner.dyn);
-                break;
             case SOLU_DREF:
                 inner = solu_dval(inner);
                 break;
-            default: break;
+            default: solu_dmark(inner);
         }
     }
+}
+void solu_dmark(solu_val val) {
+    if (val.tt != SOLU_TDYN) return;
+    solu_dalloc *ac = solu_dheader(val);
+    if (ac->mark == SOLU_DYN_BLACK) return;
+    ac->mark = SOLU_DYN_BLACK;
+    if (ac->tt == SOLU_DUSR) {
+        solu_usrmark mark = solu_uheader(val)->mark;
+        if (mark) mark(val.dyn);
+    }
+    if (ac->tt == SOLU_DOBJ)
+        solu_dmarkobj(val);
+    if (ac->tt == SOLU_DFUN)
+        solu_dmarkfun((solu_fproto *)((char *)ac + sizeof(solu_dalloc)));
+    if (ac->tt == SOLU_DREF)
+        solu_dmarkref(val);
 }
 
 void solu_dcollect(solu_state *s) {
     s->lb = 0;
-    for (solu_val *r = s->stack.data; r < s->stack.data + s->stack.count; ++r) {
-        if (r->tt == SOLU_TDYN) {
-            solu_dalloc *ac = solu_dheader(*r);
-            ac->mark = SOLU_DYN_BLACK;
-            if (ac->tt == SOLU_DUSR) {
-                solu_usrmark mark = solu_uheader(*r)->mark;
-                if (mark) mark(r->dyn);
-            }
-            if (ac->tt == SOLU_DOBJ)
-                solu_dmarkobj(*r);
-            if (ac->tt == SOLU_DFUN)
-                solu_dmarkfun((solu_fproto *)((char *)ac + sizeof(solu_dalloc)));
-            if (ac->tt == SOLU_DREF)
-                solu_dmarkref(*r);
-        }
-    }
+    for (solu_val *r = s->stack.data; r < s->stack.data + s->stack.count; ++r)
+        solu_dmark(*r);
     solu_dmarkobj(s->global);
 
     solu_dalloc **ac = &s->alloc;
@@ -413,17 +471,21 @@ void solu_dcollect(solu_state *s) {
     s->alloc_tail = last;
 }
 
+solu_val solu_getk(solu_state *s, solu_fproto *proto, uint32_t index) {
+    return solu_dcopy(s, *(proto->constants.data + index));
+}
+
 #define CAT(a, b) a##b
 #define EXPAND(a) a
 #define EXPAND_CAT(a, b) CAT(a, b)
 
 //#define SOLU_DBG_NOCOMPUTE
-
 #if (defined(__GNUC__) || defined(__clang__)) && !defined(SOLU_DBG_NOCOMPUTE)
 #   define LABEL(name) [name] = &&EXPAND_CAT(name, _L)
 #   define CASE(name) EXPAND_CAT(name, _L):
+
 #   define COMPUTE_GOTOS
-#   define DISPATCH() do { \
+#   define PREDISPATCH() \
         if (pc >= proto->code_c) goto ret; /* EOF */\
         ins = proto->code[pc]; /* Read next instruction */\
         \
@@ -441,9 +503,9 @@ void solu_dcollect(solu_state *s) {
         if (s->collect) { \
             solu_dcollect(s); \
             s->collect = false; \
-        } \
-        goto *computed[solu_ins_op(ins)]; /* jump up jump up and get down */\
-    } while (0)
+        }
+#   define DISPATCH() PREDISPATCH(); goto *computed[solu_ins_op(ins)]; /* jump up jump up and get down */
+
 #   pragma GCC diagnostic push
 #   pragma GCC diagnostic ignored "-Wpedantic"
 #else
@@ -804,21 +866,7 @@ solu_call_ex solu_call_bc(solu_state *s, solu_fproto *proto, const solu_val *arg
     DISPATCH();
     #else
     while (pc < proto->code_c) {
-        ins = proto->code[pc];
-        if (bps && SOLU_DBG_LINE(proto->dbg[pc]) > proto->dbg_ll) {
-            proto->dbg_ll = SOLU_DBG_LINE(proto->dbg[pc]);
-            if (bps[proto->dbg_ll - 1]) {
-                proto->dbg_res = pc;
-                ++bpc; while (!*bpc) ++bpc;
-                return solu_call_ex_err((solu_call_err){SOLU_ERRV_BREAK, SF_STR_EMPTY, pc});
-            }
-        }
-        proto->dbg_ll = SOLU_DBG_LINE(proto->dbg[pc]);
-        ++pc;
-        if (s->collect) {
-            solu_dcollect(s);
-            s->collect = false;
-        }
+        PREDISPATCH();
         switch (solu_ins_op(ins)) {
     #endif
         CASE(SOLU_OP_LOAD) {
@@ -841,9 +889,9 @@ solu_call_ex solu_call_bc(solu_state *s, solu_fproto *proto, const solu_val *arg
             uint32_t fun_r = solu_iabc_bx(ins);
             solu_val fun = solu_get(s, fun_r);
             if (solu_isdtype(fun, SOLU_DOBJ)) {
-                solu_dobj *dobj = fun.dyn;
-                if (dobj->metafuns[SOLU_META_CALL])
-                    fun = solu_dobj_strget(dobj->meta.dyn, "_call");
+                solu_val call = ((solu_dobj *)fun.dyn)->metafuns[SOLU_META_CALL];
+                if (solu_isdtype(call, SOLU_DFUN))
+                    fun = call;
             }
             if (!solu_isdtype(fun, SOLU_DFUN)) {
                 if (solu_isdtype(fun, SOLU_DERR))
@@ -871,8 +919,8 @@ solu_call_ex solu_call_bc(solu_state *s, solu_fproto *proto, const solu_val *arg
         }
 
         CASE(SOLU_OP_ADD) {
-            solu_val lhs = solu_iabc_bk(ins) ? solu_getk(proto, solu_iabc_bx(ins)) : solu_get(s, solu_iabc_bx(ins));
-            solu_val rhs = solu_iabc_ck(ins) ? solu_getk(proto, solu_iabc_cx(ins)) : solu_get(s, solu_iabc_cx(ins));
+            solu_val lhs = solu_iabc_bk(ins) ? solu_getk(s, proto, solu_iabc_bx(ins)) : solu_get(s, solu_iabc_bx(ins));
+            solu_val rhs = solu_iabc_ck(ins) ? solu_getk(s, proto, solu_iabc_cx(ins)) : solu_get(s, solu_iabc_cx(ins));
             if (solu_isdtype(lhs, SOLU_DERR))
                 return solu_callerr(SOLU_ERRV_PANIC, "%s", lhs.dyn);
             if (solu_isdtype(rhs, SOLU_DERR))
@@ -922,8 +970,8 @@ solu_call_ex solu_call_bc(solu_state *s, solu_fproto *proto, const solu_val *arg
             DISPATCH();
         }
         CASE(SOLU_OP_SUB) {
-            solu_val lhs = solu_iabc_bk(ins) ? solu_getk(proto, solu_iabc_bx(ins)) : solu_get(s, solu_iabc_bx(ins));
-            solu_val rhs = solu_iabc_ck(ins) ? solu_getk(proto, solu_iabc_cx(ins)) : solu_get(s, solu_iabc_cx(ins));
+            solu_val lhs = solu_iabc_bk(ins) ? solu_getk(s, proto, solu_iabc_bx(ins)) : solu_get(s, solu_iabc_bx(ins));
+            solu_val rhs = solu_iabc_ck(ins) ? solu_getk(s, proto, solu_iabc_cx(ins)) : solu_get(s, solu_iabc_cx(ins));
             if (solu_isdtype(lhs, SOLU_DERR))
                 return solu_callerr(SOLU_ERRV_PANIC, "%s", lhs.dyn);
             if (solu_isdtype(rhs, SOLU_DERR))
@@ -958,8 +1006,8 @@ solu_call_ex solu_call_bc(solu_state *s, solu_fproto *proto, const solu_val *arg
             DISPATCH();
         }
         CASE(SOLU_OP_MUL) {
-            solu_val lhs = solu_iabc_bk(ins) ? solu_getk(proto, solu_iabc_bx(ins)) : solu_get(s, solu_iabc_bx(ins));
-            solu_val rhs = solu_iabc_ck(ins) ? solu_getk(proto, solu_iabc_cx(ins)) : solu_get(s, solu_iabc_cx(ins));
+            solu_val lhs = solu_iabc_bk(ins) ? solu_getk(s, proto, solu_iabc_bx(ins)) : solu_get(s, solu_iabc_bx(ins));
+            solu_val rhs = solu_iabc_ck(ins) ? solu_getk(s, proto, solu_iabc_cx(ins)) : solu_get(s, solu_iabc_cx(ins));
             if (solu_isdtype(lhs, SOLU_DERR))
                 return solu_callerr(SOLU_ERRV_PANIC, "%s", lhs.dyn);
             if (solu_isdtype(rhs, SOLU_DERR))
@@ -988,8 +1036,8 @@ solu_call_ex solu_call_bc(solu_state *s, solu_fproto *proto, const solu_val *arg
             DISPATCH();
         }
         CASE(SOLU_OP_DIV) {
-            solu_val lhs = solu_iabc_bk(ins) ? solu_getk(proto, solu_iabc_bx(ins)) : solu_get(s, solu_iabc_bx(ins));
-            solu_val rhs = solu_iabc_ck(ins) ? solu_getk(proto, solu_iabc_cx(ins)) : solu_get(s, solu_iabc_cx(ins));
+            solu_val lhs = solu_iabc_bk(ins) ? solu_getk(s, proto, solu_iabc_bx(ins)) : solu_get(s, solu_iabc_bx(ins));
+            solu_val rhs = solu_iabc_ck(ins) ? solu_getk(s, proto, solu_iabc_cx(ins)) : solu_get(s, solu_iabc_cx(ins));
             if (solu_isdtype(lhs, SOLU_DERR))
                 return solu_callerr(SOLU_ERRV_PANIC, "%s", lhs.dyn);
             if (solu_isdtype(rhs, SOLU_DERR))
@@ -1031,8 +1079,8 @@ solu_call_ex solu_call_bc(solu_state *s, solu_fproto *proto, const solu_val *arg
         }
         CASE(SOLU_OP_EQ) {
             bool inv = solu_iabc_a(ins) != 0;
-            solu_val lhs = solu_iabc_bk(ins) ? solu_getk(proto, solu_iabc_bx(ins)) : solu_get(s, solu_iabc_bx(ins));
-            solu_val rhs = solu_iabc_ck(ins) ? solu_getk(proto, solu_iabc_cx(ins)) : solu_get(s, solu_iabc_cx(ins));
+            solu_val lhs = solu_iabc_bk(ins) ? solu_getk(s, proto, solu_iabc_bx(ins)) : solu_get(s, solu_iabc_bx(ins));
+            solu_val rhs = solu_iabc_ck(ins) ? solu_getk(s, proto, solu_iabc_cx(ins)) : solu_get(s, solu_iabc_cx(ins));
             if ((lhs.tt == SOLU_TNIL && rhs.tt == SOLU_TNIL)) {
                 if (!inv) pc++;
                 DISPATCH();
@@ -1088,8 +1136,8 @@ solu_call_ex solu_call_bc(solu_state *s, solu_fproto *proto, const solu_val *arg
         }
         CASE(SOLU_OP_LT) {
             bool inv = solu_iabc_a(ins) != 0;
-            solu_val lhs = solu_iabc_bk(ins) ? solu_getk(proto, solu_iabc_bx(ins)) : solu_get(s, solu_iabc_bx(ins));
-            solu_val rhs = solu_iabc_ck(ins) ? solu_getk(proto, solu_iabc_cx(ins)) : solu_get(s, solu_iabc_cx(ins));
+            solu_val lhs = solu_iabc_bk(ins) ? solu_getk(s, proto, solu_iabc_bx(ins)) : solu_get(s, solu_iabc_bx(ins));
+            solu_val rhs = solu_iabc_ck(ins) ? solu_getk(s, proto, solu_iabc_cx(ins)) : solu_get(s, solu_iabc_cx(ins));
             if (lhs.tt == SOLU_TDYN || rhs.tt == SOLU_TDYN || lhs.tt == SOLU_TNIL || rhs.tt == SOLU_TNIL ||
                 lhs.tt == SOLU_TBOOL || rhs.tt == SOLU_TBOOL) {
                 if (inv) pc++;
@@ -1114,8 +1162,8 @@ solu_call_ex solu_call_bc(solu_state *s, solu_fproto *proto, const solu_val *arg
             DISPATCH();
         }
         CASE(SOLU_OP_LE) {bool inv = solu_iabc_a(ins) != 0;
-            solu_val lhs = solu_iabc_bk(ins) ? solu_getk(proto, solu_iabc_bx(ins)) : solu_get(s, solu_iabc_bx(ins));
-            solu_val rhs = solu_iabc_ck(ins) ? solu_getk(proto, solu_iabc_cx(ins)) : solu_get(s, solu_iabc_cx(ins));
+            solu_val lhs = solu_iabc_bk(ins) ? solu_getk(s, proto, solu_iabc_bx(ins)) : solu_get(s, solu_iabc_bx(ins));
+            solu_val rhs = solu_iabc_ck(ins) ? solu_getk(s, proto, solu_iabc_cx(ins)) : solu_get(s, solu_iabc_cx(ins));
             if (lhs.tt == SOLU_TDYN || rhs.tt == SOLU_TDYN || lhs.tt == SOLU_TNIL || rhs.tt == SOLU_TNIL ||
                 lhs.tt == SOLU_TBOOL || rhs.tt == SOLU_TBOOL) {
                 if (inv) pc++;
@@ -1182,41 +1230,32 @@ solu_call_ex solu_call_bc(solu_state *s, solu_fproto *proto, const solu_val *arg
         }
         CASE(SOLU_OP_SET) {
             solu_val obj = solu_get(s, solu_iabc_a(ins));
-            solu_val key = solu_iabc_bk(ins) ? solu_getk(proto, solu_iabc_bx(ins)) : solu_get(s, solu_iabc_bx(ins));
-            solu_val val = solu_iabc_ck(ins) ? solu_getk(proto, solu_iabc_cx(ins)) : solu_get(s, solu_iabc_cx(ins));
+            solu_val key = solu_iabc_bk(ins) ? solu_getk(s, proto, solu_iabc_bx(ins)) : solu_get(s, solu_iabc_bx(ins));
+            solu_val val = solu_iabc_ck(ins) ? solu_getk(s, proto, solu_iabc_cx(ins)) : solu_get(s, solu_iabc_cx(ins));
             if (!solu_isdtype(obj, SOLU_DOBJ))
                 return solu_callerr(SOLU_ERRV_TYPE_MISMATCH, "Attempted to index type %s", solu_typename(obj).c_str);
-            solu_dobj *dobj = obj.dyn;
-            if (dobj->metafuns[SOLU_META_SET]) {
-                solu_val set = solu_dobj_strget(dobj->meta.dyn, "_set");
-                if (solu_isdtype(set, SOLU_DFUN)) {
-                    solu_call_ex ex = solu_call(s, set.dyn, (solu_val[]){key, val}, 2);
-                    if (!ex.is_ok) return ex;
-                    DISPATCH();
-                }
-                dobj->metafuns[SOLU_META_SET] = false;
+            solu_val set = ((solu_dobj *)obj.dyn)->metafuns[SOLU_META_SET];
+            if (solu_isdtype(set, SOLU_DFUN)) {
+                solu_call_ex ex = solu_call(s, set.dyn, (solu_val[]){key, val}, 2);
+                if (!ex.is_ok) return ex;
+                DISPATCH();
             }
             solu_dalloc *dh = solu_dheader(val); (void)dh;
-            solu_dobj_set(dobj, key, val);
+            solu_dobj_set(s, obj.dyn, key, val);
             DISPATCH();
         }
         CASE(SOLU_OP_GET) {
             solu_val obj = solu_get(s, solu_iabc_bx(ins));
-            solu_val key = solu_iabc_ck(ins) ? solu_getk(proto, solu_iabc_cx(ins)) : solu_get(s, solu_iabc_cx(ins));
+            solu_val key = solu_iabc_ck(ins) ? solu_getk(s, proto, solu_iabc_cx(ins)) : solu_get(s, solu_iabc_cx(ins));
             if (!solu_isdtype(obj, SOLU_DOBJ))
                 return solu_callerr(SOLU_ERRV_TYPE_MISMATCH, "Attempted to index type %s", solu_typename(obj).c_str);
-            solu_dobj *dobj = obj.dyn;
-            if (dobj->metafuns[SOLU_META_GET]) {
-                solu_val get = solu_dobj_strget(dobj->meta.dyn, "_get");
-                if (solu_isdtype(get, SOLU_DFUN)) {
-                    solu_call_ex ex = solu_call(s, get.dyn, (solu_val[]){key}, 1);
-                    if (!ex.is_ok) return ex;
-                    solu_set(s, solu_iabc_a(ins), ex.ok);
-                    DISPATCH();
-                }
-                dobj->metafuns[SOLU_META_GET] = false;
+            solu_val get = ((solu_dobj *)obj.dyn)->metafuns[SOLU_META_GET];
+            if (solu_isdtype(get, SOLU_DFUN)) {
+                solu_call_ex ex = solu_call(s, get.dyn, (solu_val[]){key}, 1);
+                if (!ex.is_ok) return ex;
+                DISPATCH();
             }
-            solu_set(s, solu_iabc_a(ins), solu_dobj_get(dobj, key));
+            solu_set(s, solu_iabc_a(ins), solu_dobj_get(s, obj.dyn, key));
             DISPATCH();
         }
         CASE(SOLU_OP_PUSH) {
@@ -1235,7 +1274,7 @@ solu_call_ex solu_call_bc(solu_state *s, solu_fproto *proto, const solu_val *arg
             solu_val kkey = solu_valvec_get(&proto->constants, solu_iabc_bx(ins));
             if (!solu_isdtype(kkey, SOLU_DSTR))
                 return solu_callerr(SOLU_ERRV_CORRUPT, "Corrupt bytecode", NULL);
-            solu_val val = solu_iabc_ck(ins) ? solu_getk(proto, solu_iabc_cx(ins)) : solu_get(s, solu_iabc_cx(ins));
+            solu_val val = solu_iabc_ck(ins) ? solu_getk(s, proto, solu_iabc_cx(ins)) : solu_get(s, solu_iabc_cx(ins));
             solu_dobj_strset(upo.dyn, kkey.dyn, val);
             DISPATCH();
         }

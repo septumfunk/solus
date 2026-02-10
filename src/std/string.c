@@ -1,4 +1,4 @@
-#include "solus/bytecode.h"
+#include "solus/val.h"
 #include "std.h"
 
 static solu_call_ex string_len(solu_state *s) {

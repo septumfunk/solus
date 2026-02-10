@@ -13,6 +13,7 @@ add_library(${PROJECT_NAME} ${LIBRARY_TYPE}
     src/compiler.c
     src/syntax.c
     src/vm.c
+    src/val.c
 
     src/std/builtin.c
     src/std/io.c
@@ -80,6 +81,7 @@ if (WIN32)
         target_compile_definitions(${PROJECT_NAME} PUBLIC LIB_DYNAMIC)
         target_compile_definitions(${PROJECT_NAME} PRIVATE LIB_EXPORTS)
     endif()
+    target_link_libraries(${PROJECT_NAME} PRIVATE Ws2_32)
 endif()
 
 # Fetch Dependencies

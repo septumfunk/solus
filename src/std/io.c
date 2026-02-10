@@ -3,14 +3,14 @@
 
 static solu_call_ex io_print(solu_state *s) {
     solu_val to_print = solu_get(s, 0);
-    char *val = solu_tostring(to_print);
+    char *val = solu_tostr(s, to_print);
     printf("%s", val);
     free(val);
     return solu_ok(SOLU_NIL);
 }
 static solu_call_ex io_println(solu_state *s) {
     solu_val to_print = solu_get(s, 0);
-    char *val = solu_tostring(to_print);
+    char *val = solu_tostr(s, to_print);
     printf("%s\n", val);
     free(val);
     return solu_ok(SOLU_NIL);

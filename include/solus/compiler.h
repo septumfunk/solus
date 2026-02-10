@@ -2,7 +2,7 @@
 #define SOLUC_H
 
 #include <stddef.h>
-#include "bytecode.h"
+#include "val.h"
 
 typedef struct {
     solu_error tt;

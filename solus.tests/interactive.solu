@@ -6,8 +6,12 @@ exit = [should_exit]() {
 io.println("solus " + str(solus.version) + " interactive prompt script");
 io.println("call 'exit()' to leave");
 
-while !should_exit: {
+var old_i = "\n";
+while !should_exit {
     var i = io.input("> ");
-    if i != "\n":
+    if i == "!"
+        i = old_i;
+    if i != "\n"
         io.println(str(catch([i]() { eval(i) })));
+    old_i = i;
 }
