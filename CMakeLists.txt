@@ -13,6 +13,7 @@ add_library(${PROJECT_NAME} ${LIBRARY_TYPE}
     src/compiler.c
     src/syntax.c
     src/vm.c
+    src/val.c
 
     src/std/builtin.c
     src/std/io.c

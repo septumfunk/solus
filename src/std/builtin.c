@@ -1,5 +1,5 @@
 #include "sf/containers/buffer.h"
-#include "solus/bytecode.h"
+#include "solus/val.h"
 #include "solus/vm.h"
 #include "std.h"
 #include <stdlib.h>
