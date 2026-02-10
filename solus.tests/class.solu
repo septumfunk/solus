@@ -1,3 +1,7 @@
+var x = 0;
+if "a" == "b" or ++x == 1
+    io.println("a");
+
 {
     name = "Jessica"
     fav_food = "Meow Mix Turkey"

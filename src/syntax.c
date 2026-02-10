@@ -536,9 +536,9 @@ solu_parse_ex solu_pprimary(solu_parser *p) {
 
 solu_parse_ex solu_punary(solu_parser *p) {
     solu_tokentype tt = (p->tok++)->tt;
-    solu_parse_ex expr = solu_pexpr(p, 0);
-    if (!expr.is_ok) return expr;
     if (tt == TK_INCREMENT || tt == TK_DECREMENT) {
+        solu_parse_ex expr = solu_pprimary(p);
+        if (!expr.is_ok) return expr;
         if (expr.ok->tt != SOLU_ND_IDENTIFIER) {
             solu_node_free(expr.ok);
             return solu_perr(SOLU_ERRP_EXPECTED_IDENTIFIER);
@@ -557,6 +557,9 @@ solu_parse_ex solu_punary(solu_parser *p) {
         };
         return solu_parse_ex_ok(n_binary);
     }
+
+    solu_parse_ex expr = solu_pexpr(p, 0);
+    if (!expr.is_ok) return expr;
 
     solu_node *n_unary = malloc(sizeof(solu_node));
     *n_unary = (solu_node){
