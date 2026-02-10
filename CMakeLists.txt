@@ -80,6 +80,7 @@ if (WIN32)
         target_compile_definitions(${PROJECT_NAME} PUBLIC LIB_DYNAMIC)
         target_compile_definitions(${PROJECT_NAME} PRIVATE LIB_EXPORTS)
     endif()
+    target_link_libraries(${PROJECT_NAME} PRIVATE Ws2_32)
 endif()
 
 # Fetch Dependencies
