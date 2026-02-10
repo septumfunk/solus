@@ -1,4 +1,4 @@
-#include "solus/bytecode.h"
+#include "solus/val.h"
 #include "solus/vm.h"
 #include "std.h"
 #include <setjmp.h>
@@ -195,7 +195,7 @@ static char *template_tostring(void *_temp) {
 static void template_mark(void *_temp) {
     solu_template *temp = _temp;
     solu_dheader(temp->fun)->mark = SOLU_DYN_BLACK;
-    solu_dmarkfun(temp->fun.dyn);
+    solu_dmark(temp->fun);
 }
 
 static solu_call_ex obj_template(solu_state *s) {

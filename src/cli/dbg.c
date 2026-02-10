@@ -1,5 +1,5 @@
 #include "sf/math.h"
-#include "solus/bytecode.h"
+#include "solus/val.h"
 #include "solus/vm.h"
 #include "cli/cli.h"
 #include <limits.h>

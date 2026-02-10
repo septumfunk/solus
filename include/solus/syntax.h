@@ -2,7 +2,7 @@
 #define SYNTAX_H
 
 #include <stdint.h>
-#include "bytecode.h"
+#include "val.h"
 
 /// Token type, or character
 typedef enum {
@@ -83,16 +83,34 @@ typedef struct solu_node {
     solu_nodetype tt;
     uint16_t line, column;
     union {
-        solu_tokentype n_lcontrol;
-        solu_val n_literal, n_identifier;
+        struct { // <let> n = v; // { n = v }
+            solu_val name;
+            struct solu_node *value;
+            bool mut;
+        } n_local;
+        struct { // if c {t} else {e}
+            struct solu_node *condition;
+            struct solu_node *then_node;
+            struct solu_node *else_node;
+        } n_if;
+        struct {
+            struct solu_node *pre, *condition, *post;
+            struct solu_node *body;
+        } n_for;
+        struct { // while c {b}
+            struct solu_node *condition;
+            struct solu_node *stmt;
+        } n_while;
+        struct {
+            solu_opcode op;
+            solu_val opa[3];
+        } n_ins;
         struct {
             struct solu_node *expr;
             bool implicit;
         } n_return;
-        struct { // e.p
-            struct solu_node *expr;
-            struct solu_node *postfix;
-        } n_postfix;
+        solu_tokentype n_lcontrol;
+
         struct { // <op> r
             solu_tokentype op;
             struct solu_node *right;
@@ -102,60 +120,38 @@ typedef struct solu_node {
             struct solu_node *left;
             struct solu_node *right;
         } n_binary;
-        struct { // <let> n = v; // { n = v }
-            solu_val name;
-            struct solu_node *value;
-            bool mut;
-        } n_local;
-        struct {
+        struct { // e.p
             struct solu_node *expr;
-            struct solu_node *value;
-        } n_assign;
-        struct { // if c {t} else {e}
-            struct solu_node *condition;
-            struct solu_node *then_node;
-            struct solu_node *else_node;
-        } n_if;
+            struct solu_node *postfix;
+        } n_postfix;
         struct { // x(a)
             struct solu_node *identifier;
             struct solu_node **args;
             uint32_t arg_c;
         } n_call;
-        struct {
-            struct solu_node *pre, *condition, *post;
-            struct solu_node *body;
-        } n_for;
-        struct { // while c {b}
-            struct solu_node *condition;
-            struct solu_node *stmt;
-        } n_while;
-        struct solu_block { // {s}
-            struct solu_node **stmts;
-            uint32_t count;
-        } n_block;
 
-        struct { // [c](a) {b}
-            solu_val *captures;
-            uint32_t cap_c;
-            solu_val *args;
-            uint32_t arg_c;
-            struct solu_node *block;
-            bool include;
-        } n_fun;
-
-        struct {
-            solu_i64 temps;
-            struct solu_node *n_fun;
-        } n_asm;
-        struct {
-            solu_opcode op;
-            solu_val opa[3];
-        } n_ins;
-
+        solu_val n_identifier, n_literal;
         struct { // { n_binary, }
             struct solu_node **members;
             uint32_t mem_c;
         } n_obj;
+
+        struct solu_block { // {s}
+            struct solu_node **stmts;
+            uint32_t count;
+        } n_block;
+        struct {
+            solu_val *captures;
+            uint32_t cap_c;
+            solu_val *args;
+            uint32_t arg_c;
+            struct solu_node *stmt;
+            bool include;
+        } n_fun;
+        struct {
+            solu_i64 temps;
+            struct solu_node *n_fun;
+        } n_asm;
     };
 } solu_node;
 
