@@ -524,29 +524,30 @@ solu_cnode_ex solu_cnode(solu_compiler *c, solu_node *node, uint32_t t_reg) {
             uint32_t left = UINT32_MAX, right = UINT32_MAX;
             bool set = t_reg == UINT32_MAX;
 
-            if (node->n_binary.op != TK_AND && node->n_binary.op != TK_OR &&
-                node->n_binary.op != TK_EQUAL && node->n_binary.op != TK_PLUS_EQUAL && node->n_binary.op != TK_MINUS_EQUAL) {
-                if (node->n_binary.left->tt == SOLU_ND_LITERAL && node->n_binary.op != TK_AND && node->n_binary.op != TK_OR) {
-                    if (!solu_kfind(c, node->n_binary.left->n_literal, &left))
-                        left = solu_kadd(c, node->n_binary.left->n_literal);
-                    ll = true;
-                } else {
-                    left = solu_rtemp(c);
-                    lt = true;
-                    solu_cnode_ex left_ex = solu_cnode(c, node->n_binary.left, left);
-                    if (!left_ex.is_ok) return left_ex;
-                }
-            }
             if (node->n_binary.op != TK_AND && node->n_binary.op != TK_OR) {
-                if (node->n_binary.right->tt == SOLU_ND_LITERAL) {
-                    if (!solu_kfind(c, node->n_binary.right->n_literal, &right))
-                        right = solu_kadd(c, node->n_binary.right->n_literal);
-                    rl = true;
-                } else {
-                    right = solu_rtemp(c);
-                    rt = true;
-                    solu_cnode_ex right_ex = solu_cnode(c, node->n_binary.right, right);
-                    if (!right_ex.is_ok) return right_ex;
+                if (node->n_binary.op != TK_EQUAL && node->n_binary.op != TK_PLUS_EQUAL && node->n_binary.op != TK_MINUS_EQUAL) {
+                    if (node->n_binary.left->tt == SOLU_ND_LITERAL && node->n_binary.op != TK_AND && node->n_binary.op != TK_OR) {
+                        if (!solu_kfind(c, node->n_binary.left->n_literal, &left))
+                            left = solu_kadd(c, node->n_binary.left->n_literal);
+                        ll = true;
+                    } else {
+                        left = solu_rtemp(c);
+                        lt = true;
+                        solu_cnode_ex left_ex = solu_cnode(c, node->n_binary.left, left);
+                        if (!left_ex.is_ok) return left_ex;
+                    }
+                }
+                if (node->n_binary.op != TK_AND && node->n_binary.op != TK_OR) {
+                    if (node->n_binary.right->tt == SOLU_ND_LITERAL) {
+                        if (!solu_kfind(c, node->n_binary.right->n_literal, &right))
+                            right = solu_kadd(c, node->n_binary.right->n_literal);
+                        rl = true;
+                    } else {
+                        right = solu_rtemp(c);
+                        rt = true;
+                        solu_cnode_ex right_ex = solu_cnode(c, node->n_binary.right, right);
+                        if (!right_ex.is_ok) return right_ex;
+                    }
                 }
             }
 
