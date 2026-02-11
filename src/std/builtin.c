@@ -71,7 +71,7 @@ static solu_call_ex builtin_eval(solu_state *s) {
 static solu_call_ex builtin_err(solu_state *s) {
     solu_val str = solu_get(s, 0);
     expect_dtype(SOLU_DSTR, str);
-    return solu_ok(solu_dnstr(s, str.dyn));
+    return solu_ok(solu_dnerr(s, str.dyn));
 }
 static solu_call_ex builtin_panic(solu_state *s) {
     solu_val err = solu_get(s, 0);
