@@ -163,7 +163,7 @@ EXPORT void solu_node_free(solu_node *root);
 /// A possible result of parsing, describes what went wrong and where
 typedef struct {
     solu_error tt;
-    uint16_t line, column;
+    solu_token token;
 } solu_parse_err;
 /// An optional type alias for the root node of an AST
 typedef solu_node *solu_ast;

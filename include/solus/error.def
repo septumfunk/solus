@@ -8,6 +8,7 @@ X(V, PANIC, "Runtime Panic") \
 \
 X(P, UNEXPECTED_TOKEN, "Unexpected token") \
 X(P, UNTERMINATED_STR, "Unterminated string") \
+X(P, UNTERMINATED_COMMENT, "Unterminated block comment ('##')") \
 X(P, NUMBER_FORMAT, "Ill-formatted number") \
 X(P, NO_TOKENS, "Parser expected to recieve tokens from scanner") \
 X(P, EXPECTED_EXPRESSION, "Expected expression") \

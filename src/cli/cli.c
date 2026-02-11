@@ -1,4 +1,5 @@
 #include "sf/containers/buffer.h"
+#include "solus/bytecode.h"
 #include "solus/val.h"
 #include "solus/compiler.h"
 #include "solus/vm.h"
@@ -22,31 +23,32 @@ typedef enum {
 } cli_mode;
 
 void cli_highlight_line(sf_str src, sf_str err, uint16_t line, uint16_t column) {
-    char *c = src.c_str, *cc = c;
+    char *c = src.c_str;
     uint16_t ln = 1;
     while (true) {
         if (*c == '\n')
             ++ln;
         if (ln == line + 1 || *c == '\0') {
-            cc = c;
             *c = '\0';
             while ((c == src.c_str || *(c-1) != '\n') && c != src.c_str)
                 --c;
             break;
         } else ++c;
     }
+
+    if (err.c_str == solu_err_string(SOLU_ERRP_EXPECTED_SEMICOLON))
+        ++column;
+
+    int prefix = snprintf(NULL, 0, "%u | ", line);
+    int caret = prefix + column - 1;
+
+    char *pointer = malloc((size_t)caret + 2);
+    memset(pointer, '~', (size_t)caret);
+    pointer[caret] = '^';
+    pointer[caret + 1] = '\0';
+
     fprintf(stderr, "%u | %s\n", line, c);
-    *cc = '\n';
-
-    char *pointer = malloc(column);
-    memset(pointer, '~', column);
-    pointer[sizeof(pointer) - 1] = '\0';
-    pointer[sizeof(pointer) - 2] = '^';
-
-    // TODO: Column fix
-    //if (err.c_str == solu_err_string(SOLU_ERRP_EXPECTED_SEMICOLON).c_str)
-        fprintf(stderr, TUI_ERR "%s\n" TUI_CLR, err.c_str);
-    //else fprintf(stderr, TUI_ERR "%s %s\n" TUI_CLR, pointer, err.c_str);
+    fprintf(stderr, "%s %s\n", pointer, err.c_str);
     free(pointer);
 }
 

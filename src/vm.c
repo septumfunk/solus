@@ -88,6 +88,7 @@ solu_compile_ex solu_cfile(solu_state *state, char *path) {
     solu_compile_ex ex = solu_cproto(sf_ref(realpath), (char *)fsb.ok.ptr, 0, NULL, 1, (solu_upvalue[]){
         (solu_upvalue){sf_lit("_g"), SOLU_UP_VAL, .value = state->global, .mut = false}
     });
+    if (!ex.is_ok) return ex;
     free(realpath);
     ex.ok.line_c = 1;
     for (char *c = (char *)fsb.ok.ptr; *c != '\0'; ++c)
@@ -926,15 +927,16 @@ solu_call_ex solu_call_bc(solu_state *s, solu_fproto *proto, const solu_val *arg
             if (solu_isdtype(rhs, SOLU_DERR))
                 return solu_callerr(SOLU_ERRV_PANIC, "%s", rhs.dyn);
 
-            if (lhs.tt != rhs.tt || (solu_isdtype(lhs, SOLU_DOBJ) && !solu_isdtype(rhs, SOLU_DOBJ))) {
+            if (solu_isdtype(lhs, SOLU_DOBJ) && !solu_isdtype(rhs, SOLU_DOBJ)) {
+                solu_valvec_push(&((solu_dobj *)lhs.dyn)->array, rhs);
+                DISPATCH();
+            }
+            if (lhs.tt != rhs.tt && (lhs.tt == SOLU_TDYN || rhs.tt == SOLU_TDYN))
+                return solu_callerr(SOLU_ERRV_TYPE_MISMATCH, "Implicit conversion %s into %s", solu_typename(rhs).c_str, solu_typename(lhs).c_str);
+            if (lhs.tt != rhs.tt) {
                 switch (lhs.tt) {
                     case SOLU_TI64: rhs = (solu_val){.tt = SOLU_TI64, .i64 = (solu_i64)rhs.f64}; break;
                     case SOLU_TF64: rhs = (solu_val){.tt = SOLU_TF64, .f64 = (solu_f64)rhs.i64}; break;
-                    case SOLU_TDYN:
-                        if (!solu_isdtype(lhs, SOLU_DOBJ))
-                            return solu_callerr(SOLU_ERRV_TYPE_MISMATCH, "Implicit conversion %s into %s", solu_typename(rhs).c_str, solu_typename(lhs).c_str);
-                        solu_valvec_push(&((solu_dobj *)lhs.dyn)->array, rhs);
-                        DISPATCH();
                     default: return solu_callerr(SOLU_ERRV_TYPE_MISMATCH, "Implicit conversion %s into %s", solu_typename(rhs).c_str, solu_typename(lhs).c_str);
                 }
             }

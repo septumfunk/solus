@@ -910,8 +910,8 @@ solu_compile_ex solu_cproto(sf_str path, char *src, uint32_t arg_c, solu_val *ar
     if (!par_ex.is_ok)
         return solu_compile_ex_err((solu_compile_err){
             .tt = par_ex.err.tt,
-            .line = par_ex.err.line,
-            .column = par_ex.err.column,
+            .line = par_ex.err.token.line,
+            .column = par_ex.err.token.column,
         });
 
     solu_compile_ex ex = solu_cfun(0, scan_ex.ok.alloc, par_ex.ok, arg_c, args, up_c, upvals);
