@@ -14,6 +14,26 @@ exists = unwrap_or(exists, "test.txt");
 val contents = unwrap(io.fread(exists));
 ```
 # Examples
+## Interactive
+```c
+var should_exit = false;
+exit = [should_exit]() {
+    should_exit = true;
+};
+
+io.println("solus " + str(solus.version) + " interactive prompt script");
+io.println("call 'exit()' to leave");
+
+var old_i = "\n";
+while !should_exit {
+    var i = io.input("> ");
+    if i == "!\n"
+        i = old_i;
+    if i != "\n"
+        io.println(str(catch([i]() { eval(i) })));
+    old_i = i;
+}
+```
 ## Class
 ```
 {
