@@ -2,20 +2,9 @@
   solus is an embeddable scripting language with a register based VM and a focus on doing everything exactly the way *I* want to. The design of the compiler and VM are both heavily inspired by Lua's, alongside numerous other language semantics. Solus aims to reduce the amount of code required for me to bind my projects' C functions and structs with a high-level dynamically typed scripting language for both rapid prototyping and ease of use for the end user.
 ### [Documentation](https://solus.septumfunk.com/)
 
-# Features
-### Error Handling
-Instead of returning nil on operations that fail, you can return `err` types that include a panic string, that is printed when you call panic on them, or by converting an `err` to a string. Most language operations such as member accesses will also return `err`s on failure, so watch out for that.
-```c
-var exists = f.path;
-if type(exists) == "err" {
-  io.println(err);
-}
-exists = unwrap_or(exists, "test.txt");
-val contents = unwrap(io.fread(exists));
-```
 # Examples
 ## Interactive
-```c
+```kotlin
 var should_exit = false;
 exit = [should_exit]() {
     should_exit = true;
@@ -35,7 +24,7 @@ while !should_exit {
 }
 ```
 ## Class
-```
+```kotlin
 {
     name = "Jessica"
     fav_food = "Meow Mix"
@@ -55,7 +44,7 @@ while !should_exit {
 }
 ```
 ## Errors
-```
+```kotlin
 val cat = unwrap(import("class.sol"));
 val meow = unwrap_or(cat.meow, "meeeow!"); # Non existent member
 io.println(meow);
