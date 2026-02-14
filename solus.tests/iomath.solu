@@ -1,9 +1,9 @@
 # iomath.solu
 
 val path = "solus_test_tmp.txt";
-unwrap(io.fwrite(path, "abc123\n"));
+unwrap(io.fwrite(path, "abc123"));
 val txt = unwrap(io.fread(path));
-assert(txt == "abc123\n");
+assert(txt == "abc123");
 
 assert(math.mini(2, 9) == 2);
 assert(math.maxi(2, 9) == 9);
