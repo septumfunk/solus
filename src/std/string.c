@@ -20,8 +20,8 @@ static solu_call_ex string_sub(solu_state *s) {
     solu_i64 len = (solu_i64)strlen(sstr);
     if (len == 0)
         return solu_ok(solu_dnew(s, SOLU_DSTR));
-    start.i64 = max(0, min(start.i64, len > 0 ? len - 1 : 0));
-    end.i64 = max(0, min(end.i64, len > 0 ? len - 1 : 0));
+    start.i64 = max(0, min(start.i64, len > 0 ? len : 0));
+    end.i64 = max(0, min(end.i64, len > 0 ? len : 0));
 
     size_t slen = (size_t)(end.i64 - start.i64 + 1);
     char *buf = malloc(slen + 1);

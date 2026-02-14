@@ -1,0 +1,20 @@
+# error.solu
+
+val got = catch([]() { panic("boom"); });
+assert(type(got) == "err");
+
+val missing = import("definitely-not-a-real-file-xyz");
+assert(type(missing) == "err");
+
+val fallback_obj = attempt(
+    []() { return import("still-not-real-xyz.solu"); },
+    [](e) { assert(type(e) == "err"); return {}; }
+);
+assert(type(fallback_obj) == "obj");
+
+val maybe = import("nope-nope-nope");
+val okv = unwrap_or(maybe, "fallback");
+assert(okv == "fallback");
+
+val e2 = err("fail");
+assert(type(e2) == "err");

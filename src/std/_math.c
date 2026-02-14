@@ -4,23 +4,30 @@
 static solu_call_ex math_mini(solu_state *s) {
     solu_val a = solu_get(s, 0);
     expect_type(SOLU_TI64, a);
-    solu_val b = solu_get(s, 0);
+    solu_val b = solu_get(s, 1);
     expect_type(SOLU_TI64, b);
     return solu_ok((solu_val){SOLU_TI64, .i64 = min(a.i64, b.i64)});
 }
 static solu_call_ex math_maxi(solu_state *s) {
     solu_val a = solu_get(s, 0);
     expect_type(SOLU_TI64, a);
-    solu_val b = solu_get(s, 0);
+    solu_val b = solu_get(s, 1);
     expect_type(SOLU_TI64, b);
     return solu_ok((solu_val){SOLU_TI64, .i64 = max(a.i64, b.i64)});
 }
 static solu_call_ex math_minf(solu_state *s) {
     solu_val a = solu_get(s, 0);
     expect_type(SOLU_TF64, a);
-    solu_val b = solu_get(s, 0);
+    solu_val b = solu_get(s, 1);
     expect_type(SOLU_TF64, b);
     return solu_ok((solu_val){SOLU_TF64, .f64 = min(a.f64, b.f64)});
+}
+static solu_call_ex math_maxf(solu_state *s) {
+    solu_val a = solu_get(s, 0);
+    expect_type(SOLU_TF64, a);
+    solu_val b = solu_get(s, 1);
+    expect_type(SOLU_TF64, b);
+    return solu_ok((solu_val){SOLU_TF64, .f64 = max(a.f64, b.f64)});
 }
 static solu_call_ex math_randi(solu_state *s) {
     solu_val min_v = solu_get(s, 0);
@@ -76,6 +83,10 @@ static solu_call_ex math_randf(solu_state *s) {
 
 void solu_mod_math(solu_state *s) {
     solu_val math = solu_dnew(s, SOLU_DOBJ);
+    solu_dobj_strset(math.dyn, "mini", solu_wrapcfun(s, math_mini, 2, 0));
+    solu_dobj_strset(math.dyn, "maxi", solu_wrapcfun(s, math_maxi, 2, 0));
+    solu_dobj_strset(math.dyn, "minf", solu_wrapcfun(s, math_minf, 2, 0));
+    solu_dobj_strset(math.dyn, "maxf", solu_wrapcfun(s, math_maxf, 2, 0));
     solu_dobj_strset(math.dyn, "randi", solu_wrapcfun(s, math_randi, 2, 0));
     solu_dobj_strset(math.dyn, "randf", solu_wrapcfun(s, math_randf, 2, 0));
     solu_dobj_strset(s->global.dyn, "math", math);

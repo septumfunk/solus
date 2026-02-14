@@ -1,0 +1,19 @@
+# iomath.solu
+
+val path = "solus_test_tmp.txt";
+unwrap(io.fwrite(path, "abc123\n"));
+val txt = unwrap(io.fread(path));
+assert(txt == "abc123\n");
+
+assert(math.mini(2, 9) == 2);
+assert(math.maxi(2, 9) == 9);
+assert(math.minf(2.5, 9.25) == 2.5);
+assert(math.maxf(2.5, 9.25) == 9.25);
+
+for var i = 0; i < 100; ++i {
+    val r = math.randi(-3, 3);
+    assert(r >= -3 and r <= 3);
+
+    val f = math.randf(-1.0, 1.0);
+    assert(f >= -1.0 and f <= 1.0);
+}

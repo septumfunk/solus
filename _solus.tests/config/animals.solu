@@ -1,4 +1,0 @@
-{
-    include("kitty"),
-    include("puppy"),
-}

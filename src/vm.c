@@ -1220,7 +1220,7 @@ solu_call_ex solu_call_bc(solu_state *s, solu_fproto *proto, const solu_val *arg
             DISPATCH();
         }
         CASE(SOLU_OP_REFU) {
-            solu_val v = solu_get(s, (uint32_t)solu_ia_a(ins));
+            solu_val v = solu_valvec_get(&s->stack, s->frames.data[s->frames.count - 1].bottom_o + (uint32_t)solu_ia_a(ins));
             if (solu_isdtype(v, SOLU_DREF))
                 DISPATCH();
             solu_val vref = solu_dnew(s, SOLU_DREF);
@@ -1258,6 +1258,7 @@ solu_call_ex solu_call_bc(solu_state *s, solu_fproto *proto, const solu_val *arg
             if (solu_isdtype(get, SOLU_DFUN)) {
                 solu_call_ex ex = solu_call(s, get.dyn, (solu_val[]){key}, 1);
                 if (!ex.is_ok) return ex;
+                solu_set(s, solu_iabc_a(ins), ex.ok);
                 DISPATCH();
             }
             solu_set(s, solu_iabc_a(ins), solu_dobj_get(s, obj.dyn, key));

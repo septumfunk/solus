@@ -1,9 +1,0 @@
-val cat = unwrap(import("class.solu"));
-val meow = unwrap_or(cat.meow, "meeeow!"); # Non existent member
-io.println(meow);
-
-var mod = attempt(
-    []() { return import("doesnt-exist.solu"); },
-    [](err) { io.println(err); return {}; }
-);
-io.println(type(mod));

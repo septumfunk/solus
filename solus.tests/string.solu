@@ -1,0 +1,19 @@
+# string.solu
+
+assert(string.len("hello") == 5);
+
+assert(string.sub("abcdef", 1, 4) == "bcd");  # typical slice semantics
+assert(string.sub("abc", -10, 2) == "ab");    # clamp start
+assert(string.sub("abc", 0, 999) == "abc");   # clamp end
+
+assert(string.repeat("ha", 3) == "hahaha");
+
+val parts = string.split("a,b,c", ",");
+assert(type(parts) == "obj");
+assert(obj.len(parts) == 3);
+assert(parts[0] == "a");
+assert(parts[1] == "b");
+assert(parts[2] == "c");
+
+assert(string.join({ "x", "y", "z" }) == "xyz");
+assert("sol" + "us" == "solus");
