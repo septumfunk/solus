@@ -5,10 +5,10 @@ val default = {
 };
 
 val cfg = attempt([]() {
-    val f = io.fread("solus.tests/test.cfg");
+    val f = io.fread("test.cfg");
     type(f) == "err" and f or eval(f)
 }, [default]() {
-    unwrap(io.fwrite("solus.tests/test.cfg", obj.stringify(default, false)));
+    unwrap(io.fwrite("test.cfg", obj.stringify(default, false)));
     default
 });
 

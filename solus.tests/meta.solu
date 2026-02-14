@@ -1,0 +1,18 @@
+# meta.solu
+var og = {};
+var meta = {
+    storage = { x = 2, y = 2 }
+    _str = [og]() { "{" + str(og.x) + ", " + str(og.y) + "}" }
+    _set = [self](key, value) { self.storage[key] = value; }
+    _get = [self](key) { self.storage[key] }
+    _call = [og]() { str(og) }
+};
+
+obj.usemeta(og, meta);
+assert(obj.meta(og) != nil);
+
+# _call: object becomes callable; example prints "{2, 2}"
+assert(og() == "{2, 2}");
+
+og["hello"] = 123;
+assert(og["hello"] == 123);
