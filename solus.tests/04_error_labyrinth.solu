@@ -1,0 +1,82 @@
+# Test: Error Labyrinth - Complex error handling with nested catch/attempt
+# Tests: err, catch, attempt, unwrap, unwrap_or, panic, type checking
+
+var dangerous_divide = [](a, b) {
+    b == 0 and err("Division by zero") or a / b
+};
+
+var result1 = dangerous_divide(10, 2);
+io.println("Safe divide: " + str(result1));
+assert(result1 == 5);
+
+var result2 = dangerous_divide(10, 0);
+io.println("Unsafe divide type: " + type(result2));
+assert(type(result2) == "err");
+
+var safe_value = unwrap_or(result2, -1);
+io.println("Unwrapped with default: " + str(safe_value));
+assert(safe_value == -1);
+
+var triple_nested = catch([]() {
+    catch([]() {
+        catch([]() {
+            panic("Deep panic!")
+        })
+    })
+});
+
+io.println("Triple nested catch type: " + type(triple_nested));
+assert(type(triple_nested) == "err");
+
+var error_chain = [](depth) {
+    depth <= 0 and panic("Bottom reached!") or error_chain(depth - 1)
+};
+
+var caught_chain = catch([](){ error_chain(5) });
+io.println("Error chain caught: " + str(type(caught_chain) == "err"));
+assert(type(caught_chain) == "err");
+
+var attempt_with_recovery = attempt(
+    []() { 
+        var x = 1 / 0;
+        panic("Should not reach here")
+    },
+    [](err_val) {
+        io.println("Recovery handler called");
+        42
+    }
+);
+
+io.println("Attempt recovery result: " + str(attempt_with_recovery));
+assert(attempt_with_recovery == 42);
+
+var error_factory = [](msg, should_fail) {
+    should_fail and err(msg) or "success"
+};
+
+var factory_test1 = error_factory("test error", true);
+var factory_test2 = error_factory("test error", false);
+assert(type(factory_test1) == "err");
+assert(factory_test2 == "success");
+
+var conditional_unwrap = [](val, use_default) {
+    use_default and unwrap_or(val, "default") or unwrap(val)
+};
+
+var cond_test1 = conditional_unwrap(err("oops"), true);
+io.println("Conditional unwrap with default: " + cond_test1);
+assert(cond_test1 == "default");
+
+var error_or_value = [](selector) {
+    selector == 0 and 100 or
+    selector == 1 and err("error 1") or
+    selector == 2 and panic("panic 2") or
+    "unknown"
+};
+
+assert(error_or_value(0) == 100);
+assert(type(error_or_value(1)) == "err");
+var panic_caught = catch([](){ error_or_value(2) });
+assert(type(panic_caught) == "err");
+
+io.println("TEST PASSED");

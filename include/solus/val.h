@@ -64,6 +64,7 @@ typedef struct {
 #define VEC_NAME solu_valvec
 #define VEC_T solu_val
 #define VSIZE_T uint32_t
+#define VSIZE_MAX UINT32_MAX
 #include <sf/containers/vec.h>
 /// The captures of a fun, all UP_REF upvals are converted to VAL when loaded from the const table
 typedef struct {

@@ -1,0 +1,115 @@
+# Test: Mathematical Chaos - Testing math module functions
+# Tests: math.randi, math.randf, math.mini, math.maxi, math.minf, math.maxf
+
+io.println("Testing integer min/max:");
+assert(math.mini(5, 10) == 5);
+assert(math.mini(-5, 10) == -5);
+assert(math.mini(-10, -5) == -10);
+assert(math.maxi(5, 10) == 10);
+assert(math.maxi(-5, 10) == 10);
+assert(math.maxi(-10, -5) == -5);
+
+io.println("Testing float min/max:");
+assert(math.minf(5.5, 10.5) == 5.5);
+assert(math.minf(-5.5, 10.5) == -5.5);
+assert(math.maxf(5.5, 10.5) == 10.5);
+assert(math.maxf(-5.5, 10.5) == 10.5);
+
+io.println("Testing random integers:");
+var random_ints = {};
+for var i = 0; i < 10; ++i {
+    var r = math.randi(1, 100);
+    random_ints += { r };
+    assert(r >= 1);
+    assert(r <= 100);
+}
+io.println("Generated " + str(obj.len(random_ints)) + " random integers");
+
+io.println("Testing random floats:");
+var random_floats = {};
+for var i = 0; i < 10; ++i {
+    var r = math.randf(0.0, 1.0);
+    random_floats += { r };
+    assert(r >= 0.0);
+    assert(r <= 1.0);
+}
+io.println("Generated " + str(obj.len(random_floats)) + " random floats");
+
+var find_min_max = [](count, min_range, max_range) {
+    var min_val = max_range;
+    var max_val = min_range;
+    
+    for var i = 0; i < count; ++i {
+        var r = math.randi(min_range, max_range);
+        min_val = math.mini(min_val, r);
+        max_val = math.maxi(max_val, r);
+    }
+    
+    { min = min_val, max = max_val }
+};
+
+var stats = find_min_max(100, 1, 50);
+io.println("Min found: " + str(stats.min));
+io.println("Max found: " + str(stats.max));
+assert(stats.min >= 1);
+assert(stats.max <= 50);
+
+var statistical_test = [](iterations) {
+    var sum = 0;
+    for var i = 0; i < iterations; ++i
+        sum += math.randi(1, 10);
+    sum / iterations
+};
+
+var avg = statistical_test(1000);
+io.println("Average of 1000 rolls (1-10): " + str(avg));
+assert(avg > 3);
+assert(avg < 8);
+
+var min_of_many = [](values) {
+    var result = values[0];
+    obj.foreach(values, [result](val, idx) {
+        result = math.mini(result, val);
+    });
+    result
+};
+
+var max_of_many = [](values) {
+    var result = values[0];
+    obj.foreach(values, [result](val, idx) {
+        result = math.maxi(result, val);
+    });
+    result
+};
+
+var test_values = { 42, 17, 89, 3, 56, 91, 12, 67 };
+assert(min_of_many(test_values) == 3);
+assert(max_of_many(test_values) == 91);
+
+var clamp = [](value, min_val, max_val) {
+    math.mini(math.maxi(value, min_val), max_val)
+};
+
+assert(clamp(50, 0, 100) == 50);
+assert(clamp(-10, 0, 100) == 0);
+assert(clamp(150, 0, 100) == 100);
+
+var edge_cases = {
+    same_min_max_i = math.mini(5, 5)
+    same_max_max_i = math.maxi(5, 5)
+    same_min_max_f = math.minf(3.14, 3.14)
+    same_max_max_f = math.maxf(3.14, 3.14)
+};
+
+assert(edge_cases.same_min_max_i == 5);
+assert(edge_cases.same_max_max_i == 5);
+assert(edge_cases.same_min_max_f == 3.14);
+assert(edge_cases.same_max_max_f == 3.14);
+
+var bounds_test = math.randi(100, 100);
+assert(bounds_test == 100);
+
+var float_precision = math.randf(0.0, 0.0);
+assert(float_precision == 0.0);
+
+io.println("TEST PASSED");

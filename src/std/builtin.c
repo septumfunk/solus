@@ -120,7 +120,7 @@ static solu_call_ex builtin_unwrap_or(solu_state *s) {
 static solu_call_ex builtin_assert(solu_state *s) {
     solu_val con = solu_get(s, 0);
     expect_type(SOLU_TBOOL, con);
-    return con.boolean ? solu_ok(SOLU_NIL) : solu_call_ex_err((solu_call_err){SOLU_ERRV_PANIC, "Assertion failed", 0});
+    return con.boolean ? solu_ok(SOLU_NIL) : solu_panic("Assertion failed", 0);
 }
 static solu_call_ex builtin_type(solu_state *s) {
     return solu_ok(solu_dnstr(s, solu_typename(solu_get(s, 0)).c_str));

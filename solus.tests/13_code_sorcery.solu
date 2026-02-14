@@ -1,0 +1,127 @@
+# Test: Code Sorcery - Testing eval for dynamic code generation
+# Tests: eval, dynamic code generation, string manipulation for code
+
+io.println("Testing basic eval:");
+var simple_eval = eval("1 + 1");
+io.println("eval('1 + 1') type: " + type(simple_eval));
+
+var result1 = simple_eval();
+io.println("Result: " + str(result1));
+assert(result1 == 2);
+
+var code_builder = [](op, a, b) {
+    str(a) + " " + op + " " + str(b)
+};
+
+var add_code = code_builder("+", 10, 20);
+io.println("Generated code: " + add_code);
+var add_func = eval(add_code);
+assert(add_func() == 30);
+
+var mul_code = code_builder("*", 7, 6);
+var mul_func = eval(mul_code);
+assert(mul_func() == 42);
+
+io.println("Testing object construction via eval:");
+var obj_code = "{ x = 10, y = 20, sum = [self]() { self.x + self.y } }";
+var obj_from_eval = eval(obj_code);
+var constructed_obj = obj_from_eval();
+io.println("Constructed object x: " + str(constructed_obj.x));
+assert(constructed_obj.x == 10);
+assert(constructed_obj.sum() == 30);
+
+var function_generator = [](param_name, operation) {
+    "[](  " + param_name + ") { " + param_name + " " + operation + " }"
+};
+
+var doubler_code = function_generator("x", "* 2");
+io.println("Generated function: " + doubler_code);
+var doubler = eval(doubler_code);
+assert(doubler()(5) == 10);
+
+var adder_code = function_generator("n", "+ 100");
+var adder = eval(adder_code);
+assert(adder()(50) == 150);
+
+io.println("Testing closure generation:");
+var closure_template = [](capture_val) {
+    var code = "[](x) { var captured = " + str(capture_val) + "; captured + x }";
+    eval(code)()
+};
+
+var add_to_10 = closure_template(10);
+assert(add_to_10(5) == 15);
+assert(add_to_10(20) == 30);
+
+io.println("Testing conditional code generation:");
+var conditional_gen = [](condition_type) {
+    condition_type == "positive" and 
+        "[]( n) { n > 0 }" or
+    condition_type == "even" and
+        "[](n) { n % 2 == 0 }" or
+        "[](n) { true }"
+};
+
+var positive_checker = eval(conditional_gen("positive"))();
+assert(positive_checker(5) == true);
+assert(positive_checker(-5) == false);
+
+var even_checker = eval(conditional_gen("even"))();
+assert(even_checker(4) == true);
+assert(even_checker(5) == false);
+
+io.println("Testing array construction:");
+var array_gen = [](count) {
+    var code = "{ ";
+    for var i = 0; i < count; ++i {
+        code += str(i * 10);
+        if i < count - 1
+            code += ", ";
+    }
+    code += " }";
+    code
+};
+
+var array_code = array_gen(5);
+io.println("Array code: " + array_code);
+var array_func = eval(array_code);
+var generated_array = array_func();
+io.println("Array length: " + str(obj.len(generated_array)));
+assert(obj.len(generated_array) == 5);
+
+io.println("Testing recursive function generation:");
+var recursive_code = "var fact = [](n) { n <= 1 and 1 or n * fact(n - 1) }; fact";
+var recursive_func = eval(recursive_code);
+var factorial = recursive_func();
+assert(factorial(5) == 120);
+
+io.println("Testing expression evaluation:");
+var expr_evaluator = [](expr_string) {
+    var code = "[]() { " + expr_string + " }";
+    var func = eval(code);
+    func()
+};
+
+assert(expr_evaluator("5 + 3 * 2") == 11);
+assert(expr_evaluator("(5 + 3) * 2") == 16);
+assert(expr_evaluator("10 > 5 and 3 < 7") == true);
+
+io.println("Testing complex code generation:");
+var class_generator = [](name, initial_value) {
+    var code = "{ ";
+    code += "name = \"" + name + "\", ";
+    code += "value = " + str(initial_value) + ", ";
+    code += "get = [self]() { self.value }, ";
+    code += "set = [self](v) { self.value = v; } ";
+    code += "}";
+    code
+};
+
+var class_code = class_generator("TestClass", 42);
+var class_func = eval(class_code);
+var instance = class_func();
+assert(instance.get() == 42);
+instance.set(100);
+assert(instance.get() == 100);
+
+io.println("TEST PASSED");

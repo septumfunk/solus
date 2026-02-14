@@ -48,7 +48,7 @@ void cli_highlight_line(sf_str src, sf_str err, uint16_t line, uint16_t column) 
     pointer[caret + 1] = '\0';
 
     fprintf(stderr, "%u | %s\n", line, c);
-    fprintf(stderr, "%s %s\n", pointer, err.c_str);
+    fprintf(stderr, TUI_ERR "%s %s\n" TUI_CLR, pointer, err.c_str);
     free(pointer);
 }
 

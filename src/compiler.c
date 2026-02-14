@@ -242,23 +242,14 @@ solu_cnode_ex solu_cnode(solu_compiler *c, solu_node *node, uint32_t t_reg) {
     switch (node->tt) {
         // statements
         case SOLU_ND_LOCAL: {
-            if (c->temps != 0) {
-                fprintf(stderr, "TEMP LEAK before local '%s': temps=%u line=%u\n",
-                        (char *)node->n_local.name.dyn, c->temps, node->line);
-                abort();
-            }
             solu_scope_ex exists = solu_scope_get(c->scopes.data + c->scopes.count - 1, sf_ref(node->n_local.name.dyn));
             if (exists.is_ok)
                 return solu_cerr(SOLU_ERRC_REDEFINED_LOCAL);
             uint32_t rhs = solu_rlocal(c);
-            solu_cnode_ex rv_ex = solu_cnode(c, node->n_local.value, rhs);
-            if (!rv_ex.is_ok) return rv_ex;
-
             solu_scope_set(c->scopes.data + c->scopes.count - 1, sf_str_cdup(node->n_local.name.dyn), (solu_local){
                 rhs, c->scopes.count - 1, false, node->n_local.mut, 0
             });
-
-            return solu_cnode_ex_ok();
+            return solu_cnode(c, node->n_local.value, rhs);
         }
         case SOLU_ND_IF: {
             uint32_t s = 0;
@@ -488,6 +479,7 @@ solu_cnode_ex solu_cnode(solu_compiler *c, solu_node *node, uint32_t t_reg) {
             solu_cnode_ex ex = solu_cnode(c, node->n_return.expr, r);
             if (!ex.is_ok) return ex;
             solu_cemit(c, solu_ins_a(SOLU_OP_RET, r));
+            solu_ctemps(c, 1);
             return solu_cnode_ex_ok();
         }
         case SOLU_ND_LCONTROL: {
@@ -577,7 +569,8 @@ solu_cnode_ex solu_cnode(solu_compiler *c, solu_node *node, uint32_t t_reg) {
                 if (node->n_binary.left->tt == SOLU_ND_IDENTIFIER) {
                     solu_local loc;
                     if (solu_lexists(c, node->n_binary.left->n_identifier.dyn, &loc)) {
-                        if (!loc.mut) return solu_cerr(SOLU_ERRC_REASSIGNED_VAL);
+                        if (!loc.mut)
+                            return solu_cerr(SOLU_ERRC_REASSIGNED_VAL);
                         if (loc.upval) {
                             if (node->n_binary.op == TK_EQUAL) {
                                 if (rl) {

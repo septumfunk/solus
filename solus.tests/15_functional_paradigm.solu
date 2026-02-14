@@ -1,0 +1,164 @@
+# Test: Functional Paradigm - Testing functional programming patterns
+# Tests: map, filter, reduce, composition, currying, partial application
+
+var map = [](arr, func) {
+    var result = {};
+    obj.foreach(arr, [result, func](val, idx) {
+        result += { func(val) };
+    });
+    result
+};
+
+var filter = [](arr, predicate) {
+    var result = {};
+    obj.foreach(arr, [result, predicate](val, idx) {
+        if predicate(val)
+            result += { val };
+    });
+    result
+};
+
+var reduce = [](arr, func, initial) {
+    var accumulator = initial;
+    obj.foreach(arr, [accumulator, func](val, idx) {
+        accumulator = func(accumulator, val);
+    });
+    accumulator
+};
+
+io.println("Testing map:");
+var numbers = { 1, 2, 3, 4, 5 };
+var doubled = map(numbers, [](x) { x * 2 });
+io.println("Doubled length: " + str(obj.len(doubled)));
+assert(obj.len(doubled) == 5);
+assert(doubled[0] == 2);
+assert(doubled[4] == 10);
+
+io.println("Testing filter:");
+var evens = filter(numbers, [](x) { x % 2 == 0 });
+io.println("Evens length: " + str(obj.len(evens)));
+assert(obj.len(evens) == 2);
+
+var greater_than_3 = filter(numbers, [](x) { x > 3 });
+assert(obj.len(greater_than_3) == 2);
+
+io.println("Testing reduce:");
+var sum = reduce(numbers, [](acc, x) { acc + x }, 0);
+io.println("Sum: " + str(sum));
+assert(sum == 15);
+
+var product = reduce(numbers, [](acc, x) { acc * x }, 1);
+io.println("Product: " + str(product));
+assert(product == 120);
+
+io.println("Testing composition:");
+var compose = [](f, g) {
+    [f, g](x) { f(g(x)) }
+};
+
+var add1 = [](x) { x + 1 };
+var times2 = [](x) { x * 2 };
+
+var add1_then_times2 = compose(times2, add1);
+assert(add1_then_times2(5) == 12);
+
+var times2_then_add1 = compose(add1, times2);
+assert(times2_then_add1(5) == 11);
+
+io.println("Testing currying:");
+var curry_add = [](a) {
+    [a](b) {
+        [a, b](c) {
+            a + b + c
+        }
+    }
+};
+
+var add_result = curry_add(1)(2)(3);
+io.println("Curried add: " + str(add_result));
+assert(add_result == 6);
+
+var partial_add = curry_add(10);
+var add_to_10 = partial_add(5);
+assert(add_to_10(3) == 18);
+
+io.println("Testing pipeline:");
+var pipeline = [](value, functions) {
+    var result = value;
+    obj.foreach(functions, [result](func, idx) {
+        result = func(result);
+    });
+    result
+};
+
+var operations = { add1, times2, add1, times2 };
+var piped = pipeline(5, operations);
+io.println("Pipeline result: " + str(piped));
+assert(piped == 25);
+
+io.println("Testing fold left:");
+var foldl = [](arr, func, initial) {
+    reduce(arr, func, initial)
+};
+
+var concat_numbers = foldl(
+    { 1, 2, 3, 4, 5 },
+    [](acc, x) { acc + str(x) },
+    ""
+);
+io.println("Concatenated: " + concat_numbers);
+assert(concat_numbers == "12345");
+
+io.println("Testing higher-order functions:");
+var twice = [](f) {
+    [f](x) { f(f(x)) }
+};
+
+var add5 = [](x) { x + 5 };
+var add10 = twice(add5);
+assert(add10(0) == 10);
+
+var quadruple = twice(times2);
+assert(quadruple(3) == 12);
+
+io.println("Testing function application:");
+var apply = [](func, args) {
+    obj.len(args) == 1 and func(args[0]) or
+    obj.len(args) == 2 and func(args[0], args[1]) or
+    obj.len(args) == 3 and func(args[0], args[1], args[2]) or
+    nil
+};
+
+var add3 = [](a, b, c) { a + b + c };
+var apply_result = apply(add3, { 10, 20, 30 });
+io.println("Apply result: " + str(apply_result));
+assert(apply_result == 60);
+
+io.println("Testing partial application:");
+var partial = [](func, arg1) {
+    [func, arg1](arg2) {
+        func(arg1, arg2)
+    }
+};
+
+var multiply = [](a, b) { a * b };
+var times5 = partial(multiply, 5);
+assert(times5(3) == 15);
+assert(times5(7) == 35);
+
+io.println("Testing zip:");
+var zip = [](arr1, arr2) {
+    var result = {};
+    var len = math.mini(obj.len(arr1), obj.len(arr2));
+    for var i = 0; i < len; ++i {
+        result += { { arr1[i], arr2[i] } };
+    }
+    result
+};
+
+var zipped = zip({ 1, 2, 3 }, { 4, 5, 6 });
+assert(obj.len(zipped) == 3);
+assert(zipped[0][0] == 1);
+assert(zipped[0][1] == 4);
+
+io.println("TEST PASSED");

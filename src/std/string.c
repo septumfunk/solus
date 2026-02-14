@@ -16,8 +16,8 @@ static solu_call_ex string_sub(solu_state *s) {
     if (end.i64 < start.i64)
         return solu_panic(_strdup("end cannot be before start"));
 
-    sf_str *sstr = str.dyn;
-    solu_i64 len = (solu_i64)sstr->len;
+    char *sstr = str.dyn;
+    solu_i64 len = (solu_i64)strlen(sstr);
     if (len == 0)
         return solu_ok(solu_dnew(s, SOLU_DSTR));
     start.i64 = max(0, min(start.i64, len > 0 ? len - 1 : 0));
@@ -25,7 +25,7 @@ static solu_call_ex string_sub(solu_state *s) {
 
     size_t slen = (size_t)(end.i64 - start.i64 + 1);
     char *buf = malloc(slen + 1);
-    memcpy(buf, sstr->c_str + start.i64, slen - 1);
+    memcpy(buf, sstr + start.i64, slen - 1);
     buf[slen] = 0;
     solu_val nstr = solu_dnstr(s, buf);
     free(buf);
@@ -57,9 +57,9 @@ static solu_call_ex string_repeat(solu_state *s) {
     return solu_ok((solu_val){SOLU_TDYN, .dyn = dh + 1});
 }
 static solu_call_ex string_join(solu_state *s) {
-    solu_val obj = solu_get(s, 0);
-    expect_dtype(SOLU_DOBJ, obj);
-    solu_dobj *dobj = obj.dyn;
+    solu_val strings = solu_get(s, 0);
+    expect_dtype(SOLU_DOBJ, strings);
+    solu_dobj *dobj = strings.dyn;
     sf_str final = sf_str_cdup("");
     for (solu_val *v = dobj->array.data; v < dobj->array.data + dobj->array.count; ++v) {
         if (solu_isdtype(*v, SOLU_DSTR))
@@ -70,12 +70,12 @@ static solu_call_ex string_join(solu_state *s) {
     return solu_ok(str);
 }
 static solu_call_ex string_split(solu_state *s) {
-    solu_val str = solu_get(s, 0);
-    expect_dtype(SOLU_DSTR, str);
+    solu_val string = solu_get(s, 0);
+    expect_dtype(SOLU_DSTR, string);
     solu_val delim = solu_get(s, 1);
     expect_dtype(SOLU_DSTR, delim);
 
-    char *src = str.dyn;
+    char *src = string.dyn;
     size_t len = strlen(src);
     char *d = delim.dyn;
     size_t dlen = strlen(d);

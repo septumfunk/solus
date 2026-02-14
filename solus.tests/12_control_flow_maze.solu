@@ -1,0 +1,196 @@
+# Test: Control Flow Maze - Complex nested control structures
+# Tests: if/else, for loops, while loops, nested structures, control flow edge cases
+
+var nested_if = [](a, b, c) {
+    if a > 0 {
+        if b > 0 {
+            if c > 0
+                "all positive"
+            else
+                "a and b positive"
+        } else {
+            if c > 0
+                "a and c positive"
+            else
+                "only a positive"
+        }
+    } else {
+        if b > 0 {
+            if c > 0
+                "b and c positive"
+            else
+                "only b positive"
+        } else {
+            if c > 0
+                "only c positive"
+            else
+                "none positive"
+        }
+    }
+};
+
+assert(nested_if(1, 1, 1) == "all positive");
+assert(nested_if(1, 1, -1) == "a and b positive");
+assert(nested_if(1, -1, 1) == "a and c positive");
+assert(nested_if(-1, -1, -1) == "none positive");
+
+io.println("Nested if tests passed");
+
+var nested_loops = []() {
+    var result = 0;
+    for var i = 0; i < 5; ++i {
+        for var j = 0; j < 5; ++j {
+            for var k = 0; k < 5; ++k {
+                result += 1;
+            }
+        }
+    }
+    result
+};
+
+var loop_result = nested_loops();
+io.println("Triple nested loop count: " + str(loop_result));
+assert(loop_result == 125);
+
+var mixed_loops = []() {
+    var sum = 0;
+    for var i = 0; i < 3; ++i {
+        var j = 0;
+        while j < 4 {
+            for var k = 0; k < 2; ++k {
+                sum += 1;
+            }
+            j += 1;
+        }
+    }
+    sum
+};
+
+assert(mixed_loops() == 24);
+
+var conditional_loop = [](limit) {
+    var count = 0;
+    var i = 0;
+    while i < limit {
+        if i % 2 == 0
+            count += i;
+        i += 1;
+    }
+    count
+};
+
+assert(conditional_loop(10) == 20);
+assert(conditional_loop(5) == 6);
+
+var complex_for = []() {
+    var result = {};
+    for var i = 0; i < 10; ++i {
+        if i % 3 == 0
+            result += { i };
+    }
+    result
+};
+
+var for_result = complex_for();
+io.println("Complex for result length: " + str(obj.len(for_result)));
+assert(obj.len(for_result) == 4);
+
+var early_termination = [](max) {
+    var count = 0;
+    for var i = 0; i < 1000; ++i {
+        count += 1;
+        if count >= max
+            return count;
+    }
+    count
+};
+
+assert(early_termination(10) == 10);
+assert(early_termination(5) == 5);
+
+var while_with_mutation = []() {
+    var x = 1;
+    var iterations = 0;
+    while x < 1000 {
+        x *= 2;
+        iterations += 1;
+    }
+    { final_value = x, iterations = iterations }
+};
+
+var while_result = while_with_mutation();
+io.println("While iterations: " + str(while_result.iterations));
+assert(while_result.iterations == 10);
+assert(while_result.final_value == 1024);
+
+var nested_conditionals = [](x) {
+    var result = 0;
+    for var i = 0; i < x; ++i {
+        if i % 2 == 0 {
+            if i % 3 == 0 {
+                result += 6;
+            } else {
+                result += 2;
+            }
+        } else {
+            if i % 5 == 0 {
+                result += 5;
+            } else {
+                result += 1;
+            }
+        }
+    }
+    result
+};
+
+var cond_result = nested_conditionals(20);
+io.println("Nested conditionals result: " + str(cond_result));
+
+var pyramid_builder = [](height) {
+    var pyramid = {};
+    for var i = 0; i < height; ++i {
+        var row = {};
+        for var j = 0; j <= i; ++j {
+            row += { 1 };
+        }
+        pyramid += { row };
+    }
+    pyramid
+};
+
+var pyramid = pyramid_builder(5);
+io.println("Pyramid levels: " + str(obj.len(pyramid)));
+assert(obj.len(pyramid) == 5);
+
+var level_4_length = obj.len(pyramid[4]);
+io.println("Level 4 length: " + str(level_4_length));
+assert(level_4_length == 5);
+
+var factorial_iterative = [](n) {
+    var result = 1;
+    for var i = 2; i <= n; ++i {
+        result *= i;
+    }
+    result
+};
+
+assert(factorial_iterative(5) == 120);
+assert(factorial_iterative(7) == 5040);
+
+var collatz_sequence = [](n) {
+    var steps = 0;
+    while n != 1 {
+        if n % 2 == 0
+            n = n / 2;
+        else
+            n = n * 3 + 1;
+        steps += 1;
+    }
+    steps
+};
+
+var collatz_steps = collatz_sequence(27);
+io.println("Collatz(27) steps: " + str(collatz_steps));
+assert(collatz_steps > 0);
+
+io.println("TEST PASSED");

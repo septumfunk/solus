@@ -17,11 +17,13 @@ typedef struct {
 #define VEC_NAME solu_frames
 #define VEC_T solu_stackframe
 #define VSIZE_T uint32_t
+#define VSIZE_MAX UINT32_MAX
 #include <sf/containers/vec.h>
 /// File name stack
 #define VEC_NAME solu_filenames
 #define VEC_T sf_str
 #define VSIZE_T uint32_t
+#define VSIZE_MAX UINT32_MAX
 #include <sf/containers/vec.h>
 
 /// The main global state for the VM, responsible for the stack and any globals/caching
@@ -116,7 +118,11 @@ EXPORT solu_val solu_getk(solu_state *state, solu_fproto *proto, uint32_t index)
 
 /// Set the value of a register in a specific stack frame
 static inline void solu_rawset(solu_state *state, uint32_t index, solu_val val, uint32_t frame) {
-    solu_dalloc *dh = solu_dheader(val); (void)dh;
+    solu_val old = solu_valvec_get(&state->stack, state->frames.data[frame].bottom_o + index);
+    if (solu_isdtype(old, SOLU_DREF)) {
+        *(solu_val *)old.dyn = val;
+        return;
+    }
     solu_valvec_set(&state->stack, state->frames.data[frame].bottom_o + index, val);
 }
 /// Set the value of a register in the current stack frame

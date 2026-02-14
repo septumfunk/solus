@@ -5,7 +5,6 @@
 #include "solus/vm.h"
 #include "sf/containers/buffer.h"
 #include "sf/fs.h"
-#include "sf/math.h"
 #include "solus/val.h"
 #include "solus/compiler.h"
 #include "sf/str.h"
@@ -360,7 +359,7 @@ solu_val solu_dscopy(solu_state *state, solu_val val, bool kconst) {
                     solu_val nv;
                     if (upv.tt == SOLU_UP_REF) {
                         uint32_t frame = state->rcmp ? state->frames.count - 1 - upv.frame : upv.frame;
-                        solu_val cv = solu_rawget(state, upv.ref, frame);
+                        solu_val cv = solu_valvec_get(&state->stack, state->frames.data[frame].bottom_o + upv.ref);
                         if (cv.tt != SOLU_TDYN) {
                             nv = solu_dnew(state, SOLU_DREF);
                             solu_rawset(state, upv.ref, nv, frame);
@@ -505,7 +504,7 @@ solu_val solu_getk(solu_state *s, solu_fproto *proto, uint32_t index) {
             solu_dcollect(s); \
             s->collect = false; \
         }
-#   define DISPATCH() PREDISPATCH(); goto *computed[solu_ins_op(ins)]; /* jump up jump up and get down */
+#   define DISPATCH() do { PREDISPATCH(); goto *computed[solu_ins_op(ins)]; } while(0) /* jump up jump up and get down */
 
 #   pragma GCC diagnostic push
 #   pragma GCC diagnostic ignored "-Wpedantic"
@@ -1087,11 +1086,11 @@ solu_call_ex solu_call_bc(solu_state *s, solu_fproto *proto, const solu_val *arg
                 if (!inv) pc++;
                 DISPATCH();
             }
-            if (lhs.tt == SOLU_TBOOL && rhs.tt == SOLU_TDYN) {
+            if (lhs.tt == SOLU_TBOOL && rhs.tt != SOLU_TNIL && rhs.tt != SOLU_TBOOL) {
                 if (inv ? !lhs.boolean : lhs.boolean) pc++;
                 DISPATCH();
             }
-            if (lhs.tt == SOLU_TDYN && rhs.tt == SOLU_TBOOL) {
+            if (lhs.tt != SOLU_TNIL && lhs.tt != SOLU_TBOOL && rhs.tt == SOLU_TBOOL) {
                 if (inv ? !rhs.boolean : rhs.boolean) pc++;
                 DISPATCH();
             }
@@ -1102,8 +1101,8 @@ solu_call_ex solu_call_bc(solu_state *s, solu_fproto *proto, const solu_val *arg
                     DISPATCH();
                 }
                 switch (lhs.tt) {
-                    case SOLU_TI64: rhs = (solu_val){.tt = SOLU_TI64, .i64 = rhs.tt == SOLU_TBOOL ? (lhs.boolean ? 1 : 0) : (solu_i64)rhs.f64}; break;
-                    case SOLU_TF64: rhs = (solu_val){.tt = SOLU_TF64, .f64 = rhs.tt == SOLU_TBOOL ? (lhs.boolean ? 1 : 0) : (solu_f64)rhs.i64}; break;
+                    case SOLU_TI64: rhs = (solu_val){.tt = SOLU_TI64, .i64 = rhs.tt == SOLU_TBOOL ? (rhs.boolean ? 1 : 0) : (solu_i64)rhs.f64}; break;
+                    case SOLU_TF64: rhs = (solu_val){.tt = SOLU_TF64, .f64 = rhs.tt == SOLU_TBOOL ? (rhs.boolean ? 1 : 0) : (solu_f64)rhs.i64}; break;
                     case SOLU_TBOOL: rhs = (solu_val){.tt = SOLU_TBOOL, .boolean = rhs.tt == SOLU_TI64 ? rhs.i64 != 0 : rhs.f64 != 0};
                     default: return solu_callerr(SOLU_ERRV_TYPE_MISMATCH, "Unknown Type", NULL);
                 }
@@ -1197,6 +1196,8 @@ solu_call_ex solu_call_bc(solu_state *s, solu_fproto *proto, const solu_val *arg
         }
 
         CASE(SOLU_OP_SETU) {
+            if (!proto->upvals)
+                return solu_panic("Corrupt Bytecode");
             solu_val v = solu_get(s, solu_iab_b(ins));
             solu_upvalue *upv = proto->upvals + solu_iab_a(ins);
             if (upv->tt == SOLU_UP_VAL) {
@@ -1209,6 +1210,8 @@ solu_call_ex solu_call_bc(solu_state *s, solu_fproto *proto, const solu_val *arg
             DISPATCH();
         }
         CASE(SOLU_OP_GETU) {
+            if (!proto->upvals)
+                return solu_panic("Corrupt Bytecode");
             solu_upvalue *upv = proto->upvals + solu_iab_b(ins);
             if (upv->tt == SOLU_UP_VAL) {
                 solu_set(s, solu_iab_a(ins), solu_isdtype(upv->value, SOLU_DREF) ?

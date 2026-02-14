@@ -1,0 +1,156 @@
+# Test: Self-Referential Objects - Testing self capture in object methods
+# Tests: self keyword, object methods, closure with self, circular references
+
+var circle = {
+    radius = 5
+    pi = 3.14159
+    
+    area = [self]() {
+        self.pi * self.radius * self.radius
+    }
+    
+    circumference = [self]() {
+        2.0 * self.pi * self.radius
+    }
+    
+    scale = [self](factor) {
+        self.radius = self.radius * factor;
+    }
+    
+    describe = [self]() {
+        "Circle(r=" + str(self.radius) + ", area=" + str(self.area()) + ")"
+    }
+};
+
+io.println("Initial: " + circle.describe());
+var initial_area = circle.area();
+io.println("Area: " + str(initial_area));
+
+circle.scale(2);
+io.println("After scaling: " + circle.describe());
+var scaled_area = circle.area();
+assert(scaled_area > initial_area);
+
+var counter_obj = {
+    count = 0
+    history = {}
+    
+    increment = [self]() {
+        self.count += 1;
+        self.history += { self.count };
+    }
+    
+    decrement = [self]() {
+        self.count -= 1;
+        self.history += { self.count };
+    }
+    
+    get_history_length = [self]() {
+        obj.len(self.history)
+    }
+};
+
+counter_obj.increment();
+counter_obj.increment();
+counter_obj.decrement();
+counter_obj.increment();
+
+io.println("Counter: " + str(counter_obj.count));
+io.println("History length: " + str(counter_obj.get_history_length()));
+assert(counter_obj.count == 2);
+assert(counter_obj.get_history_length() == 4);
+
+var recursive_obj = {
+    depth = 0
+    max_depth = 5
+    
+    dive = [self]() {
+        self.depth < self.max_depth and do {
+            self.depth += 1;
+            self.dive();
+            self.depth
+        } or self.depth
+    }
+    
+    reset = [self]() {
+        self.depth = 0;
+    }
+};
+
+var final_depth = recursive_obj.dive();
+io.println("Final depth: " + str(final_depth));
+assert(final_depth == 5);
+
+recursive_obj.reset();
+assert(recursive_obj.depth == 0);
+
+var nested_self = {
+    name = "outer"
+    inner = {
+        name = "inner"
+        get_outer_name = [self]() {
+            "inner_name=" + self.name
+        }
+    }
+    get_name = [self]() {
+        self.name
+    }
+};
+
+io.println(nested_self.get_name());
+io.println(nested_self.inner.get_outer_name());
+assert(nested_self.get_name() == "outer");
+
+var calculator = {
+    memory = 0
+    
+    add = [self](x) {
+        self.memory += x;
+        self
+    }
+    
+    multiply = [self](x) {
+        self.memory *= x;
+        self
+    }
+    
+    divide = [self](x) {
+        self.memory = self.memory / x;
+        self
+    }
+    
+    get = [self]() {
+        self.memory
+    }
+    
+    clear = [self]() {
+        self.memory = 0;
+        self
+    }
+};
+
+var chain_result = calculator.add(10).multiply(5).add(20).divide(2).get();
+io.println("Chained calculation: " + str(chain_result));
+assert(chain_result == 35);
+
+var builder = {
+    parts = {}
+    
+    add_part = [self](name, value) {
+        self.parts += { {name = name, value = value} };
+        self
+    }
+    
+    build = [self]() {
+        var result = "";
+        obj.foreach(self.parts, [result](part, idx) {
+            result += part.name + "=" + str(part.value) + " ";
+        });
+        result
+    }
+};
+
+var built = builder.add_part("x", 10).add_part("y", 20).add_part("z", 30).build();
+io.println("Built: " + built);
+
+io.println("TEST PASSED");

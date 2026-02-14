@@ -1,0 +1,138 @@
+# Test: Immutability Guard - Testing val constant semantics
+# Tests: val declarations, immutability, const correctness, scope
+
+io.println("Testing basic val:");
+val constant = 42;
+io.println("Constant: " + str(constant));
+assert(constant == 42);
+
+io.println("Testing val in functions:");
+var func_with_val = []() {
+    val local_const = 100;
+    local_const
+};
+
+assert(func_with_val() == 100);
+
+io.println("Testing val with complex expressions:");
+val computed = do {
+    var temp = 10;
+    temp = temp * 5;
+    temp + 20
+};
+
+io.println("Computed constant: " + str(computed));
+assert(computed == 70);
+
+io.println("Testing val with objects:");
+val obj_const = { x = 10, y = 20 };
+assert(obj_const.x == 10);
+
+obj_const.x = 100;
+io.println("Modified object member: " + str(obj_const.x));
+assert(obj_const.x == 100);
+
+io.println("Testing val with functions:");
+val func_const = [](x) { x * 2 };
+assert(func_const(5) == 10);
+
+io.println("Testing val in different scopes:");
+val outer_const = "outer";
+var test_scope = [outer_const]() {
+    val inner_const = "inner";
+    outer_const + ":" + inner_const
+};
+
+assert(test_scope() == "outer:inner");
+
+io.println("Testing val with closures:");
+var create_closure = []() {
+    val captured = 42;
+    [captured]() { captured }
+};
+
+var closure = create_closure();
+assert(closure() == 42);
+
+io.println("Testing multiple vals:");
+val a = 1;
+val b = 2;
+val c = 3;
+val sum = a + b + c;
+assert(sum == 6);
+
+io.println("Testing val with do blocks:");
+val do_result = do {
+    val inner = 50;
+    inner * 2
+};
+assert(do_result == 100);
+
+io.println("Testing val with conditionals:");
+val conditional_val = true and 10 or 20;
+io.println(conditional_val);
+assert(conditional_val == 10);
+
+val conditional_val2 = false and 10 or 20;
+assert(conditional_val2 == 20);
+
+io.println("Testing val with function results:");
+var calculator = [](a, b) { a + b };
+val result = calculator(15, 25);
+assert(result == 40);
+
+io.println("Testing val in loops:");
+for var i = 0; i < 3; ++i {
+    val loop_const = i * 10;
+    io.println("Loop constant " + str(i) + ": " + str(loop_const));
+}
+
+io.println("Testing val with arrays:");
+val array_const = { 1, 2, 3, 4, 5 };
+assert(obj.len(array_const) == 5);
+
+io.println("Testing val with string operations:");
+val str1 = "hello";
+val str2 = "world";
+val combined = str1 + " " + str2;
+assert(combined == "hello world");
+
+io.println("Testing val with type conversions:");
+val int_val = 42;
+val float_val = f64(int_val);
+assert(type(float_val) == "f64");
+
+io.println("Testing val with error values:");
+val error_val = err("test error");
+assert(type(error_val) == "err");
+
+val safe_val = unwrap_or(error_val, "default");
+assert(safe_val == "default");
+
+io.println("Testing val with metaobjects:");
+val obj_with_meta = {
+    value = 100
+    get = [self]() { self.value }
+};
+
+var meta = {
+    _str = [obj_with_meta]() { "Value: " + str(obj_with_meta.value) }
+};
+
+obj.usemeta(obj_with_meta, meta);
+io.println("Object with meta: " + str(obj_with_meta));
+
+io.println("Testing val with nested structures:");
+val nested_const = {
+    level1 = {
+        level2 = {
+            value = 999
+        }
+    }
+};
+
+assert(nested_const.level1.level2.value == 999);
+nested_const.level1.level2.value = 1000;
+assert(nested_const.level1.level2.value == 1000);
+
+io.println("TEST PASSED");

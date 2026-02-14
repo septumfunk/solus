@@ -1,0 +1,45 @@
+# Test: String Torture - Extensive string manipulation edge cases
+# Tests: string.len, string.sub, string.repeat, string.join, string.split
+
+var pattern1 = string.repeat("x", 10);
+io.println("Pattern 1: " + pattern1);
+assert(string.len(pattern1) == 10);
+
+var pattern2 = string.repeat(string.repeat("ab", 3), 2);
+io.println("Pattern 2: " + pattern2);
+assert(pattern2 == "abababababab");
+
+var words = { "strange", "esoteric", "weird", "bizarre" };
+var sentence = string.join(words);
+io.println("Joined: " + sentence);
+assert(string.len(sentence) == 27);
+
+var split_test = string.split("a,b,c,d,e", ",");
+io.println("Split count: " + str(obj.len(split_test)));
+assert(obj.len(split_test) == 5);
+
+var nested_split = string.split("hello::world::test", "::");
+assert(obj.len(nested_split) == 3);
+
+var substr_test = string.sub("abcdefgh", 2, 5);
+io.println("Substring: " + substr_test);
+assert(substr_test == "cde");
+
+var edge_case1 = string.sub("test", 0, 0);
+io.println("Edge case 1 len: " + str(string.len(edge_case1)));
+
+var edge_case2 = string.sub("test", 4, 4);
+io.println("Edge case 2 len: " + str(string.len(edge_case2)));
+
+var repeater = [](s, n) {
+    var result = "";
+    for var i = 0; i < n; ++i
+        result += s;
+    result
+};
+
+var custom_repeat = repeater("XY", 5);
+io.println("Custom repeat: " + custom_repeat);
+assert(custom_repeat == "XYXYXYXYXY");
+
+io.println("TEST PASSED");
