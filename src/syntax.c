@@ -5,6 +5,7 @@
 #include "sf/str.h"
 #include <stdint.h>
 #include <stdlib.h>
+#include <string.h>
 
 #define VEC_NAME solu_visited
 #define VEC_T sf_str
@@ -113,13 +114,14 @@ solu_token solu_scanstr(solu_scanner *s, char quote) {
     if (cc >= s->src.len || s->src.c_str[cc] != quote)
         goto error;
     buf[len] = 0;
+    uint16_t c = s->current.column;
     s->current.column += (uint16_t)(cc - s->cc) + 1;
     s->cc = cc;
     return (solu_token){
         TK_STRING,
         solu_scan_str(s, sf_own(buf)),
         s->current.line,
-        s->current.column,
+        c,
     };
 error:
     free(buf);
@@ -251,6 +253,7 @@ solu_scan_ex solu_scan(sf_str src) {
         s.current = (solu_token){TK_EOF, SOLU_NIL, s.current.line, s.current.column};
         char c = src.c_str[s.cc];
         size_t pcc = s.cc;
+        bool fstr = false;
         switch (c) {
             solu_scancase('(', TK_LEFT_PAREN);
             solu_scancase(')', TK_RIGHT_PAREN);
@@ -309,6 +312,14 @@ solu_scan_ex solu_scan(sf_str src) {
             case ' ': ++s.current.column; continue;
             case '\r': continue;
 
+            case '$':
+                fstr = true;
+                c = src.c_str[++s.cc];
+                if (c != '"' && c != '\'') {
+                    eval = SOLU_ERRP_EXPECTED_STR;
+                    ++s.current.column;
+                    goto err;
+                }
             case '"':
             case '\'': {
                 solu_token tk = solu_scanstr(&s, c);
@@ -317,7 +328,9 @@ solu_scan_ex solu_scan(sf_str src) {
                     s.current = tk;
                     goto err;
                 }
-                solu_tokenvec_push(&tks, tk);
+                solu_tokenvec_push(&tks, fstr ?
+                    (solu_token){TK_FSTRING, tk.value, tk.line, tk.column} :
+                    tk);
                 continue;
             }
 
@@ -484,6 +497,40 @@ static inline bool solu_parpeek(solu_parser *p, solu_tokentype match) {
 // Convenience err macro
 #define solu_perr(type, tok) solu_parse_ex_err((solu_parse_err){(type), *(tok)})
 
+static solu_val solu_pstr(solu_parser *p, char *str) {
+    size_t len = 0, ilen = strlen(str);
+    for (size_t i = 0; i < ilen; ++i) {
+        if (i != ilen - 1 && ((str[i] == '{' && str[i + 1] == '{') || (str[i] == '}' && str[i + 1] == '}')))
+            ++i;
+        ++len;
+    }
+    solu_dalloc *dc = calloc(1, sizeof(solu_dalloc) + len + 1);
+    *dc = (solu_dalloc){
+        NULL,
+        len + 1,
+        1,
+        SOLU_DSTR,
+        SOLU_DYN_GREEN,
+    };
+    solu_dalloc *dd = p->shared->alloc;
+    if (dd == NULL) p->shared->alloc = dc;
+    else {
+        while (dd->next) dd = dd->next;
+        dd->next = dc;
+    }
+    ++dc;
+
+    for (size_t i = 0, j = 0; i < ilen; ++i, ++j) {
+        if (i != ilen - 1 && ((str[i] == '{' && str[i + 1] == '{') || (str[i] == '}' && str[i + 1] == '}'))) {
+            ((char *)dc)[j] = str[i];
+            ++i;
+            continue;
+        }
+        ((char *)dc)[j] = str[i];
+    }
+    return (solu_val){SOLU_TDYN, .dyn = dc};
+}
+
 solu_parse_ex solu_pprimary(solu_parser *p);
 solu_parse_ex solu_punary(solu_parser *p);
 solu_parse_ex solu_pexpr(solu_parser *p, size_t prec);
@@ -501,6 +548,32 @@ solu_parse_ex solu_preturn(solu_parser *p);
 solu_parse_ex solu_pinclude(solu_parser *p);
 solu_parse_ex solu_pstmt(solu_parser *p);
 
+
+solu_node *solu_pfstr_app(solu_parser *p, solu_node *left, char *pp, char *ep) {
+    char op = *pp;
+    *pp = '\0';
+    solu_node *n_lit = malloc(sizeof(solu_node));
+    *n_lit = (solu_node){
+        SOLU_ND_LITERAL,
+        p->tok->line, p->tok->column,
+        .n_literal = solu_pstr(p, ep),
+    };
+    *pp = op;
+    if (left) {
+        solu_node *n_binary = malloc(sizeof(solu_node));
+        *n_binary = (solu_node){
+            SOLU_ND_BINARY,
+            p->tok->line, p->tok->column,
+            .n_binary = {
+                .left = left,
+                .op = TK_PLUS,
+                .right = n_lit,
+            }
+        };
+        return n_binary;
+    }
+    return n_lit;
+}
 solu_parse_ex solu_pprimary(solu_parser *p) {
     switch (p->tok->tt) {
         case TK_INTEGER: case TK_NUMBER: case TK_STRING: case TK_TRUE: case TK_FALSE: case TK_NIL: {
@@ -512,6 +585,92 @@ solu_parse_ex solu_pprimary(solu_parser *p) {
             };
             ++p->tok;
             return solu_parse_ex_ok(n);
+        }
+        case TK_FSTRING: {
+            solu_node *left = malloc(sizeof(solu_node));
+            *left = (solu_node){
+                SOLU_ND_LITERAL,
+                p->tok->line, p->tok->column,
+                .n_literal = solu_pstr(p, ""), // Dummy
+            };
+
+            char *str = p->tok->value.dyn, *pp = str, *ep = str;
+            size_t len = strlen(str);
+            while (pp != str + len) {
+                if (*pp == '{') {
+                    if (pp < str + len - 1 && *(pp+1) == '{') {
+                        pp += 2;
+                        continue;
+                    }
+                    if (ep != pp) {
+                        if (ep == str) solu_node_free(left);
+                        left = solu_pfstr_app(p, ep == str ? NULL : left, pp, ep);
+                    } else if (left->tt == SOLU_ND_LITERAL && left->n_literal.dyn == p->tok->value.dyn) {
+                        *pp = '\0';
+                        solu_node_free(left);
+                        left = malloc(sizeof(solu_node));
+                        *left = (solu_node){
+                            SOLU_ND_LITERAL,
+                            p->tok->line, p->tok->column,
+                            .n_literal = solu_pstr(p, str),
+                        };
+                    }
+
+                    ++pp;
+                    ep = pp;
+                    while (ep != str + len && *ep != '}')
+                        ++ep;
+                    if (*ep != '}') {
+                        solu_node_free(left);
+                        return solu_perr(SOLU_ERRP_UNTERMINATED_FMT, p->tok);
+                    }
+                    *ep = '\0';
+                    solu_scan_ex ex = solu_scan(sf_ref(pp));
+                    *ep = '}';
+                    if (!ex.is_ok) {
+                        solu_node_free(left);
+                        return solu_parse_ex_err((solu_parse_err){
+                            ex.err.tt,
+                            (solu_token){TK_FSTRING, SOLU_NIL, ex.err.line, ex.err.column}
+                        });
+                    }
+
+                    solu_token *ot = p->tok;
+                    p->tok = ex.ok.tv.data + 1; // Skip SOF
+                    // append alloc
+                    solu_dalloc *ac = p->shared->alloc;
+                    while (ac->next) ac = ac->next;
+                    ac->next = ex.ok.alloc;
+
+                    solu_parse_ex ex2 = solu_pexpr(p, 0);
+                    p->tok = ot;
+                    if (!ex2.is_ok) {
+                        ex2.err.token = *ot;
+                        solu_node_free(left);
+                        return ex2;
+                    }
+                    ex2.ok->line = ot->line;
+                    ex2.ok->column = ot->column;
+
+                    solu_node *n_binary = malloc(sizeof(solu_node));
+                    *n_binary = (solu_node){
+                        SOLU_ND_BINARY,
+                        p->tok->line, p->tok->column,
+                        .n_binary = {
+                            .left = left,
+                            .op = TK_PLUS,
+                            .right = ex2.ok,
+                        }
+                    };
+                    left = n_binary;
+                    pp = ep++;
+                }
+                ++pp;
+            }
+            if (ep != pp)
+                left = solu_pfstr_app(p, left, pp, ep);
+            ++p->tok;
+            return solu_parse_ex_ok(left);
         }
         case TK_INCLUDE: return solu_pinclude(p);
         case TK_DO:

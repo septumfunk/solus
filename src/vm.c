@@ -346,7 +346,7 @@ solu_val solu_dscopy(solu_state *state, solu_val val, bool kconst) {
             nfp->file_name = sf_str_dup(fp->file_name);
             nfp->constants = solu_valvec_new();
             nfp->code = malloc(sizeof(solu_instruction) * fp->code_c);
-            nfp->dbg = malloc(sizeof(solu_dbg) * fp->code_c);
+            nfp->dbg = fp->dbg ? malloc(sizeof(solu_dbg) * fp->code_c) : NULL;
 
             // Deref Upvals
             nfp->upvals = malloc(sizeof(solu_upvalue) * nfp->up_c);
@@ -377,7 +377,8 @@ solu_val solu_dscopy(solu_state *state, solu_val val, bool kconst) {
             }
 
             memcpy(nfp->code, fp->code, sizeof(solu_instruction) * fp->code_c);
-            memcpy(nfp->dbg, fp->dbg, sizeof(solu_dbg) * fp->code_c);
+            if (fp->dbg)
+                memcpy(nfp->dbg, fp->dbg, sizeof(solu_dbg) * fp->code_c);
             for (solu_val *v = fp->constants.data; v < fp->constants.data + fp->constants.count; ++v)
                 solu_valvec_push(&nfp->constants, solu_dscopy(state, *v, true));
             break;
@@ -489,7 +490,7 @@ solu_val solu_getk(solu_state *s, solu_fproto *proto, uint32_t index) {
         if (pc >= proto->code_c) goto ret; /* EOF */\
         ins = proto->code[pc]; /* Read next instruction */\
         \
-        if (bps && SOLU_DBG_LINE(proto->dbg[pc]) > proto->dbg_ll) { /* Debugger */\
+        if (bps && proto->dbg && SOLU_DBG_LINE(proto->dbg[pc]) > proto->dbg_ll) { /* Debugger */\
             proto->dbg_ll = SOLU_DBG_LINE(proto->dbg[pc]); \
             if (bps[proto->dbg_ll - 1]) { /* If breakpoints, check if we should break */\
                 proto->dbg_res = pc; \
@@ -497,7 +498,8 @@ solu_val solu_getk(solu_state *s, solu_fproto *proto, uint32_t index) {
                 return solu_call_ex_err((solu_call_err){SOLU_ERRV_BREAK, NULL, pc}); \
             } \
         } \
-        proto->dbg_ll = SOLU_DBG_LINE(proto->dbg[pc]); \
+        if (proto->dbg) \
+            proto->dbg_ll = SOLU_DBG_LINE(proto->dbg[pc]); \
         ++pc; \
         \
         if (s->collect) { \
@@ -551,14 +553,14 @@ sf_buffer solu_fproto_serialize(solu_fproto *proto) {
         switch (k->tt) {
             case SOLU_TI64:
             case SOLU_TF64:
-                sf_buffer_autoins(&buf, &(uint64_t){htonll((uint32_t)k->i64)});
+                sf_buffer_autoins(&buf, &(uint64_t){htonll((uint64_t)k->i64)});
                 break;
             case SOLU_TBOOL:
                 sf_buffer_autoins(&buf, &k->boolean);
                 break;
             case SOLU_TDYN: { // str
-                size_t s = solu_dheader(*k)->size - 1;
-                if (s == 0) break;
+                size_t s = solu_dheader(*k)->size;
+                if (s > 0) s = s - 1;
                 sf_buffer_autoins(&buf, &(uint64_t){htonll(s)});
                 sf_buffer_insert(&buf, k->dyn, s);
                 break;
@@ -583,8 +585,6 @@ sf_buffer solu_fproto_serialize(solu_fproto *proto) {
 
     for (uint16_t i = 0; i < proto->code_c; ++i)
         sf_buffer_autoins(&buf, &(uint32_t){htonl(proto->code[i])});
-    for (uint16_t i = 0; i < proto->code_c; ++i)
-        sf_buffer_autoins(&buf, &(uint32_t){htonl(proto->dbg[i])});
 
     return buf;
 }
@@ -653,7 +653,7 @@ solu_load_ex _solu_loadfun(solu_state *s, sf_buffer *buf) {
                 if (!temp) goto corrupt;
                 ex = sf_buffer_read(buf, temp, slen);
                 if (!ex.is_ok) { if (slen) free(temp); goto corrupt; }
-                temp[slen] = 0;
+                if (slen) temp[slen] = 0;
 
                 solu_dyn p = calloc(1, sizeof(solu_dalloc) + slen + 1);
                 solu_dalloc *dh = p;
@@ -674,7 +674,7 @@ solu_load_ex _solu_loadfun(solu_state *s, sf_buffer *buf) {
             case SOLU_TF64:
                 ex = sf_buffer_autoread(buf, &val.i64);
                 if (!ex.is_ok) goto corrupt;
-                val.i64 = (int64_t)ntohll((uint32_t)val.i64);
+                val.i64 = (int64_t)ntohll((uint64_t)val.i64);
                 break;
             case SOLU_TBOOL:
                 ex = sf_buffer_autoread(buf, &val.boolean);
@@ -746,16 +746,11 @@ solu_load_ex _solu_loadfun(solu_state *s, sf_buffer *buf) {
     }
 
     proto.code = malloc(sizeof(uint32_t) * proto.code_c);
-    proto.dbg = malloc(sizeof(uint32_t) * proto.code_c);
+    proto.dbg = NULL; // No debug info for compiled
 
     for (uint16_t i = 0; i < proto.code_c; ++i) {
         ex = sf_buffer_autoread(buf, proto.code + i);
         proto.code[i] = ntohl(proto.code[i]);
-        if (!ex.is_ok) goto corrupt;
-    }
-    for (uint16_t i = 0; i < proto.code_c; ++i) {
-        ex = sf_buffer_autoread(buf, proto.dbg + i);
-        proto.dbg[i] = ntohl(proto.dbg[i]);
         if (!ex.is_ok) goto corrupt;
     }
 
@@ -926,12 +921,18 @@ solu_call_ex solu_call_bc(solu_state *s, solu_fproto *proto, const solu_val *arg
             if (solu_isdtype(rhs, SOLU_DERR))
                 return solu_callerr(SOLU_ERRV_PANIC, "%s", rhs.dyn);
 
+            if (solu_isdtype(lhs, SOLU_DSTR) && !solu_isdtype(rhs, SOLU_DSTR))
+                rhs = solu_dnstr(s, solu_tostr(s, rhs));
+            if (solu_isdtype(rhs, SOLU_DSTR) && !solu_isdtype(lhs, SOLU_DSTR))
+                lhs = solu_dnstr(s, solu_tostr(s, lhs));
+
             if (solu_isdtype(lhs, SOLU_DOBJ) && !solu_isdtype(rhs, SOLU_DOBJ)) {
                 solu_valvec_push(&((solu_dobj *)lhs.dyn)->array, rhs);
                 DISPATCH();
             }
             if (lhs.tt != rhs.tt && (lhs.tt == SOLU_TDYN || rhs.tt == SOLU_TDYN))
                 return solu_callerr(SOLU_ERRV_TYPE_MISMATCH, "Implicit conversion %s into %s", solu_typename(rhs).c_str, solu_typename(lhs).c_str);
+
             if (lhs.tt != rhs.tt) {
                 switch (lhs.tt) {
                     case SOLU_TI64: rhs = (solu_val){.tt = SOLU_TI64, .i64 = (solu_i64)rhs.f64}; break;

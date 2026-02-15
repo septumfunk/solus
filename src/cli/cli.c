@@ -109,16 +109,26 @@ int cli_run(char *path, sf_str src) {
 
     solu_call_ex call_ex = solu_call(s, &fb, NULL, 0);
     if (!call_ex.is_ok) {
-        uint16_t line = SOLU_DBG_LINE(fb.dbg[call_ex.err.pc]), col = SOLU_DBG_COL(fb.dbg[call_ex.err.pc]);
-        fprintf(stderr, TUI_ERR "error: %s:%u:%u\n" TUI_CLR, path, line, col);
+        uint16_t line = 0, col = 0;
+        if (fb.dbg) {
+            line = SOLU_DBG_LINE(fb.dbg[call_ex.err.pc]);
+            col = SOLU_DBG_COL(fb.dbg[call_ex.err.pc]);
+            fprintf(stderr, TUI_ERR "error: %s:%u:%u\n" TUI_CLR, path, line, col);
+        } else fprintf(stderr, TUI_ERR "error: %s\n" TUI_CLR, path);
+
 
         if (call_ex.err.panic) {
             sf_str full = sf_str_fmt("%s: %s", solu_err_string(call_ex.err.tt), call_ex.err.panic);
-            if (line) cli_highlight_line(src, full, line, col);
+            if (line)
+                cli_highlight_line(src, full, line, col);
+            else
+                fprintf(stderr, TUI_ERR TUI_BLD "%s\n" TUI_CLR, full.c_str);
             free(call_ex.err.panic);
             sf_str_free(full);
-        } else
+        } else if (line)
             cli_highlight_line(src, sf_ref(solu_err_string(call_ex.err.tt)), line, col);
+        else
+            fprintf(stderr, TUI_ERR TUI_BLD "%s\n" TUI_CLR, solu_err_string(call_ex.err.tt));
         return -1;
     }
 
