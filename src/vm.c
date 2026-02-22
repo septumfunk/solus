@@ -398,8 +398,10 @@ solu_val solu_dcopy(solu_state *state, solu_val val) {
 
 void solu_dmarkfun(solu_fproto *fp) {
     for (solu_upvalue *v = fp->upvals; v && v < fp->upvals + fp->up_c; ++v) {
-        if (v->tt == SOLU_UP_VAL && v->value.tt == SOLU_TDYN)
-            solu_dheader(v->value)->mark = SOLU_DYN_BLACK;
+        if (v->tt == SOLU_UP_VAL && v->value.tt == SOLU_TDYN) {
+            solu_dalloc *dc = solu_dheader(v->value);
+            dc->mark = dc->mark == SOLU_DYN_GREEN ? SOLU_DYN_GREEN : SOLU_DYN_BLACK;
+        }
     }
 }
 static void solu_dmarkmember(void *ud, sf_str _k, solu_val member) {
@@ -412,14 +414,14 @@ void solu_dmarkobj(solu_val obj) {
         solu_dmark(dobj->array.data[i]);
     solu_valmap_foreach(obj.dyn, solu_dmarkmember, NULL);
     if (dobj->meta.tt == SOLU_TDYN)
-        solu_dheader(dobj->meta)->mark = SOLU_DYN_BLACK;
+        solu_dmark(dobj->meta);
 }
 void solu_dmarkref(solu_val r) {
     solu_val inner = solu_dval(r);
     while (inner.tt == SOLU_TDYN) {
-        if (solu_dheader(inner)->mark == SOLU_DYN_BLACK)
-            return;
-        solu_dheader(inner)->mark = SOLU_DYN_BLACK;
+        solu_dalloc *dc = solu_dheader(inner);
+        if (dc->mark == SOLU_DYN_BLACK) return;
+        dc->mark = dc->mark == SOLU_DYN_GREEN ? SOLU_DYN_GREEN : SOLU_DYN_BLACK;
         switch (solu_dtypeof(inner)) {
             case SOLU_DREF:
                 inner = solu_dval(inner);
@@ -432,7 +434,7 @@ void solu_dmark(solu_val val) {
     if (val.tt != SOLU_TDYN) return;
     solu_dalloc *ac = solu_dheader(val);
     if (ac->mark == SOLU_DYN_BLACK) return;
-    ac->mark = SOLU_DYN_BLACK;
+    ac->mark = ac->mark == SOLU_DYN_GREEN ? SOLU_DYN_GREEN : SOLU_DYN_BLACK;
     if (ac->tt == SOLU_DUSR) {
         solu_usrmark mark = solu_uheader(val)->mark;
         if (mark) mark(val.dyn);
@@ -451,6 +453,11 @@ void solu_dcollect(solu_state *s) {
         solu_dmark(*r);
     solu_dmarkobj(s->global);
 
+    // Mark Greens
+    for (solu_dalloc *a = s->alloc; a; a = a->next) {
+        if (a->mark == SOLU_DYN_GREEN)
+            solu_dmark((solu_val){ SOLU_TDYN, .dyn = (a + 1) });
+    }
     solu_dalloc **ac = &s->alloc;
     solu_dalloc *last = NULL;
     while (*ac) {
@@ -464,7 +471,7 @@ void solu_dcollect(solu_state *s) {
         }
         last = *ac;
         s->lb += (*ac)->size;
-        (*ac)->mark = SOLU_DYN_WHITE;
+        (*ac)->mark = (*ac)->mark == SOLU_DYN_GREEN ? SOLU_DYN_GREEN : SOLU_DYN_WHITE;
         ac = &(*ac)->next;
     }
     s->nb = (size_t)((double)s->lb * SOLU_GCSTEP);
