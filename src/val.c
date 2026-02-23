@@ -1,4 +1,5 @@
 #include "solus/val.h"
+#include <_string.h>
 
 void _valmap_foreach(void *_u, sf_str k, solu_val _v) { (void)_u;(void)_v; sf_str_free(k); }
 void _solu_valmap_cleanup(solu_valmap *map) {
@@ -49,14 +50,22 @@ solu_fproto solu_fproto_new(void) {
     };
 }
 
-solu_fproto solu_fproto_c(solu_cfunction c_fun, uint32_t arg_c, uint32_t temp_c) {
+solu_fproto solu_fproto_c(solu_cfunction c_fun, uint32_t arg_c, solu_val *captures, uint32_t cap_c) {
+    solu_upvalue *upc = cap_c ? malloc(sizeof(solu_upvalue) * cap_c) : NULL;
+    for (uint32_t i = 0; i < cap_c; ++i)
+        upc[i] = (solu_upvalue){
+            sf_lit("C"),
+            SOLU_UP_VAL,
+            .value = captures[i],
+        };
     return (solu_fproto){
         .tt = SOLU_FPROTO_C,
         .c_fun = c_fun,
-        .reg_c = arg_c + temp_c,
+        .reg_c = arg_c,
         .arg_c = arg_c,
         .constants = solu_valvec_new(),
-        .upvals = NULL,
+        .upvals = upc,
+        .up_c = cap_c,
     };
 }
 

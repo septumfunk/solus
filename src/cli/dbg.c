@@ -422,8 +422,8 @@ int solu_cli_cbg(char *path, sf_str src) {
     solu_val io = solu_dobj_strget(s->global.dyn, "io");
     if (io.tt == SOLU_TNIL)
         return -1;
-    solu_dobj_strset(io.dyn, "print", solu_wrapcfun(s, solu_dbgprint, 1, 0));
-    solu_dobj_strset(io.dyn, "println", solu_wrapcfun(s, solu_dbgprintln, 1, 0));
+    solu_dobj_strset(io.dyn, "print", solu_wrapcfun(s, solu_dbgprint, 1, NULL, 0));
+    solu_dobj_strset(io.dyn, "println", solu_wrapcfun(s, solu_dbgprintln, 1, NULL, 0));
 
     solu_compile_ex comp_ex = solu_cfile(s, path);
     if (!comp_ex.is_ok) {

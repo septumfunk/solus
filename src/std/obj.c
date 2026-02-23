@@ -209,19 +209,19 @@ static solu_call_ex obj_template(solu_state *s) {
 
 void solu_mod_obj(solu_state *s) {
     solu_val obj = solu_dnew(s, SOLU_DOBJ);
-    solu_dobj_strset(obj.dyn, "new", solu_wrapcfun(s, obj_new, 0, 0));
-    solu_dobj_strset(obj.dyn, "set", solu_wrapcfun(s, obj_set, 3, 0));
-    solu_dobj_strset(obj.dyn, "get", solu_wrapcfun(s, obj_get, 2, 0));
-    solu_dobj_strset(obj.dyn, "usemeta", solu_wrapcfun(s, obj_usemeta, 2, 0));
-    solu_dobj_strset(obj.dyn, "meta", solu_wrapcfun(s, obj_meta, 1, 0));
-    solu_dobj_strset(obj.dyn, "stringify", solu_wrapcfun(s, obj_stringify, 3, 0));
-    solu_dobj_strset(obj.dyn, "pairs", solu_wrapcfun(s, obj_pairs, 2, 0));
-    solu_dobj_strset(obj.dyn, "foreach", solu_wrapcfun(s, obj_foreach, 2, 0));
+    solu_dobj_strset(obj.dyn, "new", solu_wrapcfun(s, obj_new, 0, NULL, 0));
+    solu_dobj_strset(obj.dyn, "set", solu_wrapcfun(s, obj_set, 3, NULL, 0));
+    solu_dobj_strset(obj.dyn, "get", solu_wrapcfun(s, obj_get, 2, NULL, 0));
+    solu_dobj_strset(obj.dyn, "usemeta", solu_wrapcfun(s, obj_usemeta, 2, NULL, 0));
+    solu_dobj_strset(obj.dyn, "meta", solu_wrapcfun(s, obj_meta, 1, NULL, 0));
+    solu_dobj_strset(obj.dyn, "stringify", solu_wrapcfun(s, obj_stringify, 3, NULL, 0));
+    solu_dobj_strset(obj.dyn, "pairs", solu_wrapcfun(s, obj_pairs, 2, NULL, 0));
+    solu_dobj_strset(obj.dyn, "foreach", solu_wrapcfun(s, obj_foreach, 2, NULL, 0));
 
-    solu_dobj_strset(obj.dyn, "members", solu_wrapcfun(s, obj_members, 1, 0));
-    solu_dobj_strset(obj.dyn, "len", solu_wrapcfun(s, obj_len, 1, 0));
+    solu_dobj_strset(obj.dyn, "members", solu_wrapcfun(s, obj_members, 1, NULL, 0));
+    solu_dobj_strset(obj.dyn, "len", solu_wrapcfun(s, obj_len, 1, NULL, 0));
 
-    solu_dobj_strset(obj.dyn, "template", solu_wrapcfun(s, obj_template, 1, 0));
+    solu_dobj_strset(obj.dyn, "template", solu_wrapcfun(s, obj_template, 1, NULL, 0));
 
     solu_dobj_strset(s->global.dyn, "obj", obj);
 }

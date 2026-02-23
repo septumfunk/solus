@@ -38,6 +38,7 @@ typedef struct solu_state {
     solu_dalloc *alloc, *alloc_tail; // gc allocations
     solu_strcache strcache; // short string cache
     size_t lb, cb, nb; // last bytes, current bytes, next bytes
+    solu_fproto *ccall; // the proto being called currently
 
     bool rcmp; // Special flag for compiled files to reset the frame count
 } solu_state;
@@ -160,7 +161,12 @@ static inline void solu_popframe(solu_state *state) {
 #include <sf/containers/expected.h>
 
 /// Wrap a c function into a fun and insert it into a dynamic val
-EXPORT solu_val solu_wrapcfun(solu_state *state, solu_cfunction fptr, uint32_t arg_c, uint32_t temp_c);
+EXPORT solu_val solu_wrapcfun(solu_state *state, solu_cfunction fptr, uint32_t arg_c, solu_val *captures, uint32_t cap_c);
+static inline solu_val solu_capturec(solu_state *state, uint32_t index) {
+    if (!state->ccall || index > state->ccall->up_c - 1 || state->ccall->upvals[index].tt != SOLU_UP_VAL)
+        return SOLU_NIL;
+    return state->ccall->upvals[index].value;
+}
 EXPORT void solu_savefun(solu_fproto *proto, char *path);
 EXPORT solu_load_ex solu_loadfun(solu_state *state, char *path);
 

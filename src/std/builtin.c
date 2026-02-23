@@ -135,11 +135,14 @@ static solu_call_ex builtin_str(solu_state *s) {
 }
 static solu_call_ex builtin_i64(solu_state *s) {
     solu_val conv = solu_get(s, 0);
-    if (conv.tt != SOLU_TF64 && !solu_isdtype(conv, SOLU_DSTR))
+    if (conv.tt != SOLU_TF64 && conv.tt != SOLU_TBOOL && !solu_isdtype(conv, SOLU_DSTR))
         return solu_panic("'%s' expected f64|str, found %s", solu_typename(conv).c_str);
-    return conv.tt == SOLU_TF64 ?
-        solu_ok((solu_val){SOLU_TI64, .i64 = (solu_i64)conv.f64}) :
-        solu_ok((solu_val){SOLU_TI64, .i64 = (solu_i64)strtoll(conv.dyn, NULL, 10)});
+    switch (conv.tt) {
+        case SOLU_TBOOL: return solu_ok((solu_val){SOLU_TI64, .i64 = conv.boolean ? 1 : 0});
+        case SOLU_TF64: return solu_ok((solu_val){SOLU_TI64, .i64 = (solu_i64)conv.f64});
+        case SOLU_TDYN: return solu_ok((solu_val){SOLU_TI64, .i64 = (solu_i64)strtoll(conv.dyn, NULL, 10)});
+        default: return solu_panic("'%s' expected f64|str, found %s", solu_typename(conv).c_str);
+    }
 }
 static solu_call_ex builtin_f64(solu_state *s) {
     solu_val conv = solu_get(s, 0);
@@ -152,19 +155,19 @@ static solu_call_ex builtin_f64(solu_state *s) {
 
 void solu_mod_builtin(solu_state *s) {
     solu_dobj *_g = s->global.dyn;
-    solu_dobj_strset(_g, "err", solu_wrapcfun(s, builtin_err, 1, 0));
-    solu_dobj_strset(_g, "panic", solu_wrapcfun(s, builtin_panic, 1, 0));
-    solu_dobj_strset(_g, "attempt", solu_wrapcfun(s, builtin_attempt, 2, 0));
-    solu_dobj_strset(_g, "catch", solu_wrapcfun(s, builtin_catch, 1, 0));
-    solu_dobj_strset(_g, "unwrap", solu_wrapcfun(s, builtin_unwrap, 1, 0));
-    solu_dobj_strset(_g, "unwrap_or", solu_wrapcfun(s, builtin_unwrap_or, 2, 0));
-    solu_dobj_strset(_g, "assert", solu_wrapcfun(s, builtin_assert, 1, 0));
-    solu_dobj_strset(_g, "type", solu_wrapcfun(s, builtin_type, 1, 0));
-    solu_dobj_strset(_g, "eval", solu_wrapcfun(s, builtin_eval, 1, 0));
-    solu_dobj_strset(_g, "import", solu_wrapcfun(s, builtin_import, 1, 0));
-    solu_dobj_strset(_g, "require", solu_wrapcfun(s, builtin_require, 1, 0));
+    solu_dobj_strset(_g, "err", solu_wrapcfun(s, builtin_err, 1, NULL, 0));
+    solu_dobj_strset(_g, "panic", solu_wrapcfun(s, builtin_panic, 1, NULL, 0));
+    solu_dobj_strset(_g, "attempt", solu_wrapcfun(s, builtin_attempt, 2, NULL, 0));
+    solu_dobj_strset(_g, "catch", solu_wrapcfun(s, builtin_catch, 1, NULL, 0));
+    solu_dobj_strset(_g, "unwrap", solu_wrapcfun(s, builtin_unwrap, 1, NULL, 0));
+    solu_dobj_strset(_g, "unwrap_or", solu_wrapcfun(s, builtin_unwrap_or, 2, NULL, 0));
+    solu_dobj_strset(_g, "assert", solu_wrapcfun(s, builtin_assert, 1, NULL, 0));
+    solu_dobj_strset(_g, "type", solu_wrapcfun(s, builtin_type, 1, NULL, 0));
+    solu_dobj_strset(_g, "eval", solu_wrapcfun(s, builtin_eval, 1, NULL, 0));
+    solu_dobj_strset(_g, "import", solu_wrapcfun(s, builtin_import, 1, NULL, 0));
+    solu_dobj_strset(_g, "require", solu_wrapcfun(s, builtin_require, 1, NULL, 0));
 
-    solu_dobj_strset(_g, "str", solu_wrapcfun(s, builtin_str, 1, 0));
-    solu_dobj_strset(_g, "i64", solu_wrapcfun(s, builtin_i64, 1, 0));
-    solu_dobj_strset(_g, "f64", solu_wrapcfun(s, builtin_f64, 1, 0));
+    solu_dobj_strset(_g, "str", solu_wrapcfun(s, builtin_str, 1, NULL, 0));
+    solu_dobj_strset(_g, "i64", solu_wrapcfun(s, builtin_i64, 1, NULL, 0));
+    solu_dobj_strset(_g, "f64", solu_wrapcfun(s, builtin_f64, 1, NULL, 0));
 }

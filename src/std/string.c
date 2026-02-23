@@ -139,10 +139,10 @@ static solu_call_ex string_split(solu_state *s) {
 
 void solu_mod_string(solu_state *s) {
     solu_val string = solu_dnew(s, SOLU_DOBJ);
-    solu_dobj_strset(string.dyn, "len", solu_wrapcfun(s, string_len, 1, 0));
-    solu_dobj_strset(string.dyn, "sub", solu_wrapcfun(s, string_sub, 3, 0));
-    solu_dobj_strset(string.dyn, "repeat", solu_wrapcfun(s, string_repeat, 2, 0));
-    solu_dobj_strset(string.dyn, "join", solu_wrapcfun(s, string_join, 1, 0));
-    solu_dobj_strset(string.dyn, "split", solu_wrapcfun(s, string_split, 2, 0));
+    solu_dobj_strset(string.dyn, "len", solu_wrapcfun(s, string_len, 1, NULL, 0));
+    solu_dobj_strset(string.dyn, "sub", solu_wrapcfun(s, string_sub, 3, NULL, 0));
+    solu_dobj_strset(string.dyn, "repeat", solu_wrapcfun(s, string_repeat, 2, NULL, 0));
+    solu_dobj_strset(string.dyn, "join", solu_wrapcfun(s, string_join, 1, NULL, 0));
+    solu_dobj_strset(string.dyn, "split", solu_wrapcfun(s, string_split, 2, NULL, 0));
     solu_dobj_strset(s->global.dyn, "string", string);
 }

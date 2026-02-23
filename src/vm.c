@@ -26,6 +26,7 @@ solu_state *solu_state_new(void) {
         .global = {SOLU_TDYN, .dyn = p},
         .lb = 1<<20, .cb = 0, .nb = 0,
         .call_stack = 0,
+        .ccall = NULL,
 
         .collect = false,
         .alloc = NULL,
@@ -524,12 +525,11 @@ solu_val solu_getk(solu_state *s, solu_fproto *proto, uint32_t index) {
 
 #define solu_callerr(en, fmt, ...) (solu_call_ex_err((solu_call_err){.tt=(en),.panic=sf_str_fmt((fmt), __VA_ARGS__).c_str, .pc=pc-1}))
 
-solu_val solu_wrapcfun(solu_state *state, solu_cfunction fptr, uint32_t arg_c, uint32_t temp_c) {
+solu_val solu_wrapcfun(solu_state *state, solu_cfunction fptr, uint32_t arg_c, solu_val *captures, uint32_t cap_c) {
     solu_val fun = solu_dnew(state, SOLU_DFUN);
-    *(solu_fproto *)fun.dyn = solu_fproto_c(fptr, arg_c, temp_c);
+    *(solu_fproto *)fun.dyn = solu_fproto_c(fptr, arg_c, captures, cap_c);
     return fun;
 }
-
 
 #if defined(_WIN32)
 #include <winsock2.h>
@@ -1324,16 +1324,19 @@ solu_call_ex solu_call(solu_state *state, solu_fproto *proto, const solu_val *ar
         return solu_panic("Stack Overflow");
 
     ++state->call_stack;
+    state->ccall = proto;
     if (proto->tt == SOLU_FPROTO_BC) {
         solu_call_ex ex = solu_call_bc(state, proto, args, arg_c, NULL);
         if (!ex.is_ok) {
             solu_popframe(state);
             sf_str_free(solu_filenames_pop(&state->files));
         }
+        state->ccall = NULL;
         --state->call_stack;
         return ex;
     }
     solu_call_ex ex = solu_call_cfun(state, proto, args, arg_c);
+    state->ccall = NULL;
     --state->call_stack;
     return ex;
 }

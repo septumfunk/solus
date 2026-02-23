@@ -107,7 +107,7 @@ typedef struct {
     solu_upvalue *upvals;
 } solu_fproto;
 EXPORT solu_fproto solu_fproto_new(void);
-EXPORT solu_fproto solu_fproto_c(solu_cfunction c_fun, uint32_t arg_c, uint32_t temp_c);
+EXPORT solu_fproto solu_fproto_c(solu_cfunction c_fun, uint32_t arg_c, solu_val *captures, uint32_t cap_c);
 EXPORT void solu_fproto_free(solu_fproto *proto);
 
 // dstr
