@@ -247,3 +247,50 @@ const solu_inssig SOLU_OP_INFO[SOLU_OP_COUNT] = {
         .mnemonic = "???",
     }
 };
+
+#if defined(_WIN32) || defined(_WIN64)
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+/// Complicated cross platform stuff to get time in seconds
+double solu_timesec(void) {
+    FILETIME ft;
+    ULARGE_INTEGER uli;
+    GetSystemTimeAsFileTime(&ft);
+    uli.LowPart  = ft.dwLowDateTime;
+    uli.HighPart = ft.dwHighDateTime;
+    return (double)(uli.QuadPart - 116444736000000000ULL) / 10000000.0;
+}
+#else
+#include <time.h>
+#include <sys/time.h>
+/// Complicated cross platform stuff to get time in seconds
+double solu_timesec(void) {
+#if defined(CLOCK_REALTIME)
+    struct timespec ts;
+    clock_gettime(CLOCK_REALTIME, &ts);
+    return (double)ts.tv_sec + (double)ts.tv_nsec / 1e9;
+#else
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+    return (double)tv.tv_sec + (double)tv.tv_usec / 1e6;
+#endif
+}
+#endif
+
+/// Canonize path
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+char *solu_realpath(const char *path) {
+    char buf[_MAX_PATH];
+    if (!_fullpath(buf, path, _MAX_PATH))
+        return NULL;
+    if (!sf_file_exists(sf_ref(path)))
+        return NULL;
+    return _strdup(buf);
+}
+#else
+char *solu_realpath(const char *path) {
+    return realpath(path, NULL);
+}
+#endif

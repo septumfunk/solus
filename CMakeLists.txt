@@ -25,20 +25,25 @@ add_library(${PROJECT_NAME} ${LIBRARY_TYPE}
 target_include_directories(${PROJECT_NAME} PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_compile_definitions(${PROJECT_NAME} PUBLIC _CRT_SECURE_NO_WARNINGS)
 
-# CLI
-set(CLI_TARGET solus_cli)
-set(CLI_SOURCES src/cli/cli.c)
-if (WIN32 OR UNIX) # ncurses/pdcurses required
-    list(APPEND CLI_SOURCES src/cli/dbg.c)
-endif()
-add_executable(${CLI_TARGET} ${CLI_SOURCES})
-set_target_properties(${CLI_TARGET} PROPERTIES OUTPUT_NAME "solus")
-target_compile_definitions(${CLI_TARGET} PUBLIC _CRT_SECURE_NO_WARNINGS)
-if(UNIX)
-    find_package(Curses REQUIRED)
-    target_link_libraries(${CLI_TARGET} PRIVATE ${PROJECT_NAME} ${CURSES_LIBRARIES})
-else()
-    target_link_libraries(${CLI_TARGET} PRIVATE ${PROJECT_NAME})
+if (PROJECT_IS_TOP_LEVEL)
+    # CLI
+    set(CLI_TARGET solus_cli)
+    set(CLI_SOURCES src/cli/cli.c)
+    if (WIN32 OR UNIX) # ncurses/pdcurses required
+        list(APPEND CLI_SOURCES src/cli/dbg.c)
+    endif()
+    add_executable(${CLI_TARGET} ${CLI_SOURCES})
+    set_target_properties(${CLI_TARGET} PROPERTIES OUTPUT_NAME "solus")
+    target_compile_definitions(${CLI_TARGET} PUBLIC _CRT_SECURE_NO_WARNINGS)
+    if(WIN32)
+        find_package(unofficial-pdcurses CONFIG REQUIRED)
+        target_link_libraries(${CLI_TARGET} PRIVATE ${PROJECT_NAME} unofficial::pdcurses::pdcurses)
+    elseif(UNIX)
+        find_package(Curses REQUIRED)
+        target_link_libraries(${CLI_TARGET} PRIVATE ${PROJECT_NAME} ${CURSES_LIBRARIES})
+    else()
+        target_link_libraries(${CLI_TARGET} PRIVATE ${PROJECT_NAME})
+    endif()
 endif()
 
 
