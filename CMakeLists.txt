@@ -73,7 +73,7 @@ elseif(UNIX)
     )
 endif()
 target_compile_options(${PROJECT_NAME} PUBLIC ${COMPILE_OPTIONS})
-target_compile_options(${PROJECT_NAME} PUBLIC ${COMPILE_OPTIONS})
+target_compile_options(${CLI_TARGET} PUBLIC ${COMPILE_OPTIONS})
 
 if (WIN32)
     if (BUILD_SHARED_LIBS)
