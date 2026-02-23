@@ -25,6 +25,19 @@ add_library(${PROJECT_NAME} ${LIBRARY_TYPE}
 target_include_directories(${PROJECT_NAME} PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_compile_definitions(${PROJECT_NAME} PUBLIC _CRT_SECURE_NO_WARNINGS)
 
+
+add_compile_definitions(_CRT_SECURE_NO_WARNINGS)
+if (MSVC) # Good luck if you're on MSVC
+    add_compile_options(/W4 /WX)
+elseif(UNIX)
+    add_compile_options(
+        -Wall -Wextra -Werror
+        -Wpedantic -Wconversion -Wuninitialized
+        -Wsign-conversion -Wnull-dereference
+    )
+endif()
+target_compile_options(${PROJECT_NAME} PUBLIC ${COMPILE_OPTIONS})
+
 if (PROJECT_IS_TOP_LEVEL)
     # CLI
     set(CLI_TARGET solus_cli)
@@ -44,6 +57,7 @@ if (PROJECT_IS_TOP_LEVEL)
     else()
         target_link_libraries(${CLI_TARGET} PRIVATE ${PROJECT_NAME})
     endif()
+    target_compile_options(${CLI_TARGET} PUBLIC ${COMPILE_OPTIONS})
 endif()
 
 
@@ -63,19 +77,6 @@ if (ENABLE_SANITIZERS AND NOT MSVC)
     set(SANITIZER_COMPILE_FLAGS ${SANITIZER_FLAGS})
     set(SANITIZER_DEFINE USE_SANITIZERS)
 endif()
-
-add_compile_definitions(_CRT_SECURE_NO_WARNINGS)
-if (MSVC) # Good luck if you're on MSVC
-    add_compile_options(/W4 /WX)
-elseif(UNIX)
-    add_compile_options(
-        -Wall -Wextra -Werror
-        -Wpedantic -Wconversion -Wuninitialized
-        -Wsign-conversion -Wnull-dereference
-    )
-endif()
-target_compile_options(${PROJECT_NAME} PUBLIC ${COMPILE_OPTIONS})
-target_compile_options(${CLI_TARGET} PUBLIC ${COMPILE_OPTIONS})
 
 if (WIN32)
     if (BUILD_SHARED_LIBS)
