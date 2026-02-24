@@ -441,7 +441,11 @@ void solu_dmark(solu_val val) {
     if (ac->mark == SOLU_DYN_BLACK) return;
     ac->mark = ac->mark == SOLU_DYN_GREEN ? SOLU_DYN_GREEN : SOLU_DYN_BLACK;
     if (ac->tt == SOLU_DUSR) {
-        solu_usrmark mark = solu_uheader(val)->mark;
+        solu_usrwrap *uh = solu_uheader(val);
+        solu_usrmark mark = uh->mark;
+        for (int i = 0; i < SOLU_META_COUNT; ++i)
+            if (uh->metafuns[i].tt == SOLU_TDYN)
+                solu_dmark(uh->metafuns[i]);
         if (mark) mark(val.dyn);
     }
     if (ac->tt == SOLU_DOBJ)
@@ -1256,9 +1260,11 @@ solu_call_ex solu_call_bc(solu_state *s, solu_fproto *proto, const solu_val *arg
             solu_val val = solu_iabc_ck(ins) ? solu_getk(s, proto, solu_iabc_cx(ins)) : solu_get(s, solu_iabc_cx(ins));
 
             solu_val set = SOLU_NIL;
-            if (solu_isdtype(obj, SOLU_DUSR))
+            bool u = false;
+            if (solu_isdtype(obj, SOLU_DUSR)) {
+                u = true;
                 set = solu_uheader(obj)->metafuns[SOLU_META_SET];
-            else {
+            } else {
                 if (!solu_isdtype(obj, SOLU_DOBJ))
                     return solu_callerr(SOLU_ERRV_TYPE_MISMATCH, "Attempted to index type %s", solu_typename(obj).c_str);
                 set = ((solu_dobj *)obj.dyn)->metafuns[SOLU_META_SET];
@@ -1267,7 +1273,8 @@ solu_call_ex solu_call_bc(solu_state *s, solu_fproto *proto, const solu_val *arg
                 solu_call_ex ex = solu_call(s, set.dyn, (solu_val[]){key, val}, 2);
                 if (!ex.is_ok) return ex;
                 DISPATCH();
-            }
+            } else if (u)
+                return solu_callerr(SOLU_ERRV_TYPE_MISMATCH, "Attempted to index type %s", solu_typename(obj).c_str);
 
             solu_dobj_set(s, obj.dyn, key, val);
             DISPATCH();
@@ -1275,12 +1282,13 @@ solu_call_ex solu_call_bc(solu_state *s, solu_fproto *proto, const solu_val *arg
         CASE(SOLU_OP_GET) {
             solu_val obj = solu_get(s, solu_iabc_bx(ins));
             solu_val key = solu_iabc_ck(ins) ? solu_getk(s, proto, solu_iabc_cx(ins)) : solu_get(s, solu_iabc_cx(ins));
-            if (!solu_isdtype(obj, SOLU_DOBJ))
-                return solu_callerr(SOLU_ERRV_TYPE_MISMATCH, "Attempted to index type %s", solu_typename(obj).c_str);
+
             solu_val get = SOLU_NIL;
-            if (solu_isdtype(obj, SOLU_DUSR))
+            bool u = false;
+            if (solu_isdtype(obj, SOLU_DUSR)) {
+                u = true;
                 get = solu_uheader(obj)->metafuns[SOLU_META_GET];
-            else {
+            } else {
                 if (!solu_isdtype(obj, SOLU_DOBJ))
                     return solu_callerr(SOLU_ERRV_TYPE_MISMATCH, "Attempted to index type %s", solu_typename(obj).c_str);
                 get = ((solu_dobj *)obj.dyn)->metafuns[SOLU_META_GET];
@@ -1290,7 +1298,9 @@ solu_call_ex solu_call_bc(solu_state *s, solu_fproto *proto, const solu_val *arg
                 if (!ex.is_ok) return ex;
                 solu_set(s, solu_iabc_a(ins), ex.ok);
                 DISPATCH();
-            }
+            } else if (u)
+                return solu_callerr(SOLU_ERRV_TYPE_MISMATCH, "Attempted to index type %s", solu_typename(obj).c_str);
+
             solu_set(s, solu_iabc_a(ins), solu_dobj_get(s, obj.dyn, key));
             DISPATCH();
         }

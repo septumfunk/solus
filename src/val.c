@@ -96,6 +96,10 @@ void solu_dclean(solu_val val) {
         case SOLU_DERR: break;
         case SOLU_DOBJ: solu_dobj_free(val.dyn); break;
         case SOLU_DFUN: solu_fproto_free((solu_fproto *)val.dyn); break;
+        case SOLU_DUSR: {
+            solu_usrwrap *uh = solu_uheader(val);
+            if (uh->del) uh->del(val.dyn);
+        }
         default: break;
     }
     free(dh);
