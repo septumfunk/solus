@@ -95,12 +95,12 @@ void solu_dpush(solu_state *s, solu_dalloc *ac);
 /// This marks the object as green, meaning collection is skipped
 static inline void solu_dhold(solu_val val) {
     if (val.tt != SOLU_TDYN) return;
-    solu_dheader(val)->mark = SOLU_DYN_GREEN;
+    solu_dheader(val)->held = true;
 }
 /// Release a reference held to a dyn value in the C API
 static inline void solu_drelease(solu_val val) {
-    if (val.tt != SOLU_TDYN || solu_dheader(val)->mark != SOLU_DYN_GREEN) return;
-    solu_dheader(val)->mark = SOLU_DYN_WHITE;
+    if (val.tt != SOLU_TDYN) return;
+    solu_dheader(val)->held = false;
 }
 
 

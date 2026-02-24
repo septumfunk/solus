@@ -36,8 +36,6 @@ extern const char *SOLU_TYPE_NAMES[(size_t)SOLU_TCOUNT + (size_t)SOLU_DCOUNT];
 typedef enum {
     SOLU_DYN_WHITE, /// Not yet marked, will be swept if it's not
     SOLU_DYN_BLACK, /// Marked valid
-    SOLU_DYN_SHARED, /// Thread shared
-    SOLU_DYN_GREEN, /// Reference held by C
 } solu_dstate;
 /// GC header
 typedef struct solu_dalloc {
@@ -45,6 +43,7 @@ typedef struct solu_dalloc {
     size_t size, thread;
     solu_dtype tt;
     solu_dstate mark;
+    bool held;
 } solu_dalloc;
 
 /// A primitive value, which may be a (dyn) reference to a GC/heap managed dynamic value

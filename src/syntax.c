@@ -510,7 +510,8 @@ static solu_val solu_pstr(solu_parser *p, char *str) {
         len + 1,
         1,
         SOLU_DSTR,
-        SOLU_DYN_GREEN,
+        SOLU_DYN_WHITE,
+        true,
     };
     solu_dalloc *dd = p->shared->alloc;
     if (dd == NULL) p->shared->alloc = dc;
@@ -716,7 +717,7 @@ solu_parse_ex solu_pprimary(solu_parser *p) {
 solu_parse_ex solu_punary(solu_parser *p) {
     solu_tokentype tt = (p->tok++)->tt;
     if (tt == TK_INCREMENT || tt == TK_DECREMENT) {
-        solu_parse_ex expr = solu_pprimary(p);
+        solu_parse_ex expr = solu_ppostfix(p);
         if (!expr.is_ok) return expr;
         if (expr.ok->tt != SOLU_ND_IDENTIFIER) {
             solu_node_free(expr.ok);
@@ -737,7 +738,7 @@ solu_parse_ex solu_punary(solu_parser *p) {
         return solu_parse_ex_ok(n_binary);
     }
 
-    solu_parse_ex expr = solu_pexpr(p, 0);
+    solu_parse_ex expr = solu_ppostfix(p);
     if (!expr.is_ok) return expr;
 
     solu_node *n_unary = malloc(sizeof(solu_node));
@@ -786,10 +787,6 @@ solu_parse_ex solu_pif(solu_parser *p) {
     solu_token *tk_if = p->tok++;
     solu_parse_ex cex = solu_pexpr(p, 0);
     if (!cex.is_ok) return cex;
-    if (!solu_niscondition(cex.ok)) {
-        solu_node_free(cex.ok);
-        return solu_parse_ex_err((solu_parse_err){SOLU_ERRP_EXPECTED_CONDITION, *tk_if});
-    }
 
     solu_parse_ex tex = p->tok->tt == TK_LEFT_BRACE ? solu_pblock(p) : solu_pstmt(p);
     if (!tex.is_ok) {
@@ -1222,10 +1219,6 @@ solu_parse_ex solu_pwhile(solu_parser *p) {
     solu_parse_ex cond = solu_pexpr(p, 0);
     if (!cond.is_ok)
         return cond;
-    if (!solu_niscondition(cond.ok)) {
-        solu_node_free(cond.ok);
-        return solu_perr(SOLU_ERRP_EXPECTED_CONDITION, st);
-    }
 
     solu_parse_ex stmt = p->tok->tt == TK_LEFT_BRACE ? solu_pblock(p) : solu_pstmt(p);;
     if (!stmt.is_ok) {
@@ -1258,15 +1251,10 @@ solu_parse_ex solu_pfor(solu_parser *p) {
     if (pre.ok->tt == SOLU_ND_RETURN && pre.ok->n_return.implicit)
         return solu_perr(SOLU_ERRP_EXPECTED_SEMICOLON, pt);
 
-    solu_token *ct = p->tok;
     solu_parse_ex cond = solu_pexpr(p, 0);
     if (!cond.is_ok) {
         solu_node_free(pre.ok);
         return cond;
-    }
-    if (!solu_niscondition(cond.ok)) {
-        solu_node_free(cond.ok);
-        return solu_perr(SOLU_ERRP_EXPECTED_CONDITION, ct);
     }
     if (p->tok->tt != TK_SEMICOLON) {
         solu_node_free(pre.ok);

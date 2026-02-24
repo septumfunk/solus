@@ -143,7 +143,7 @@ static uint32_t solu_kadd(solu_compiler *c, solu_val con) {
         solu_dalloc *ac = malloc(size);
         memcpy(ac, (char *)con.dyn - sizeof(solu_dalloc), size);
         con = (solu_val){SOLU_TDYN, .dyn=ac + 1};
-        solu_dheader(con)->mark = SOLU_DYN_GREEN;
+        solu_dheader(con)->held = true;
     }
     solu_valvec_push(&c->proto.constants, con);
     return c->proto.constants.count - 1;
@@ -500,8 +500,10 @@ solu_cnode_ex solu_cnode(solu_compiler *c, solu_node *node, uint32_t t_reg) {
                     solu_cemit(c, solu_ins_ab(SOLU_OP_NEG, t_reg, right));
                     break;
                 case TK_BANG: {
-                    solu_cemit(c, solu_ins_abc(SOLU_OP_EQ, 0, solu_reg(right), solu_const(1)));
+                    solu_cemit(c, solu_ins_abc(SOLU_OP_EQ, 1, solu_reg(right), solu_const(1)));
+                    solu_cemit(c, solu_ins_a(SOLU_OP_JMP, 2));
                     solu_cemit(c, solu_ins_ab(SOLU_OP_LOAD, t_reg, 1));
+                    solu_cemit(c, solu_ins_a(SOLU_OP_JMP, 1));
                     solu_cemit(c, solu_ins_ab(SOLU_OP_LOAD, t_reg, 0));
                     break;
                 }
@@ -875,7 +877,8 @@ solu_cnode_ex solu_cnode(solu_compiler *c, solu_node *node, uint32_t t_reg) {
                 .size = sizeof(solu_fproto),
                 .thread = 1,
                 .tt = SOLU_DFUN,
-                .mark = SOLU_DYN_GREEN,
+                .mark = SOLU_DYN_WHITE,
+                .held = true,
             };
             if (dd == NULL) c->alloc = dh;
             else {
