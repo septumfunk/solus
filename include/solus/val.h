@@ -166,8 +166,8 @@ typedef char *(*solu_usrtostring)(void *);
 typedef void (*solu_usrmark)(void *);
 typedef struct {
     sf_str name;
+    solu_val metafuns[SOLU_META_COUNT];
     solu_usrdel del;
-    solu_usrtostring tostring;
     solu_usrmark mark;
 } solu_usrwrap;
 

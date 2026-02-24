@@ -153,18 +153,33 @@ static solu_call_ex obj_pairs(solu_state *s) {
     return solu_ok(SOLU_NIL);
 }
 static solu_call_ex obj_foreach(solu_state *s) {
-    solu_val self = solu_get(s, 0);
-    expect_dtype(SOLU_DOBJ, self);
+    solu_val array = solu_get(s, 0);
+    expect_dtype(SOLU_DOBJ, array);
     solu_val callback = solu_get(s, 1);
     expect_dtype(SOLU_DFUN, callback);
 
-    solu_dobj *o = self.dyn;
+    solu_dobj *o = array.dyn;
     for (uint32_t i = 0; i < o->array.count; ++i) {
         solu_call_ex ex = solu_call(s, callback.dyn,
             (solu_val[]){o->array.data[i], (solu_val){SOLU_TI64, .i64 = (solu_i64)i}},
         2);
         if (!ex.is_ok) return ex;
     }
+    return solu_ok(SOLU_NIL);
+}
+static solu_call_ex obj_range(solu_state *s) {
+    solu_val array = solu_get(s, 0);
+    expect_dtype(SOLU_DOBJ, array);
+    solu_val start = solu_get(s, 1);
+    expect_type(SOLU_TI64, start);
+    solu_val end = solu_get(s, 2);
+    expect_type(SOLU_TI64, end);
+
+    solu_dobj *o = array.dyn;
+    solu_val new = solu_dnew(s, SOLU_DOBJ);
+    for (solu_i64 i = 0; i < o->array.count; ++i)
+        if (i >= start.i64 && i <= end.i64)
+            solu_valvec_push(&((solu_dobj *)new.dyn)->array, o->array.data[i]);
     return solu_ok(SOLU_NIL);
 }
 static solu_call_ex obj_members(solu_state *s) {
@@ -182,15 +197,20 @@ typedef struct {
     solu_state *s;
     solu_val fun;
 } solu_template;
-static char *template_tostring(void *_temp) {
-    solu_template *temp = _temp;
+static solu_call_ex template_tostring(solu_state *s) {
+    solu_template *temp = solu_capturec(s, 0).dyn;
     solu_call_ex ex = solu_call(temp->s, temp->fun.dyn, NULL, 0);
     if (!ex.is_ok) {
         sf_str fmt = sf_str_fmt("<%s>", ex.err.panic ? ex.err.panic : solu_err_string(ex.err.tt));
         solu_panic_cleanup(ex);
-        return fmt.c_str;
+        solu_val o = solu_dnstr(s, fmt.c_str);
+        sf_str_free(fmt);
+        return solu_ok(o);
     }
-    return solu_tostr(temp->s, ex.ok);
+    char *ss = solu_tostr(temp->s, ex.ok);
+    solu_val o = solu_dnstr(s, ss);
+    free(ss);
+    return solu_ok(o);
 }
 static void template_mark(void *_temp) {
     solu_template *temp = _temp;
@@ -203,7 +223,8 @@ static solu_call_ex obj_template(solu_state *s) {
     expect_dtype(SOLU_DFUN, serialize);
     solu_val ud = solu_dnusr(s, sizeof(solu_template), "template", &(solu_template){
         s, serialize,
-    }, NULL, template_tostring, template_mark);
+    }, NULL, template_mark);
+    solu_uheader(ud)->metafuns[SOLU_META_STR] = solu_wrapcfun(s, template_tostring, 0, &ud, 1);
     return solu_ok(ud);
 }
 
@@ -217,6 +238,7 @@ void solu_mod_obj(solu_state *s) {
     solu_dobj_strset(obj.dyn, "stringify", solu_wrapcfun(s, obj_stringify, 3, NULL, 0));
     solu_dobj_strset(obj.dyn, "pairs", solu_wrapcfun(s, obj_pairs, 2, NULL, 0));
     solu_dobj_strset(obj.dyn, "foreach", solu_wrapcfun(s, obj_foreach, 2, NULL, 0));
+    solu_dobj_strset(obj.dyn, "range", solu_wrapcfun(s, obj_range, 3, NULL, 0));
 
     solu_dobj_strset(obj.dyn, "members", solu_wrapcfun(s, obj_members, 1, NULL, 0));
     solu_dobj_strset(obj.dyn, "len", solu_wrapcfun(s, obj_len, 1, NULL, 0));

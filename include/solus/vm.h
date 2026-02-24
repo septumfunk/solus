@@ -63,7 +63,7 @@ EXPORT solu_val solu_dnew(solu_state *state, solu_dtype type);
 /// Constructs a dynamic usertype object, a dynamic type with extra user info.
 /// User types are managed by the GC so make sure you use solu_dhold if you don't want them to be!
 EXPORT solu_val solu_dnusr(solu_state *state, size_t size, const char *name, void *value,
-    solu_usrdel del, solu_usrtostring tostring, solu_usrmark mark);
+    solu_usrdel del, solu_usrmark mark);
 /// Shorthand for using solu_dnew and assigning a string value.
 EXPORT solu_val solu_dnstr(solu_state *state, const char *str);
 /// Shorthand for using solu_dnew and assigning a string value.
