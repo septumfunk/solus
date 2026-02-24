@@ -420,7 +420,7 @@ solu_cnode_ex solu_cnode(solu_compiler *c, solu_node *node, uint32_t t_reg) {
             c->inloop = false;
             if (!ex.is_ok) return ex;
 
-            uint32_t post_c = c->proto.code_c - 1;
+            uint32_t post_c = c->proto.code_c;
             solu_cnode_ex post = solu_cnode(c, node->n_for.post, UINT32_MAX);
             if (!post.is_ok) return post;
 
@@ -628,6 +628,7 @@ solu_cnode_ex solu_cnode(solu_compiler *c, solu_node *node, uint32_t t_reg) {
                     uint32_t key_r;
                     if (!ex.is_ok) return ex;
 
+                    bool ac = false;
                     if (node->n_binary.left->n_postfix.postfix->tt == SOLU_ND_LITERAL) {
                         uint32_t name_i;
                         if (!solu_kfind(c, node->n_binary.left->n_postfix.postfix->n_identifier, &name_i))
@@ -638,6 +639,7 @@ solu_cnode_ex solu_cnode(solu_compiler *c, solu_node *node, uint32_t t_reg) {
                         solu_cnode_ex ex = solu_cnode(c, node->n_binary.left->n_postfix.postfix, eval);
                         if (!ex.is_ok) return ex;
                         key_r = solu_reg(eval);
+                        ac = true;
                     }
 
                     if (node->n_binary.op == TK_PLUS_EQUAL && node->n_binary.right->tt == SOLU_ND_OBJ) {
@@ -646,7 +648,7 @@ solu_cnode_ex solu_cnode(solu_compiler *c, solu_node *node, uint32_t t_reg) {
                         solu_cemit(c, ins);
                         solu_cnode_ex ex = solu_cmembers(c, node->n_binary.right, ot);
                         if (!ex.is_ok) return ex;
-                        solu_ctemps(c, solu_iabc_bk(ins) ? 1 : 2);
+                        solu_ctemps(c, ac ? 1 : 2);
                         if (t_reg != UINT32_MAX)
                             solu_cemit(c, solu_ins_ab(SOLU_OP_MOVE, t_reg, ot));
                     } else {
