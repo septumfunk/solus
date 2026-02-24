@@ -116,7 +116,10 @@ static inline void solu_ctemps(solu_compiler *c, uint32_t count) {
 }
 /// Find whether a constant exists, and output the index if it does
 bool solu_kfind(solu_compiler *c, solu_val con, uint32_t *idx) {
-    if (con.tt == SOLU_TBOOL) return con.boolean;
+    if (con.tt == SOLU_TBOOL) {
+        *idx = con.boolean;
+        return true;
+    }
     for (uint32_t i = 0; i < c->proto.constants.count; ++i) {
         solu_val v = c->proto.constants.data[i];
         if (v.tt != con.tt) continue;
