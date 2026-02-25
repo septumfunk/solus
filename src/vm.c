@@ -21,8 +21,8 @@ solu_state *solu_state_new(void) {
     solu_state *s = malloc(sizeof(solu_state));
     *s = (solu_state){
         .stack = solu_valvec_new(),
-        .files = solu_filenames_new(),
         .strcache = solu_strcache_new(),
+        .frames = solu_frames_new(),
         .global = {SOLU_TDYN, .dyn = p},
         .lb = 1<<20, .cb = 0, .nb = 0,
         .call_stack = 0,
@@ -36,7 +36,7 @@ solu_state *solu_state_new(void) {
 
 void solu_state_free(solu_state *state) {
     solu_valvec_free(&state->stack);
-    solu_filenames_free(&state->files);
+    solu_frames_free(&state->frames);
     solu_strcache_free(&state->strcache);
     solu_dclean(state->global);
     free(state);
@@ -83,13 +83,19 @@ solu_compile_ex solu_cfile(solu_state *state, char *path) {
     sf_buffer_seek(&fsb.ok, SF_BUFFER_START, 0);
 
     char *realpath = solu_realpath(path);
-    if (!path) return solu_compile_ex_err((solu_compile_err){SOLU_ERRC_FILE_NOT_FOUND, 0, 0});
+    if (!realpath) {
+        sf_buffer_clear(&fsb.ok);
+        return solu_compile_ex_err((solu_compile_err){SOLU_ERRC_FILE_NOT_FOUND, 0, 0});
+    }
 
     solu_compile_ex ex = solu_cproto(sf_ref(realpath), (char *)fsb.ok.ptr, 0, NULL, 1, (solu_upvalue[]){
         (solu_upvalue){sf_lit("_g"), SOLU_UP_VAL, .value = state->global, .mut = false}
     });
-    if (!ex.is_ok) return ex;
     free(realpath);
+    if (!ex.is_ok) {
+        sf_buffer_clear(&fsb.ok);
+        return ex;
+    }
     ex.ok.line_c = 1;
     for (char *c = (char *)fsb.ok.ptr; *c != '\0'; ++c)
         if (*c == '\n') ++ex.ok.line_c;
@@ -334,6 +340,7 @@ solu_val solu_dscopy(solu_state *state, solu_val val, bool kconst) {
     *ac = *(solu_dheader(val));
     ac->size = solu_dheader(val)->size;
     ac->mark = SOLU_DYN_WHITE;
+    ac->held = false;
     ac->next = NULL;
     solu_val nv = (solu_val){SOLU_TDYN, .dyn=(char*)ac + sizeof(solu_dalloc)};
 
@@ -828,8 +835,6 @@ solu_call_ex solu_call_cfun(solu_state *state, solu_fproto *proto, const solu_va
 }
 
 solu_call_ex solu_call_bc(solu_state *s, solu_fproto *proto, const solu_val *args, uint32_t arg_c, bool *bps) {
-    if (proto->tt == SOLU_FPROTO_BC && !sf_isempty(proto->file_name))
-        solu_filenames_push(&s->files, sf_own(solu_realdir(proto->file_name.c_str)));
     #ifdef COMPUTE_GOTOS
     void *computed[] = {
         LABEL(SOLU_OP_LOAD),
@@ -1349,8 +1354,6 @@ ret: {}
     proto->dbg_res = 0;
     proto->dbg_ll = 0;
     solu_popframe(s);
-    if (proto->tt == SOLU_FPROTO_BC && proto->file_name.len > 0)
-        sf_str_free(solu_filenames_pop(&s->files));
     return solu_call_ex_ok(return_val);
 }
 
@@ -1362,10 +1365,8 @@ solu_call_ex solu_call(solu_state *state, solu_fproto *proto, const solu_val *ar
     state->ccall = proto;
     if (proto->tt == SOLU_FPROTO_BC) {
         solu_call_ex ex = solu_call_bc(state, proto, args, arg_c, NULL);
-        if (!ex.is_ok) {
+        if (!ex.is_ok)
             solu_popframe(state);
-            sf_str_free(solu_filenames_pop(&state->files));
-        }
         state->ccall = NULL;
         --state->call_stack;
         return ex;
@@ -1383,8 +1384,6 @@ solu_call_ex solu_dcall(solu_state *state, solu_fproto *proto, const solu_val *a
     ++state->call_stack;
     if (proto->tt == SOLU_FPROTO_BC) {
         solu_call_ex ex = solu_call_bc(state, proto, args, arg_c, bps);
-        if (!ex.is_ok)
-            sf_str_free(solu_filenames_pop(&state->files));
         --state->call_stack;
         return ex;
     }

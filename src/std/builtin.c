@@ -1,13 +1,13 @@
 #include "sf/containers/buffer.h"
+#include "solus/bytecode.h"
 #include "solus/val.h"
 #include "solus/vm.h"
 #include "std.h"
 #include <stdlib.h>
 #include <string.h>
 
-static inline sf_str solu_cwd(solu_state *state) {
-    if (state->files.count == 0) return sf_lit("./");
-    return sf_own((state->files.data + (state->files.count - 1))->c_str);
+static inline sf_str solu_cwd(solu_state *s) {
+    return sf_own(solu_realdir(solu_realpath(s->ccall->file_name.len ? s->ccall->file_name.c_str : ".")));
 }
 
 static solu_call_ex builtin_import(solu_state *s) {

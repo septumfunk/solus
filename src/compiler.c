@@ -29,23 +29,31 @@ typedef struct {
 } solu_local;
 
 struct solu_scope;
-
+static void _solu_scope_cleanup(struct solu_scope *);
 #define MAP_NAME solu_scope
 #define MAP_K sf_str
 #define MAP_V solu_local
 #define EQUAL_FN sf_str_eq
 #define HASH_FN sf_str_hash
 #define KCLEANUP sf_str_free
+#define CLEANUP_FN _solu_scope_cleanup
 #include <sf/containers/map.h>
+static void _solu_scope_fe(void *ud, sf_str key, solu_local loc) {
+    (void)ud; (void)loc;
+    sf_str_free(key);
+}
+static void _solu_scope_cleanup(struct solu_scope *s) {
+    solu_scope_foreach(s, _solu_scope_fe, NULL);
+}
 
 struct solu_scopes;
-void _solu_scopes_cleanup(struct solu_scopes *);
+static void _solu_scopes_cleanup(struct solu_scopes *);
 #define VEC_NAME solu_scopes
 #define VEC_T solu_scope
 #define VSIZE_T uint32_t
 #define CLEANUP_FN _solu_scopes_cleanup
 #include <sf/containers/vec.h>
-void _solu_scopes_cleanup(struct solu_scopes *v) {
+static void _solu_scopes_cleanup(struct solu_scopes *v) {
     for (size_t i = 0; i < v->count; ++i)
         solu_scope_free(v->data + i);
 }
@@ -909,17 +917,24 @@ solu_compile_ex solu_cproto(sf_str path, char *src, uint32_t arg_c, solu_val *ar
         return solu_compile_ex_err((solu_compile_err){SOLU_ERRP_EXPECTED_SOURCE, 0, 0});
     solu_scan_ex scan_ex = solu_scan(sf_ref(src));
     solu_parse_ex par_ex = solu_parse(path, scan_ex);
-    if (!par_ex.is_ok)
+    solu_tokenvec_free(&scan_ex.ok.tv);
+    if (!par_ex.is_ok) {
+        for (solu_dalloc *ac = scan_ex.ok.alloc; ac; ) {
+            solu_dalloc *next = ac->next;
+            free(ac);
+            ac = next;
+        }
         return solu_compile_ex_err((solu_compile_err){
             .tt = par_ex.err.tt,
             .line = par_ex.err.token.line,
             .column = par_ex.err.token.column,
         });
+    }
 
     solu_compile_ex ex = solu_cfun(0, scan_ex.ok.alloc, par_ex.ok, arg_c, args, up_c, upvals);
     solu_node_free(par_ex.ok);
 
-    for (solu_dalloc *ac = scan_ex.ok.alloc; ac; ) {
+    for (solu_dalloc *ac = scan_ex.ok.alloc; ac;) {
         solu_dalloc *next = ac->next;
         free(ac);
         ac = next;

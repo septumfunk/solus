@@ -20,17 +20,19 @@ typedef struct {
 #define VSIZE_MAX UINT32_MAX
 #include <sf/containers/vec.h>
 /// File name stack
+typedef struct solu_filenames solu_filenames;
+void _solu_filenames_cleanup(solu_filenames *);
 #define VEC_NAME solu_filenames
 #define VEC_T sf_str
 #define VSIZE_T uint32_t
 #define VSIZE_MAX UINT32_MAX
+#define CLEANUP_FN _solu_filenames_cleanup
 #include <sf/containers/vec.h>
 
 /// The main global state for the VM, responsible for the stack and any globals/caching
 typedef struct solu_state {
     solu_valvec stack; // registers/stack
     solu_frames frames; // stack frames
-    solu_filenames files; // filename stack
     solu_val global; // _g
     uint32_t call_stack;
 

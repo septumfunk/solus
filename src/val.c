@@ -70,6 +70,7 @@ solu_fproto solu_fproto_c(solu_cfunction c_fun, uint32_t arg_c, solu_val *captur
 }
 
 void solu_fproto_free(solu_fproto *proto) {
+    sf_str_free(proto->file_name);
     if (proto->tt == SOLU_FPROTO_BC && proto->code) {
         free(proto->code);
         if (proto->dbg) free(proto->dbg);

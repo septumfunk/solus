@@ -117,12 +117,14 @@ solu_token solu_scanstr(solu_scanner *s, char quote) {
     uint16_t c = s->current.column;
     s->current.column += (uint16_t)(cc - s->cc) + 1;
     s->cc = cc;
-    return (solu_token){
+    solu_token tk = (solu_token){
         TK_STRING,
         solu_scan_str(s, sf_own(buf)),
         s->current.line,
         c,
     };
+    free(buf);
+    return tk;
 error:
     free(buf);
     return (solu_token){TK_NIL, SOLU_NIL, 0, 0};
@@ -201,11 +203,11 @@ solu_token solu_scanidentifier(solu_scanner *s) {
             .column = column,
         };
     } else {
-        sf_str ds = sf_str_cdup(str);
+        solu_val val = solu_scan_str(s, sf_ref(str));
         free(str);
         return (solu_token){
             .tt = TK_IDENTIFIER,
-            .value = solu_scan_str(s, ds),
+            .value = val,
             .line = s->current.line,
             .column = column,
         };
@@ -357,6 +359,11 @@ solu_scan_ex solu_scan(sf_str src) {
                         break;
                     ++tk_len;
                 }
+                for (solu_dalloc *ac = s.alloc; ac; ) {
+                    solu_dalloc *next = ac->next;
+                    free(ac);
+                    ac = next;
+                }
                 char *str = calloc(1, tk_len + 1);
                 memcpy(str, s.src.c_str + pcc, tk_len);
                 return solu_scan_ex_err((solu_scan_err){eval, sf_own(str), s.current.line, s.current.column});
@@ -418,6 +425,7 @@ void solu_node_free(solu_node *tree) {
             break;
         case SOLU_ND_POSTFIX:
             solu_node_free(tree->n_postfix.expr);
+            solu_node_free(tree->n_postfix.postfix);
             break;
         case SOLU_ND_CALL:
             solu_node_free(tree->n_call.identifier);
@@ -789,10 +797,6 @@ solu_parse_ex solu_pif(solu_parser *p) {
     if (!cex.is_ok) return cex;
 
     solu_parse_ex tex = p->tok->tt == TK_LEFT_BRACE ? solu_pblock(p) : solu_pstmt(p);
-    if (!tex.is_ok) {
-        solu_node_free(cex.ok);
-        return tex;
-    }
     if (!tex.is_ok) {
         solu_node_free(cex.ok);
         return tex;
@@ -1449,6 +1453,11 @@ solu_parse_ex solu_parse(sf_str path, solu_scan_ex scan_ex) {
     if (!scan_ex.is_ok) return solu_parse_ex_err((solu_parse_err){
         scan_ex.err.tt, (solu_token){.line = scan_ex.err.line, .column = scan_ex.err.column}
     });
+
     solu_pshared shared = {scan_ex.ok.alloc, solu_includecache_new(), solu_visited_new()};
-    return _solu_parse(path, &scan_ex.ok.tv, &shared);
+    solu_parse_ex e = _solu_parse(path, &scan_ex.ok.tv, &shared);
+
+    solu_includecache_free(&shared.includes);
+    solu_visited_free(&shared.visited);
+    return e;
 }

@@ -63,7 +63,8 @@ static sf_str solu_try_realpath(const char *_cwd, sf_str p) {
             #endif
         );
         sf_str_append(&cwd, p);
-        rp = sf_own(solu_realpath(cwd.c_str));
+        char *c = solu_realpath(cwd.c_str);
+        rp = sf_own(c);
         sf_str_free(cwd);
     }
 
@@ -82,6 +83,8 @@ char *solu_findfile(const char *cwd, const char *rel_path) {
 
     sf_str rp0 = solu_try_realpath(cwd, base);
     if (rp0.c_str) { sf_str_free(base); return rp0.c_str; }
+    sf_str_free(rp0);
+
     if (!has_ext) {
         sf_str p1 = sf_str_dup(base);
         sf_str_append(&p1, sf_lit(".solu"));
@@ -89,6 +92,7 @@ char *solu_findfile(const char *cwd, const char *rel_path) {
         sf_str rp1 = solu_try_realpath(cwd, p1);
         sf_str_free(p1);
         if (rp1.c_str) { sf_str_free(base); return rp1.c_str; }
+        sf_str_free(rp1);
 
         sf_str p2 = sf_str_dup(base);
         sf_str_append(&p2, sf_lit(".solus"));
@@ -96,6 +100,7 @@ char *solu_findfile(const char *cwd, const char *rel_path) {
         sf_str rp2 = solu_try_realpath(cwd, p2);
         sf_str_free(p2);
         if (rp2.c_str) { sf_str_free(base); return rp2.c_str; }
+        sf_str_free(rp2);
 
         sf_str p3 = sf_str_dup(base);
         sf_str_append(&p3, sf_lit(".solc"));
@@ -103,6 +108,7 @@ char *solu_findfile(const char *cwd, const char *rel_path) {
         sf_str rp3 = solu_try_realpath(cwd, p3);
         sf_str_free(p3);
         if (rp3.c_str) { sf_str_free(base); return rp3.c_str; }
+        sf_str_free(rp3);
     }
 
     sf_str_free(base);
