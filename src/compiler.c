@@ -753,21 +753,42 @@ solu_cnode_ex solu_cnode(solu_compiler *c, solu_node *node, uint32_t t_reg) {
             return solu_cnode_ex_ok();
         }
         case SOLU_ND_CALL: {
-            uint32_t f_reg = solu_rtemp(c);
-            solu_cnode_ex lex = solu_cnode(c, node->n_call.identifier, f_reg);
-            if (!lex.is_ok) return lex;
+            if (node->n_call.identifier->tt == SOLU_ND_POSTFIX) {
+                solu_node *pf = node->n_call.identifier;
+                uint32_t lhs = solu_rtemp(c);
+                solu_cnode_ex lex = solu_cnode(c, node->n_postfix.expr, lhs);
+                if (!lex.is_ok) return lex;
 
-            for (uint32_t i = 0; i < node->n_call.arg_c; ++i)
-                solu_rtemp(c);
-            for (uint32_t i = 0; i < node->n_call.arg_c; ++i) {
-                uint32_t r = f_reg + 1 + i;
-                solu_cnode_ex ex = solu_cnode(c, node->n_call.args[i], r);
-                if (!ex.is_ok) return ex;
+                uint32_t rhs = solu_rtemp(c);
+                solu_cnode_ex rex = solu_cnode(c, pf->n_postfix.postfix, rhs);
+                if (!rex.is_ok) return rex;
+
+                for (uint32_t i = 0; i < node->n_call.arg_c; ++i)
+                    solu_rtemp(c);
+                for (uint32_t i = 0; i < node->n_call.arg_c; ++i) {
+                    uint32_t r = rhs + 1 + i;
+                    solu_cnode_ex ex = solu_cnode(c, node->n_call.args[i], r);
+                    if (!ex.is_ok) return ex;
+                }
+
+                solu_cemit(c, solu_ins_abc(SOLU_OP_MCALL, t_reg == UINT32_MAX ? solu_rtemp(c) : t_reg, solu_reg(lhs), solu_reg(node->n_call.arg_c)));
+                solu_ctemps(c, node->n_call.arg_c + 2);
+            } else {
+                uint32_t f_reg = solu_rtemp(c);
+                solu_cnode_ex lex = solu_cnode(c, node->n_call.identifier, f_reg);
+                if (!lex.is_ok) return lex;
+
+                for (uint32_t i = 0; i < node->n_call.arg_c; ++i)
+                    solu_rtemp(c);
+                for (uint32_t i = 0; i < node->n_call.arg_c; ++i) {
+                    uint32_t r = f_reg + 1 + i;
+                    solu_cnode_ex ex = solu_cnode(c, node->n_call.args[i], r);
+                    if (!ex.is_ok) return ex;
+                }
+
+                solu_cemit(c, solu_ins_abc(SOLU_OP_CALL, t_reg == UINT32_MAX ? solu_rtemp(c) : t_reg, solu_reg(f_reg), solu_reg(node->n_call.arg_c)));
+                solu_ctemps(c, t_reg == UINT32_MAX ? node->n_call.arg_c + 2 : node->n_call.arg_c + 1);
             }
-
-            solu_cemit(c, solu_ins_abc(SOLU_OP_CALL, t_reg == UINT32_MAX ? solu_rtemp(c) : t_reg, solu_reg(f_reg), solu_reg(node->n_call.arg_c)));
-
-            solu_ctemps(c, t_reg == UINT32_MAX ? node->n_call.arg_c + 2 : node->n_call.arg_c + 1);
             return solu_cnode_ex_ok();
         }
         // literals

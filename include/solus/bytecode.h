@@ -32,6 +32,7 @@ typedef enum {
     SOLU_OP_RET,
     SOLU_OP_JMP,
     SOLU_OP_CALL,
+    SOLU_OP_MCALL,
 
     SOLU_OP_ADD,
     SOLU_OP_SUB,

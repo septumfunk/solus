@@ -842,6 +842,7 @@ solu_call_ex solu_call_bc(solu_state *s, solu_fproto *proto, const solu_val *arg
         LABEL(SOLU_OP_RET),
         LABEL(SOLU_OP_JMP),
         LABEL(SOLU_OP_CALL),
+        LABEL(SOLU_OP_MCALL),
 
         LABEL(SOLU_OP_ADD),
         LABEL(SOLU_OP_SUB),
@@ -929,6 +930,68 @@ solu_call_ex solu_call_bc(solu_state *s, solu_fproto *proto, const solu_val *arg
                 solu_val *argv = calloc(argc, sizeof(solu_val));
                 for (uint32_t i = 0; i < argc && i < s->frames.data[s->frames.count - 1].size; ++i)
                     argv[i] = solu_get(s, fun_r + i + 1);
+                fex = solu_call(s, f, argv, argc);
+                free(argv);
+            } else fex = solu_call(s, f, NULL, 0);
+
+            if (!fex.is_ok) {
+                fex.err.pc = pc - 1;
+                return fex;
+            }
+            solu_set(s, solu_iabc_a(ins), fex.ok);
+            DISPATCH();
+        }
+        CASE(SOLU_OP_MCALL) {
+            uint32_t obj_r = solu_iabc_bx(ins);
+            solu_val obj = solu_get(s, obj_r);
+            solu_val key = solu_get(s, obj_r + 1);
+
+            solu_val get = SOLU_NIL;
+            bool u = false;
+            if (solu_isdtype(obj, SOLU_DUSR)) {
+                u = true;
+                get = solu_uheader(obj)->metafuns[SOLU_META_GET];
+            } else {
+                if (!solu_isdtype(obj, SOLU_DOBJ))
+                    return solu_callerr(SOLU_ERRV_TYPE_MISMATCH, "Attempted to index type %s", solu_typename(obj).c_str);
+                get = ((solu_dobj *)obj.dyn)->metafuns[SOLU_META_GET];
+            }
+
+            solu_val fun;
+            if (solu_isdtype(get, SOLU_DFUN)) {
+                solu_call_ex ex = solu_call(s, get.dyn, (solu_val[]){key}, 1);
+                if (!ex.is_ok) return ex;
+                fun = ex.ok;
+            } else if (u)
+                return solu_callerr(SOLU_ERRV_TYPE_MISMATCH, "Attempted to index type %s", solu_typename(obj).c_str);
+            else fun = solu_dobj_get(s, obj.dyn, key);
+
+            if (solu_isdtype(fun, SOLU_DOBJ)) {
+                solu_val call = ((solu_dobj *)fun.dyn)->metafuns[SOLU_META_CALL];
+                if (solu_isdtype(call, SOLU_DFUN))
+                    fun = call;
+            }
+            if (solu_isdtype(fun, SOLU_DUSR)) {
+                solu_val call = solu_uheader(fun)->metafuns[SOLU_META_CALL];
+                if (solu_isdtype(call, SOLU_DFUN))
+                    fun = call;
+            }
+            if (!solu_isdtype(fun, SOLU_DFUN)) {
+                if (solu_isdtype(fun, SOLU_DERR))
+                    return solu_callerr(SOLU_ERRV_TYPE_MISMATCH, "Attempted to call type %s: %s", solu_typename(fun).c_str, fun.dyn);
+                return solu_callerr(SOLU_ERRV_TYPE_MISMATCH, "Attempted to call type %s", solu_typename(fun).c_str);
+            }
+
+            solu_fproto *f = fun.dyn;
+            if (f->up_c && sf_str_eq(f->upvals[0].name, sf_lit("self")))
+                f->upvals[0].value = obj;
+
+            solu_call_ex fex;
+            uint32_t argc = solu_iabc_cx(ins);
+            if (argc > 0) {
+                solu_val *argv = calloc(argc, sizeof(solu_val));
+                for (uint32_t i = 0; i < argc && i < s->frames.data[s->frames.count - 1].size; ++i)
+                    argv[i] = solu_get(s, obj_r + i + 2);
                 fex = solu_call(s, f, argv, argc);
                 free(argv);
             } else fex = solu_call(s, f, NULL, 0);

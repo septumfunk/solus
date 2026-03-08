@@ -157,6 +157,11 @@ const solu_inssig SOLU_OP_INFO[SOLU_OP_COUNT] = {
         .mnemonic = "CALL",
         .type = SOLU_INS_ABC,
     },
+    [SOLU_OP_MCALL] = {
+        .opcode = SOLU_OP_MCALL,
+        .mnemonic = "MCALL",
+        .type = SOLU_INS_ABC,
+    },
 
     [SOLU_OP_ADD] = {
         .opcode = SOLU_OP_ADD,
