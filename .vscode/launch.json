@@ -24,6 +24,28 @@
       }
     },
     {
+      "name": "Sanitize CLI",
+      "request": "launch",
+      "program": "${workspaceRoot}/build/sanitized/solus",
+      "args": ["${input:cliMode}", "solus.tests/${input:scriptName}"],
+      "cwd": "${workspaceRoot}",
+      "terminal": "integrated",
+
+      // Defaults (Linux/macOS)
+      "type": "lldb",
+      "env": {
+        "ASAN_OPTIONS": "detect_leaks=0:disable_coredump=0",
+        "LSAN_OPTIONS": "detect_leaks=0"
+      },
+
+      // Windows overrides
+      "windows": {
+        "type": "cppvsdbg",
+        "program": "${workspaceRoot}/build/sanitized/solus.exe",
+        "args": ["${input:cliMode}", "solus.tests/${input:scriptName}"],
+      }
+    },
+    {
       "name": "Run Tests",
       "request": "launch",
       "program": "${workspaceRoot}/build/solus",

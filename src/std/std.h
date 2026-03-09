@@ -14,10 +14,10 @@
 } while (0);
 
 EXPORT void solu_mod_builtin(solu_state *s);
-EXPORT void solu_mod_io(solu_state *s);
-EXPORT void solu_mod_string(solu_state *s);
-EXPORT void solu_mod_obj(solu_state *s);
-EXPORT void solu_mod_math(solu_state *s);
-EXPORT void solu_mod_gc(solu_state *s);
+EXPORT solu_val solu_mod_io(solu_state *s);
+EXPORT solu_val solu_mod_string(solu_state *s);
+EXPORT solu_val solu_mod_obj(solu_state *s);
+EXPORT solu_val solu_mod_math(solu_state *s);
+EXPORT solu_val solu_mod_gc(solu_state *s);
 
 #endif // STD_H

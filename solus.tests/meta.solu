@@ -1,15 +1,11 @@
 # meta.solu
-var og = {};
-var meta = {
-    storage = { x = 2, y = 2 }
-    _str = [og]() { $"{{{og.x}, {og.y}}}" }
-    _set = [self](key, value) { self.storage[key] = value; }
-    _get = [self](key) { self.storage[key] }
-    _call = [og]() { str(og) }
-};
+io.println((3 + 4).str());
+'testes'.split('e').foreach([](i) { io.println(i) });
 
+##
 obj.usemeta(og, meta);
 assert(obj.meta(og) != nil);
 assert(og() == "{2, 2}");
 og["hello"] = 123;
 assert(og["hello"] == 123);
+##

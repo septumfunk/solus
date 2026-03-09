@@ -7,19 +7,21 @@ static solu_call_ex obj_new(solu_state *s) {
     return solu_ok(solu_dnew(s, SOLU_DOBJ));
 }
 static solu_call_ex obj_set(solu_state *s) {
-    solu_val obj = solu_get(s, 0);
+    solu_val obj = solu_selfc(s);
     expect_dtype(SOLU_DOBJ, obj);
     solu_dobj_set(s, obj.dyn, solu_get(s, 1), solu_get(s, 2));
     return solu_ok(SOLU_NIL);
 }
 static solu_call_ex obj_get(solu_state *s) {
     solu_val obj = solu_get(s, 0);
+    if (!solu_isdtype(obj, SOLU_DOBJ) && s->ccall->up_c)
+        obj = solu_capturec(s, 0);
     expect_dtype(SOLU_DOBJ, obj);
     return solu_ok(solu_dobj_get(s, obj.dyn, solu_get(s, 1)));
 }
 
 static solu_call_ex obj_usemeta(solu_state *s) {
-    solu_val obj = solu_get(s, 0);
+    solu_val obj = solu_selfc(s);
     expect_dtype(SOLU_DOBJ, obj);
     solu_val meta = solu_get(s, 1);
     solu_dobj *objp = obj.dyn;
@@ -31,18 +33,12 @@ static solu_call_ex obj_usemeta(solu_state *s) {
     expect_dtype(SOLU_DOBJ, meta);
 
     solu_dobj *metap = meta.dyn;
-    memset(&objp->metafuns, 0, SOLU_META_COUNT * sizeof(solu_val));
-    objp->meta = meta;
-
-    objp->metafuns[SOLU_META_GET] = solu_dobj_strget(metap, "_get");
-    objp->metafuns[SOLU_META_SET] = solu_dobj_strget(metap, "_set");
-    objp->metafuns[SOLU_META_CALL] = solu_dobj_strget(metap, "_call");
-    objp->metafuns[SOLU_META_STR] = solu_dobj_strget(metap, "_str");
+    solu_usemeta(objp, metap);
 
     return solu_ok(SOLU_NIL);
 }
 static solu_call_ex obj_meta(solu_state *s) {
-    solu_val obj = solu_get(s, 0);
+    solu_val obj = solu_selfc(s);
     expect_dtype(SOLU_DOBJ, obj);
     return solu_ok(((solu_dobj *)obj.dyn)->meta);
 }
@@ -107,7 +103,7 @@ static void _stringify_fe(void *u, sf_str key, solu_val val) {
     sf_str_append(args->out, ec);
 }
 solu_call_ex obj_stringify(solu_state *s) {
-    solu_val obj = solu_get(s, 0);
+    solu_val obj = solu_selfc(s);
     expect_dtype(SOLU_DOBJ, obj);
     solu_val pretty = solu_get(s, 1);
     solu_val commas = solu_get(s, 2);
@@ -139,21 +135,21 @@ static void _obj_fe(void *u, sf_str key, solu_val val) {
         longjmp(*args->b, 1);
 }
 static solu_call_ex obj_pairs(solu_state *s) {
-    solu_val self = solu_get(s, 0);
-    expect_dtype(SOLU_DOBJ, self);
+    solu_val obj = solu_selfc(s);
+    expect_dtype(SOLU_DOBJ, obj);
     solu_val callback = solu_get(s, 1);
     expect_dtype(SOLU_DFUN, callback);
 
     jmp_buf ctx;
     _obj_fe_args args = {s, callback.dyn, solu_ok(SOLU_NIL), &ctx};
     if (setjmp(ctx) == 0)
-        solu_valmap_foreach(&((solu_dobj *)self.dyn)->map, _obj_fe, &args);
+        solu_valmap_foreach(&((solu_dobj *)obj.dyn)->map, _obj_fe, &args);
     else return args.ex;
 
     return solu_ok(SOLU_NIL);
 }
 static solu_call_ex obj_foreach(solu_state *s) {
-    solu_val array = solu_get(s, 0);
+    solu_val array = solu_selfc(s);
     expect_dtype(SOLU_DOBJ, array);
     solu_val callback = solu_get(s, 1);
     expect_dtype(SOLU_DFUN, callback);
@@ -168,7 +164,7 @@ static solu_call_ex obj_foreach(solu_state *s) {
     return solu_ok(SOLU_NIL);
 }
 static solu_call_ex obj_range(solu_state *s) {
-    solu_val array = solu_get(s, 0);
+    solu_val array = solu_selfc(s);
     expect_dtype(SOLU_DOBJ, array);
     solu_val start = solu_get(s, 1);
     expect_type(SOLU_TI64, start);
@@ -183,12 +179,12 @@ static solu_call_ex obj_range(solu_state *s) {
     return solu_ok(SOLU_NIL);
 }
 static solu_call_ex obj_members(solu_state *s) {
-    solu_val obj = solu_get(s, 0);
+    solu_val obj = solu_selfc(s);
     expect_dtype(SOLU_DOBJ, obj);
     return solu_ok((solu_val){SOLU_TI64, .i64 = (solu_i64)((solu_dobj *)obj.dyn)->map.pair_count});
 }
 static solu_call_ex obj_len(solu_state *s) {
-    solu_val obj = solu_get(s, 0);
+    solu_val obj = solu_selfc(s);
     expect_dtype(SOLU_DOBJ, obj);
     return solu_ok((solu_val){SOLU_TI64, .i64 = (solu_i64)((solu_dobj *)obj.dyn)->array.count});
 }
@@ -228,22 +224,23 @@ static solu_call_ex obj_template(solu_state *s) {
     return solu_ok(ud);
 }
 
-void solu_mod_obj(solu_state *s) {
+solu_val solu_mod_obj(solu_state *s) {
     solu_val obj = solu_dnew(s, SOLU_DOBJ);
-    solu_dobj_strset(obj.dyn, "new", solu_wrapcfun(s, obj_new, 0, NULL, 0));
-    solu_dobj_strset(obj.dyn, "set", solu_wrapcfun(s, obj_set, 3, NULL, 0));
-    solu_dobj_strset(obj.dyn, "get", solu_wrapcfun(s, obj_get, 2, NULL, 0));
-    solu_dobj_strset(obj.dyn, "usemeta", solu_wrapcfun(s, obj_usemeta, 2, NULL, 0));
-    solu_dobj_strset(obj.dyn, "meta", solu_wrapcfun(s, obj_meta, 1, NULL, 0));
-    solu_dobj_strset(obj.dyn, "stringify", solu_wrapcfun(s, obj_stringify, 3, NULL, 0));
-    solu_dobj_strset(obj.dyn, "pairs", solu_wrapcfun(s, obj_pairs, 2, NULL, 0));
-    solu_dobj_strset(obj.dyn, "foreach", solu_wrapcfun(s, obj_foreach, 2, NULL, 0));
-    solu_dobj_strset(obj.dyn, "range", solu_wrapcfun(s, obj_range, 3, NULL, 0));
+    solu_dobj_strset(obj.dyn, "new", solu_wrapmfun(s, obj_new, 0, NULL, 0));
+    solu_dobj_strset(obj.dyn, "set", solu_wrapmfun(s, obj_set, 3, NULL, 0));
+    solu_dobj_strset(obj.dyn, "get", solu_wrapmfun(s, obj_get, 2, NULL, 0));
+    solu_dobj_strset(obj.dyn, "usemeta", solu_wrapmfun(s, obj_usemeta, 2, NULL, 0));
+    solu_dobj_strset(obj.dyn, "meta", solu_wrapmfun(s, obj_meta, 1, NULL, 0));
+    solu_dobj_strset(obj.dyn, "stringify", solu_wrapmfun(s, obj_stringify, 3, NULL, 0));
+    solu_dobj_strset(obj.dyn, "pairs", solu_wrapmfun(s, obj_pairs, 2, NULL, 0));
+    solu_dobj_strset(obj.dyn, "foreach", solu_wrapmfun(s, obj_foreach, 2, NULL, 0));
+    solu_dobj_strset(obj.dyn, "range", solu_wrapmfun(s, obj_range, 3, NULL, 0));
 
-    solu_dobj_strset(obj.dyn, "members", solu_wrapcfun(s, obj_members, 1, NULL, 0));
-    solu_dobj_strset(obj.dyn, "len", solu_wrapcfun(s, obj_len, 1, NULL, 0));
+    solu_dobj_strset(obj.dyn, "members", solu_wrapmfun(s, obj_members, 1, NULL, 0));
+    solu_dobj_strset(obj.dyn, "len", solu_wrapmfun(s, obj_len, 1, NULL, 0));
 
-    solu_dobj_strset(obj.dyn, "template", solu_wrapcfun(s, obj_template, 1, NULL, 0));
+    solu_dobj_strset(obj.dyn, "template", solu_wrapmfun(s, obj_template, 1, NULL, 0));
 
     solu_dobj_strset(s->global.dyn, "obj", obj);
+    return obj;
 }

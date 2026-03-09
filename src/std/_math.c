@@ -81,7 +81,7 @@ static solu_call_ex math_randf(solu_state *s) {
     return solu_ok((solu_val){ .tt = SOLU_TF64, .f64 = val });
 }
 
-void solu_mod_math(solu_state *s) {
+solu_val solu_mod_math(solu_state *s) {
     solu_val math = solu_dnew(s, SOLU_DOBJ);
     solu_dobj_strset(math.dyn, "mini", solu_wrapcfun(s, math_mini, 2, NULL, 0));
     solu_dobj_strset(math.dyn, "maxi", solu_wrapcfun(s, math_maxi, 2, NULL, 0));
@@ -91,4 +91,5 @@ void solu_mod_math(solu_state *s) {
     solu_dobj_strset(math.dyn, "randf", solu_wrapcfun(s, math_randf, 2, NULL, 0));
     solu_dobj_strset(s->global.dyn, "math", math);
     srand((unsigned)time(NULL));
+    return math;
 }

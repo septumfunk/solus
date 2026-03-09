@@ -5,6 +5,7 @@
 #include "solus/vm.h"
 #include "sf/containers/buffer.h"
 #include "sf/fs.h"
+#include "solus/bytecode.h"
 #include "solus/val.h"
 #include "solus/compiler.h"
 #include "sf/str.h"
@@ -49,9 +50,14 @@ void solu_usestd(solu_state *s) {
     solu_dobj_strset(s->global.dyn, "solus", solus);
 
     solu_mod_builtin(s);
+    s->std.string = solu_mod_string(s);
+    ((solu_dobj *)s->std.string.dyn)->metafuns[SOLU_META_EXTEND] = s->std.base;
+    s->std.obj = solu_mod_obj(s);
+    ((solu_dobj *)s->std.obj.dyn)->metafuns[SOLU_META_EXTEND] = s->std.base;
+    solu_dhold(s->std.string);
+    solu_dhold(s->std.obj);
+
     solu_mod_io(s);
-    solu_mod_string(s);
-    solu_mod_obj(s);
     solu_mod_math(s);
     solu_mod_gc(s);
 }
@@ -144,7 +150,11 @@ solu_val solu_dnew(solu_state *s, solu_dtype tt) {
     switch (tt) {
         case SOLU_DSTR:
         case SOLU_DERR: break;
-        case SOLU_DOBJ: *(solu_dobj *)p = solu_dobj_new(); break;
+        case SOLU_DOBJ:
+            *(solu_dobj *)p = solu_dobj_new();
+            if (s->std.obj.tt != SOLU_TNIL)
+                ((solu_dobj *)p)->metafuns[SOLU_META_EXTEND] = s->std.obj;
+            break;
         case SOLU_DFUN: *(solu_fproto *)p = solu_fproto_new(); break;
         case SOLU_DREF: *(solu_val *)p = SOLU_NIL; break;
 
@@ -270,10 +280,10 @@ solu_val solu_dobj_get(solu_state *s, solu_dobj *obj, solu_val key) {
         return solu_valvec_get(&obj->array, nkey);
     }
     char *nkey = solu_isdtype(key, SOLU_DSTR) ? key.dyn : solu_tostr(s, key);
-    solu_valmap_ex ex = solu_valmap_get(&obj->map, sf_ref(nkey));
+    solu_val ex = solu_dobj_strget(obj, nkey);
     if (!solu_isdtype(key, SOLU_DSTR))
         free(nkey);
-    return ex.is_ok ? ex.ok : SOLU_NIL;
+    return ex;
 }
 
 void solu_dobj_set(solu_state *s, solu_dobj *obj, solu_val key, solu_val val) {
@@ -947,54 +957,91 @@ solu_call_ex solu_call_bc(solu_state *s, solu_fproto *proto, const solu_val *arg
             solu_val key = solu_get(s, obj_r + 1);
 
             solu_val get = SOLU_NIL;
-            bool u = false;
+            solu_val fun = SOLU_NIL;
+            bool usr = false;
+            bool prim = false;
+
             if (solu_isdtype(obj, SOLU_DUSR)) {
-                u = true;
+                usr = true;
                 get = solu_uheader(obj)->metafuns[SOLU_META_GET];
             } else {
-                if (!solu_isdtype(obj, SOLU_DOBJ))
+                solu_dtype dt = solu_dtypeof(obj);
+                switch (dt) {
+                    case SOLU_DOBJ:
+                        get = ((solu_dobj *)obj.dyn)->metafuns[SOLU_META_GET];
+                        break;
+
+                    case SOLU_DSTR: {
+                        prim = true;
+                        solu_val str = s->std.string;
+                        if (str.tt != SOLU_TDYN)
+                            return solu_callerr(SOLU_ERRV_PANIC, "The std needs to be included to call member functions on non-objects", NULL);
+                        fun = solu_dobj_get(s, str.dyn, key);
+                        break;
+                    }
+                    default: {
+                        prim = true;
+                        solu_val base = s->std.base;
+                        if (base.tt != SOLU_TDYN)
+                            return solu_callerr(SOLU_ERRV_PANIC, "The std needs to be included to call member functions on non-objects", NULL);
+                        fun = solu_dobj_get(s, base.dyn, key);
+                        break;
+                    }
+                }
+                if (dt != SOLU_DOBJ && !solu_isdtype(fun, SOLU_DFUN))
+                    return solu_callerr(SOLU_ERRV_PANIC, "Member function not found", NULL);
+            }
+
+            if (!prim) {
+                if (solu_isdtype(get, SOLU_DFUN)) {
+                    solu_call_ex ex = solu_call(s, get.dyn, (solu_val[]){key}, 1);
+                    if (!ex.is_ok) return ex;
+                    fun = ex.ok;
+                } else if (usr)
                     return solu_callerr(SOLU_ERRV_TYPE_MISMATCH, "Attempted to index type %s", solu_typename(obj).c_str);
-                get = ((solu_dobj *)obj.dyn)->metafuns[SOLU_META_GET];
-            }
+                else fun = solu_dobj_get(s, obj.dyn, key);
 
-            solu_val fun;
-            if (solu_isdtype(get, SOLU_DFUN)) {
-                solu_call_ex ex = solu_call(s, get.dyn, (solu_val[]){key}, 1);
-                if (!ex.is_ok) return ex;
-                fun = ex.ok;
-            } else if (u)
-                return solu_callerr(SOLU_ERRV_TYPE_MISMATCH, "Attempted to index type %s", solu_typename(obj).c_str);
-            else fun = solu_dobj_get(s, obj.dyn, key);
-
-            if (solu_isdtype(fun, SOLU_DOBJ)) {
-                solu_val call = ((solu_dobj *)fun.dyn)->metafuns[SOLU_META_CALL];
-                if (solu_isdtype(call, SOLU_DFUN))
-                    fun = call;
-            }
-            if (solu_isdtype(fun, SOLU_DUSR)) {
-                solu_val call = solu_uheader(fun)->metafuns[SOLU_META_CALL];
-                if (solu_isdtype(call, SOLU_DFUN))
-                    fun = call;
-            }
-            if (!solu_isdtype(fun, SOLU_DFUN)) {
-                if (solu_isdtype(fun, SOLU_DERR))
-                    return solu_callerr(SOLU_ERRV_TYPE_MISMATCH, "Attempted to call type %s: %s", solu_typename(fun).c_str, fun.dyn);
-                return solu_callerr(SOLU_ERRV_TYPE_MISMATCH, "Attempted to call type %s", solu_typename(fun).c_str);
+                if (solu_isdtype(fun, SOLU_DOBJ)) {
+                    solu_val call = ((solu_dobj *)fun.dyn)->metafuns[SOLU_META_CALL];
+                    if (solu_isdtype(call, SOLU_DFUN))
+                        fun = call;
+                }
+                if (solu_isdtype(fun, SOLU_DUSR)) {
+                    solu_val call = solu_uheader(fun)->metafuns[SOLU_META_CALL];
+                    if (solu_isdtype(call, SOLU_DFUN))
+                        fun = call;
+                }
+                if (!solu_isdtype(fun, SOLU_DFUN)) {
+                    if (solu_isdtype(fun, SOLU_DERR))
+                        return solu_callerr(SOLU_ERRV_TYPE_MISMATCH, "Attempted to call type %s: %s", solu_typename(fun).c_str, fun.dyn);
+                    return solu_callerr(SOLU_ERRV_TYPE_MISMATCH, "Attempted to call type %s", solu_typename(fun).c_str);
+                }
             }
 
             solu_fproto *f = fun.dyn;
-            if (f->up_c && sf_str_eq(f->upvals[0].name, sf_lit("self")))
-                f->upvals[0].value = obj;
+            int i = -1;
+            solu_val ov = SOLU_NIL;
+            if (f->tt == SOLU_FPROTO_C && f->up_c && sf_str_eq(f->upvals[0].name, sf_lit("self")))
+                i = 0;
+            else if (f->up_c > 1 && sf_str_eq(f->upvals[1].name, sf_lit("self")))
+                i = 1;
+            if (i >= 0) {
+                ov = f->upvals[i].value;
+                f->upvals[i].value = obj;
+            }
 
             solu_call_ex fex;
-            uint32_t argc = solu_iabc_cx(ins);
+            uint32_t argc = solu_iabc_cx(ins) + prim;
             if (argc > 0) {
                 solu_val *argv = calloc(argc, sizeof(solu_val));
-                for (uint32_t i = 0; i < argc && i < s->frames.data[s->frames.count - 1].size; ++i)
-                    argv[i] = solu_get(s, obj_r + i + 2);
+                if (prim) argv[0] = obj;
+                for (uint32_t i = prim; i < argc; ++i)
+                    argv[i] = solu_get(s, obj_r + (i-prim) + 2);
                 fex = solu_call(s, f, argv, argc);
                 free(argv);
             } else fex = solu_call(s, f, NULL, 0);
+            if (i >= 0)
+                f->upvals[i].value = ov;
 
             if (!fex.is_ok) {
                 fex.err.pc = pc - 1;

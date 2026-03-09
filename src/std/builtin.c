@@ -162,12 +162,25 @@ void solu_mod_builtin(solu_state *s) {
     solu_dobj_strset(_g, "unwrap", solu_wrapcfun(s, builtin_unwrap, 1, NULL, 0));
     solu_dobj_strset(_g, "unwrap_or", solu_wrapcfun(s, builtin_unwrap_or, 2, NULL, 0));
     solu_dobj_strset(_g, "assert", solu_wrapcfun(s, builtin_assert, 1, NULL, 0));
-    solu_dobj_strset(_g, "type", solu_wrapcfun(s, builtin_type, 1, NULL, 0));
     solu_dobj_strset(_g, "eval", solu_wrapcfun(s, builtin_eval, 1, NULL, 0));
     solu_dobj_strset(_g, "import", solu_wrapcfun(s, builtin_import, 1, NULL, 0));
     solu_dobj_strset(_g, "require", solu_wrapcfun(s, builtin_require, 1, NULL, 0));
 
-    solu_dobj_strset(_g, "str", solu_wrapcfun(s, builtin_str, 1, NULL, 0));
-    solu_dobj_strset(_g, "i64", solu_wrapcfun(s, builtin_i64, 1, NULL, 0));
-    solu_dobj_strset(_g, "f64", solu_wrapcfun(s, builtin_f64, 1, NULL, 0));
+    solu_val type = solu_wrapcfun(s, builtin_type, 1, NULL, 0);
+    solu_val str = solu_wrapcfun(s, builtin_str, 1, NULL, 0);
+    solu_val i64 = solu_wrapcfun(s, builtin_i64, 1, NULL, 0);
+    solu_val f64 = solu_wrapcfun(s, builtin_f64, 1, NULL, 0);
+
+    solu_dobj_strset(_g, "type", type);
+    solu_dobj_strset(_g, "str", str);
+    solu_dobj_strset(_g, "i64", i64);
+    solu_dobj_strset(_g, "f64", f64);
+
+    solu_drelease(s->std.base);
+    s->std.base = solu_dnew(s, SOLU_DOBJ);
+    solu_dhold(s->std.base);
+    solu_dobj_strset(s->std.base.dyn, "type", type);
+    solu_dobj_strset(s->std.base.dyn, "str", str);
+    solu_dobj_strset(s->std.base.dyn, "i64", i64);
+    solu_dobj_strset(s->std.base.dyn, "f64", f64);
 }

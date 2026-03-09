@@ -263,7 +263,7 @@ int cli_test(char *dirpath) {
 
 int main(int argc, char **argv) {
     if (argc == 1) {
-        char *fp = strcat(solu_realdir(argv[0]), "/bundle.solc");
+        char *fp = sf_str_join(sf_ref(solu_realdir(argv[0])), sf_lit("/bundle.solc")).c_str;
         if (sf_file_exists(sf_ref(fp))) {
             sf_str src = cli_load_file(fp);
             free(fp);

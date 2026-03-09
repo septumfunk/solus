@@ -979,7 +979,7 @@ solu_parse_ex solu_pblock(solu_parser *p) {
             if (p->tok->tt == TK_SEMICOLON) {
                 st = p->tok;
                 e = SOLU_ERRP_UNEXPECTED_SEMICOLON;
-            }
+            } else st = p->tok;
             return solu_perr(e, st);
         }
         n_block->n_block.stmts = realloc(n_block->n_block.stmts, ++n_block->n_block.count * sizeof(solu_node *));
@@ -1014,6 +1014,20 @@ solu_parse_ex solu_pfun(solu_parser *p) {
             solu_node_free(n_fun);
             return solu_perr(SOLU_ERRP_EXPECTED_IDENTIFIER, p->tok);
         }
+        for (uint32_t i = 0; i < n_fun->n_fun.cap_c; ++i)
+            if (strcmp(p->tok->value.dyn, n_fun->n_fun.captures[i].dyn) == 0) {
+                solu_node_free(n_fun);
+                return solu_perr(SOLU_ERRP_DUPLICATE_CAPTURE, p->tok);
+            }
+        if (strcmp(p->tok->value.dyn, "_g") == 0) {
+            solu_node_free(n_fun);
+            return solu_perr(SOLU_ERRP_DUPLICATE_CAPTURE, p->tok);
+        }
+        if (strcmp(p->tok->value.dyn, "self") == 0 && n_fun->n_fun.cap_c > 0) { // Self Check!
+            solu_node_free(n_fun);
+            return solu_perr(SOLU_ERRP_SELF_FIRST, p->tok);
+        }
+
         n_fun->n_fun.captures = realloc(n_fun->n_fun.captures, (++n_fun->n_fun.cap_c) * sizeof(solu_val));
         n_fun->n_fun.captures[n_fun->n_fun.cap_c - 1] = p->tok->value;
         ++p->tok;

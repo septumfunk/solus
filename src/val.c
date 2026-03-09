@@ -30,16 +30,31 @@ void solu_dobj_free(solu_dobj *obj) {
 }
 solu_val solu_dobj_strget(solu_dobj *obj, char *key) {
     solu_valmap_ex ex = solu_valmap_get(&obj->map, sf_ref(key));
+    if (!ex.is_ok && solu_isdtype(obj->metafuns[SOLU_META_EXTEND], SOLU_DOBJ)) {
+        ex.is_ok = true;
+        ex.ok = solu_dobj_strget(obj->metafuns[SOLU_META_EXTEND].dyn, key);
+    }
     return ex.is_ok ? ex.ok : SOLU_NIL;
 }
 void solu_dobj_strset(solu_dobj *obj, char *key, solu_val val) {
     solu_valmap_set(&obj->map, sf_str_cdup(key), val);
+}
+void solu_usemeta(solu_dobj *obj, solu_dobj *meta) {
+    memset(&obj->metafuns, 0, SOLU_META_COUNT * sizeof(solu_val));
+    obj->meta = (solu_val){SOLU_TDYN, .dyn=meta};
+
+    obj->metafuns[SOLU_META_GET] = solu_dobj_strget(meta, "_get");
+    obj->metafuns[SOLU_META_SET] = solu_dobj_strget(meta, "_set");
+    obj->metafuns[SOLU_META_CALL] = solu_dobj_strget(meta, "_call");
+    obj->metafuns[SOLU_META_STR] = solu_dobj_strget(meta, "_str");
+    obj->metafuns[SOLU_META_EXTEND] = solu_dobj_strget(meta, "_extend");
 }
 
 solu_fproto solu_fproto_new(void) {
     return (solu_fproto){
         .tt = SOLU_FPROTO_BC,
         .code = NULL,
+        .dbg = NULL,
         .code_c = 0,
         .reg_c = 0,
         .arg_c = 0,
@@ -76,6 +91,7 @@ void solu_fproto_free(solu_fproto *proto) {
         if (proto->dbg) free(proto->dbg);
     }
     proto->code = NULL;
+    proto->dbg = NULL;
     proto->c_fun = NULL;
     for (solu_val *v = proto->constants.data; v && v < proto->constants.data + proto->constants.count; ++v)
         solu_dclean(*v);

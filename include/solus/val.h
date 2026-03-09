@@ -129,6 +129,7 @@ typedef enum {
     SOLU_META_SET,
     SOLU_META_CALL,
     SOLU_META_STR,
+    SOLU_META_EXTEND,
 
     SOLU_META_COUNT,
 } solu_metafun;
@@ -144,6 +145,7 @@ EXPORT void solu_dobj_free(solu_dobj *obj);
 EXPORT solu_val solu_dobj_strget(solu_dobj *obj, char *key);
 /// You do NOT need to pass an owned string
 EXPORT void solu_dobj_strset(solu_dobj *obj, char *key, solu_val val);
+EXPORT void solu_usemeta(solu_dobj *obj, solu_dobj *meta);
 // fun
 typedef solu_fproto *solu_dfun;
 

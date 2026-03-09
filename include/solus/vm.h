@@ -42,6 +42,12 @@ typedef struct solu_state {
     size_t lb, cb, nb; // last bytes, current bytes, next bytes
     solu_fproto *ccall; // the proto being called currently
 
+    struct {
+        solu_val base;
+        solu_val obj;
+        solu_val string;
+    } std;
+
     bool rcmp; // Special flag for compiled files to reset the frame count
 } solu_state;
 
@@ -168,6 +174,27 @@ static inline solu_val solu_capturec(solu_state *state, uint32_t index) {
     if (!state->ccall || index > state->ccall->up_c - 1 || state->ccall->upvals[index].tt != SOLU_UP_VAL)
         return SOLU_NIL;
     return state->ccall->upvals[index].value;
+}
+static inline solu_val solu_selfc(solu_state *state) {
+    solu_val self = solu_get(state, 0);
+    if (!solu_isdtype(self, SOLU_DOBJ) && state->ccall->up_c) {
+        state->frames.data[state->frames.count - 1].bottom_o -= 1;
+        return solu_capturec(state, 0);
+    }
+    return self;
+}
+/// Wrap a c function into a member fun (has the 'self' upvalue)
+static inline solu_val solu_wrapmfun(solu_state *state, solu_cfunction fptr, uint32_t arg_c, solu_val *captures, uint32_t cap_c) {
+    solu_val fun = solu_wrapcfun(state, fptr, arg_c, captures, cap_c);
+    solu_fproto *f = fun.dyn;
+    solu_upvalue *u = f->upvals;
+    f->upvals = malloc(sizeof(solu_upvalue) * ++f->up_c);
+    if (u) {
+        memcpy(f->upvals + 1, u, sizeof(solu_upvalue) * (f->up_c - 1));
+        free(u);
+    }
+    f->upvals[0] = (solu_upvalue){sf_lit("self"), SOLU_UP_VAL, .value = SOLU_NIL};
+    return fun;
 }
 EXPORT void solu_savefun(solu_fproto *proto, char *path);
 EXPORT solu_load_ex solu_loadfun(solu_state *state, char *path);

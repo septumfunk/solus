@@ -189,7 +189,7 @@ solu_compile_ex solu_cfun(uint32_t frame, solu_dalloc *alloc, solu_node *ast, ui
     for (uint32_t i = 0; i < arg_c; ++i)
         solu_scope_set(c.scopes.data + c.scopes.count - 1, sf_str_cdup(args[i].dyn), (solu_local){i, 0, false, true, 0});
     for (uint32_t i = 0; i < up_c; ++i)
-        solu_scope_set(c.scopes.data + c.scopes.count - 1, upvals[i].name, (solu_local){i, 0, true, upvals[i].mut, upvals[i].frame});
+        solu_scope_set(c.scopes.data + c.scopes.count - 1, sf_str_dup(upvals[i].name), (solu_local){i, 0, true, upvals[i].mut, upvals[i].frame});
 
     solu_kadd(&c, (solu_val){.tt = SOLU_TBOOL, .boolean = false});
     solu_kadd(&c, (solu_val){.tt = SOLU_TBOOL, .boolean = true});
@@ -756,7 +756,7 @@ solu_cnode_ex solu_cnode(solu_compiler *c, solu_node *node, uint32_t t_reg) {
             if (node->n_call.identifier->tt == SOLU_ND_POSTFIX) {
                 solu_node *pf = node->n_call.identifier;
                 uint32_t lhs = solu_rtemp(c);
-                solu_cnode_ex lex = solu_cnode(c, node->n_postfix.expr, lhs);
+                solu_cnode_ex lex = solu_cnode(c, pf->n_postfix.expr, lhs);
                 if (!lex.is_ok) return lex;
 
                 uint32_t rhs = solu_rtemp(c);

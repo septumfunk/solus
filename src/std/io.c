@@ -137,7 +137,7 @@ static solu_call_ex io_input(solu_state *s) {
     return solu_ok(str);
 }
 
-void solu_mod_io(solu_state *s) {
+solu_val solu_mod_io(solu_state *s) {
     solu_val io = solu_dnew(s, SOLU_DOBJ);
     solu_dobj_strset(io.dyn, "print", solu_wrapcfun(s, io_print, 1, NULL, 0));
     solu_dobj_strset(io.dyn, "println", solu_wrapcfun(s, io_println, 1, NULL, 0));
@@ -146,4 +146,5 @@ void solu_mod_io(solu_state *s) {
     solu_dobj_strset(io.dyn, "fwrite", solu_wrapcfun(s, io_fwrite, 2, NULL, 0));
     solu_dobj_strset(io.dyn, "input", solu_wrapcfun(s, io_input, 1, NULL, 0));
     solu_dobj_strset(s->global.dyn, "io", io);
+    return io;
 }
