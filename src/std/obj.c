@@ -241,6 +241,11 @@ solu_val solu_mod_obj(solu_state *s) {
 
     solu_dobj_strset(obj.dyn, "template", solu_wrapmfun(s, obj_template, 1, NULL, 0));
 
+    // Builtins that extend to obj
+    solu_dobj_strset(obj.dyn, "then", solu_wrapmfun(s, builtin_then, 2, NULL, 0));
+    solu_dobj_strset(obj.dyn, "type", solu_wrapmfun(s, builtin_type, 1, NULL, 0));
+    solu_dobj_strset(obj.dyn, "str", solu_wrapmfun(s, builtin_str, 1, NULL, 0));
+
     solu_dobj_strset(s->global.dyn, "obj", obj);
     return obj;
 }

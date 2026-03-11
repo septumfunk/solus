@@ -46,7 +46,7 @@ typedef struct solu_state {
         solu_val base;
         solu_val obj;
         solu_val string;
-    } std;
+    } meta;
 
     bool rcmp; // Special flag for compiled files to reset the frame count
 } solu_state;

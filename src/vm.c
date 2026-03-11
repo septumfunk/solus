@@ -50,12 +50,11 @@ void solu_usestd(solu_state *s) {
     solu_dobj_strset(s->global.dyn, "solus", solus);
 
     solu_mod_builtin(s);
-    s->std.string = solu_mod_string(s);
-    ((solu_dobj *)s->std.string.dyn)->metafuns[SOLU_META_EXTEND] = s->std.base;
-    s->std.obj = solu_mod_obj(s);
-    ((solu_dobj *)s->std.obj.dyn)->metafuns[SOLU_META_EXTEND] = s->std.base;
-    solu_dhold(s->std.string);
-    solu_dhold(s->std.obj);
+    s->meta.string = solu_mod_string(s);
+    ((solu_dobj *)s->meta.string.dyn)->metafuns[SOLU_META_EXTEND] = s->meta.base;
+    solu_dhold(s->meta.string);
+    s->meta.obj = solu_mod_obj(s);
+    solu_dhold(s->meta.obj);
 
     solu_mod_io(s);
     solu_mod_math(s);
@@ -152,8 +151,8 @@ solu_val solu_dnew(solu_state *s, solu_dtype tt) {
         case SOLU_DERR: break;
         case SOLU_DOBJ:
             *(solu_dobj *)p = solu_dobj_new();
-            if (s->std.obj.tt != SOLU_TNIL)
-                ((solu_dobj *)p)->metafuns[SOLU_META_EXTEND] = s->std.obj;
+            if (s->meta.obj.tt != SOLU_TNIL)
+                ((solu_dobj *)p)->metafuns[SOLU_META_EXTEND] = s->meta.obj;
             break;
         case SOLU_DFUN: *(solu_fproto *)p = solu_fproto_new(); break;
         case SOLU_DREF: *(solu_val *)p = SOLU_NIL; break;
@@ -958,46 +957,42 @@ solu_call_ex solu_call_bc(solu_state *s, solu_fproto *proto, const solu_val *arg
 
             solu_val get = SOLU_NIL;
             solu_val fun = SOLU_NIL;
-            bool usr = false;
-            bool prim = false;
+            solu_dtype dt = solu_dtypeof(obj);
+            bool prim = dt == SOLU_DSTR || dt == SOLU_DCOUNT; // Primitives
+            switch (dt) {
+                case SOLU_DOBJ:
+                    get = ((solu_dobj *)obj.dyn)->metafuns[SOLU_META_GET];
+                    break;
+                case SOLU_DUSR:
+                    get = solu_uheader(obj)->metafuns[SOLU_META_GET];
+                    break;
+                case SOLU_DSTR:
+                    prim = true;
+                    if (s->meta.string.tt != SOLU_TDYN)
+                        return solu_callerr(SOLU_ERRV_PANIC, "The std needs to be included to call member functions on non-objects", NULL);
+                    fun = solu_dobj_get(s, s->meta.string.dyn, key);
+                    break;
 
-            if (solu_isdtype(obj, SOLU_DUSR)) {
-                usr = true;
-                get = solu_uheader(obj)->metafuns[SOLU_META_GET];
-            } else {
-                solu_dtype dt = solu_dtypeof(obj);
-                switch (dt) {
-                    case SOLU_DOBJ:
-                        get = ((solu_dobj *)obj.dyn)->metafuns[SOLU_META_GET];
-                        break;
-
-                    case SOLU_DSTR: {
-                        prim = true;
-                        solu_val str = s->std.string;
-                        if (str.tt != SOLU_TDYN)
-                            return solu_callerr(SOLU_ERRV_PANIC, "The std needs to be included to call member functions on non-objects", NULL);
-                        fun = solu_dobj_get(s, str.dyn, key);
-                        break;
-                    }
-                    default: {
-                        prim = true;
-                        solu_val base = s->std.base;
-                        if (base.tt != SOLU_TDYN)
-                            return solu_callerr(SOLU_ERRV_PANIC, "The std needs to be included to call member functions on non-objects", NULL);
-                        fun = solu_dobj_get(s, base.dyn, key);
-                        break;
-                    }
-                }
-                if (dt != SOLU_DOBJ && !solu_isdtype(fun, SOLU_DFUN))
-                    return solu_callerr(SOLU_ERRV_PANIC, "Member function not found", NULL);
+                case SOLU_DERR:
+                case SOLU_DCOUNT:
+                case SOLU_DFUN:
+                    prim = true;
+                    if (s->meta.base.tt != SOLU_TDYN)
+                        return solu_callerr(SOLU_ERRV_PANIC, "The std needs to be included to call member functions on non-objects", NULL);
+                    fun = solu_dobj_get(s, s->meta.base.dyn, key);
+                    break;
+                default:
+                    return solu_callerr(SOLU_ERRV_TYPE_MISMATCH, "Attempted to index type %s", solu_typename(obj).c_str);
             }
+            if (dt != SOLU_DOBJ && !solu_isdtype(fun, SOLU_DFUN))
+                return solu_callerr(SOLU_ERRV_PANIC, "Member function not found", NULL);
 
             if (!prim) {
                 if (solu_isdtype(get, SOLU_DFUN)) {
                     solu_call_ex ex = solu_call(s, get.dyn, (solu_val[]){key}, 1);
                     if (!ex.is_ok) return ex;
                     fun = ex.ok;
-                } else if (usr)
+                } else if (dt == SOLU_DUSR)
                     return solu_callerr(SOLU_ERRV_TYPE_MISMATCH, "Attempted to index type %s", solu_typename(obj).c_str);
                 else fun = solu_dobj_get(s, obj.dyn, key);
 
@@ -1242,7 +1237,7 @@ solu_call_ex solu_call_bc(solu_state *s, solu_fproto *proto, const solu_val *arg
                 switch (lhs.tt) {
                     case SOLU_TI64: rhs = (solu_val){.tt = SOLU_TI64, .i64 = rhs.tt == SOLU_TBOOL ? (rhs.boolean ? 1 : 0) : (solu_i64)rhs.f64}; break;
                     case SOLU_TF64: rhs = (solu_val){.tt = SOLU_TF64, .f64 = rhs.tt == SOLU_TBOOL ? (rhs.boolean ? 1 : 0) : (solu_f64)rhs.i64}; break;
-                    case SOLU_TBOOL: rhs = (solu_val){.tt = SOLU_TBOOL, .boolean = rhs.tt == SOLU_TI64 ? rhs.i64 != 0 : rhs.f64 != 0};
+                    case SOLU_TBOOL: rhs = (solu_val){.tt = SOLU_TBOOL, .boolean = rhs.tt == SOLU_TI64 ? rhs.i64 != 0 : rhs.f64 != 0}; break;
                     default: return solu_callerr(SOLU_ERRV_TYPE_MISMATCH, "Unknown Type", NULL);
                 }
             }

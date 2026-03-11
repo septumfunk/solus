@@ -13,6 +13,10 @@
         return solu_panic("'%s' expected %s, found %s", #val, SOLU_TYPE_NAMES[(int)SOLU_TDYN + 1 + T], solu_typename(val).c_str); \
 } while (0);
 
+solu_call_ex builtin_then(solu_state *s);
+solu_call_ex builtin_type(solu_state *s);
+solu_call_ex builtin_str(solu_state *s);
+
 EXPORT void solu_mod_builtin(solu_state *s);
 EXPORT solu_val solu_mod_io(solu_state *s);
 EXPORT solu_val solu_mod_string(solu_state *s);

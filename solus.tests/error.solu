@@ -7,13 +7,13 @@ val missing = import("definitely-not-a-real-file-xyz");
 assert(type(missing) == "err");
 
 val fallback_obj = attempt(
-    []() { return import("still-not-real-xyz.solu"); },
-    [](e) { assert(type(e) == "err"); return {}; }
+    []() import("still-not-real-xyz.solu"),
+    [](e) { assert(type(e) == "err"); {} }
 );
 assert(type(fallback_obj) == "obj");
 
 val maybe = import("nope-nope-nope");
-val okv = unwrap_or(maybe, "fallback");
+val okv = maybe.or_else("fallback");
 assert(okv == "fallback");
 
 val e2 = err("fail");

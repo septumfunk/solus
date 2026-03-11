@@ -1,11 +1,1 @@
-# meta.solu
-io.println((3 + 4).str());
-'testes'.split('e').foreach([](i) { io.println(i) });
-
-##
-obj.usemeta(og, meta);
-assert(obj.meta(og) != nil);
-assert(og() == "{2, 2}");
-og["hello"] = 123;
-assert(og["hello"] == 123);
-##
+io.println($"{io.println($"{err("aaaa").str()}").then([]() 'explode')}");

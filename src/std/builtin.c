@@ -111,7 +111,7 @@ static solu_call_ex builtin_unwrap(solu_state *s) {
         return solu_ok(val);
     return solu_call_ex_err((solu_call_err){SOLU_ERRV_PANIC, _strdup(val.dyn), 0});
 }
-static solu_call_ex builtin_unwrap_or(solu_state *s) {
+static solu_call_ex builtin_or_else(solu_state *s) {
     solu_val val = solu_get(s, 0);
     if (!solu_isdtype(val, SOLU_DERR))
         return solu_ok(val);
@@ -122,12 +122,18 @@ static solu_call_ex builtin_assert(solu_state *s) {
     expect_type(SOLU_TBOOL, con);
     return con.boolean ? solu_ok(SOLU_NIL) : solu_panic("Assertion failed", 0);
 }
-static solu_call_ex builtin_type(solu_state *s) {
-    return solu_ok(solu_dnstr(s, solu_typename(solu_get(s, 0)).c_str));
-}
 
-static solu_call_ex builtin_str(solu_state *s) {
-    char *e = solu_tostr(s, solu_get(s, 0));
+solu_call_ex builtin_then(solu_state *s) {
+    solu_val self = solu_selfc(s);
+    solu_val handler = solu_get(s, 1);
+    expect_dtype(SOLU_DFUN, handler);
+    return solu_call(s, handler.dyn, (solu_val[]){self}, 1);
+}
+solu_call_ex builtin_type(solu_state *s) {
+    return solu_ok(solu_dnstr(s, solu_typename(solu_selfc(s)).c_str));
+}
+solu_call_ex builtin_str(solu_state *s) {
+    char *e = solu_tostr(s, solu_selfc(s));
     solu_call_ex ex = solu_ok(solu_dnstr(s, e));
     solu_dalloc *dh = solu_dheader(ex.ok); (void)dh;
     free(e);
@@ -159,28 +165,35 @@ void solu_mod_builtin(solu_state *s) {
     solu_dobj_strset(_g, "panic", solu_wrapcfun(s, builtin_panic, 1, NULL, 0));
     solu_dobj_strset(_g, "attempt", solu_wrapcfun(s, builtin_attempt, 2, NULL, 0));
     solu_dobj_strset(_g, "catch", solu_wrapcfun(s, builtin_catch, 1, NULL, 0));
-    solu_dobj_strset(_g, "unwrap", solu_wrapcfun(s, builtin_unwrap, 1, NULL, 0));
-    solu_dobj_strset(_g, "unwrap_or", solu_wrapcfun(s, builtin_unwrap_or, 2, NULL, 0));
     solu_dobj_strset(_g, "assert", solu_wrapcfun(s, builtin_assert, 1, NULL, 0));
     solu_dobj_strset(_g, "eval", solu_wrapcfun(s, builtin_eval, 1, NULL, 0));
     solu_dobj_strset(_g, "import", solu_wrapcfun(s, builtin_import, 1, NULL, 0));
     solu_dobj_strset(_g, "require", solu_wrapcfun(s, builtin_require, 1, NULL, 0));
 
+    solu_val then = solu_wrapcfun(s, builtin_then, 2, NULL, 0);
     solu_val type = solu_wrapcfun(s, builtin_type, 1, NULL, 0);
     solu_val str = solu_wrapcfun(s, builtin_str, 1, NULL, 0);
     solu_val i64 = solu_wrapcfun(s, builtin_i64, 1, NULL, 0);
     solu_val f64 = solu_wrapcfun(s, builtin_f64, 1, NULL, 0);
+    solu_val unwrap = solu_wrapcfun(s, builtin_unwrap, 1, NULL, 0);
+    solu_val or_else = solu_wrapcfun(s, builtin_or_else, 2, NULL, 0);
 
+    solu_dobj_strset(_g, "then", then);
     solu_dobj_strset(_g, "type", type);
     solu_dobj_strset(_g, "str", str);
     solu_dobj_strset(_g, "i64", i64);
     solu_dobj_strset(_g, "f64", f64);
+    solu_dobj_strset(_g, "unwrap", unwrap);
+    solu_dobj_strset(_g, "or_else", or_else);
 
-    solu_drelease(s->std.base);
-    s->std.base = solu_dnew(s, SOLU_DOBJ);
-    solu_dhold(s->std.base);
-    solu_dobj_strset(s->std.base.dyn, "type", type);
-    solu_dobj_strset(s->std.base.dyn, "str", str);
-    solu_dobj_strset(s->std.base.dyn, "i64", i64);
-    solu_dobj_strset(s->std.base.dyn, "f64", f64);
+    solu_drelease(s->meta.base);
+    s->meta.base = solu_dnew(s, SOLU_DOBJ);
+    solu_dhold(s->meta.base);
+    solu_dobj_strset(s->meta.base.dyn, "then", then);
+    solu_dobj_strset(s->meta.base.dyn, "type", type);
+    solu_dobj_strset(s->meta.base.dyn, "str", str);
+    solu_dobj_strset(s->meta.base.dyn, "i64", i64);
+    solu_dobj_strset(s->meta.base.dyn, "f64", f64);
+    solu_dobj_strset(s->meta.base.dyn, "unwrap", unwrap);
+    solu_dobj_strset(s->meta.base.dyn, "or_else", or_else);
 }

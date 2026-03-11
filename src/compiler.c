@@ -23,7 +23,7 @@
 
 /// A simple representation of a local variable (or upvalue)
 typedef struct {
-    uint32_t reg, scope;
+    uint32_t reg, oreg, scope;
     bool upval, mut;
     uint32_t frame;
 } solu_local;
@@ -87,6 +87,17 @@ static inline void solu_cemitraw(solu_compiler *c, solu_instruction ins, uint16_
     c->proto.dbg[c->proto.code_c - 1] = SOLU_DBG_ENCODE(line, column);
 }
 #define solu_cemit(c, ins) solu_cemitraw(c, ins, node->line, node->column)
+
+/// Match *_EQUALS to the instruction
+static inline solu_opcode solu_eq_op(solu_tokentype tt) {
+    switch (tt) {
+        case TK_PLUS_EQUAL: return SOLU_OP_ADD;
+        case TK_MINUS_EQUAL: return SOLU_OP_ADD;
+        case TK_STAR_EQUAL: return SOLU_OP_MUL;
+        case TK_SLASH_EQUAL: return SOLU_OP_DIV;
+        default: return SOLU_OP_ADD;
+    }
+}
 
 /// Reserve local variable register
 static inline uint32_t solu_rlocal(solu_compiler *c) {
@@ -187,9 +198,9 @@ solu_compile_ex solu_cfun(uint32_t frame, solu_dalloc *alloc, solu_node *ast, ui
     c.proto.arg_c = arg_c;
     solu_scopes_push(&c.scopes, solu_scope_new());
     for (uint32_t i = 0; i < arg_c; ++i)
-        solu_scope_set(c.scopes.data + c.scopes.count - 1, sf_str_cdup(args[i].dyn), (solu_local){i, 0, false, true, 0});
+        solu_scope_set(c.scopes.data + c.scopes.count - 1, sf_str_cdup(args[i].dyn), (solu_local){i, 0, 0, false, true, 0});
     for (uint32_t i = 0; i < up_c; ++i)
-        solu_scope_set(c.scopes.data + c.scopes.count - 1, sf_str_dup(upvals[i].name), (solu_local){i, 0, true, upvals[i].mut, upvals[i].frame});
+        solu_scope_set(c.scopes.data + c.scopes.count - 1, sf_str_dup(upvals[i].name), (solu_local){i, 0, 0, true, upvals[i].mut, upvals[i].frame});
 
     solu_kadd(&c, (solu_val){.tt = SOLU_TBOOL, .boolean = false});
     solu_kadd(&c, (solu_val){.tt = SOLU_TBOOL, .boolean = true});
@@ -259,7 +270,7 @@ solu_cnode_ex solu_cnode(solu_compiler *c, solu_node *node, uint32_t t_reg) {
                 return solu_cerr(SOLU_ERRC_REDEFINED_LOCAL);
             uint32_t rhs = solu_rlocal(c);
             solu_scope_set(c->scopes.data + c->scopes.count - 1, sf_str_cdup(node->n_local.name.dyn), (solu_local){
-                rhs, c->scopes.count - 1, false, node->n_local.mut, 0
+                rhs, rhs, c->scopes.count - 1, false, node->n_local.mut, 0
             });
             return solu_cnode(c, node->n_local.value, rhs);
         }
@@ -577,8 +588,8 @@ solu_cnode_ex solu_cnode(solu_compiler *c, solu_node *node, uint32_t t_reg) {
                 break;
             }
 
-            case TK_PLUS_EQUAL:
-            case TK_MINUS_EQUAL:
+            case TK_PLUS_EQUAL: case TK_MINUS_EQUAL:
+            case TK_STAR_EQUAL: case TK_SLASH_EQUAL:
             case TK_EQUAL: {
                 if (node->n_binary.left->tt == SOLU_ND_IDENTIFIER) {
                     solu_local loc;
@@ -604,7 +615,7 @@ solu_cnode_ex solu_cnode(solu_compiler *c, solu_node *node, uint32_t t_reg) {
                             } else {
                                 ot = solu_rtemp(c);
                                 solu_cemit(c, solu_ins_ab(SOLU_OP_GETU, ot, loc.reg));
-                                solu_cemit(c, solu_ins_abc(node->n_binary.op == TK_PLUS_EQUAL ? SOLU_OP_ADD : SOLU_OP_SUB, ot, solu_reg(ot), rl ? solu_const(right) : solu_reg(right)));
+                                solu_cemit(c, solu_ins_abc(solu_eq_op(node->n_binary.op), ot, solu_reg(ot), rl ? solu_const(right) : solu_reg(right)));
                                 solu_cemit(c, solu_ins_ab(SOLU_OP_SETU, loc.reg, ot));
                                 if (t_reg != UINT32_MAX)
                                     solu_cemit(c, solu_ins_ab(SOLU_OP_MOVE, t_reg, ot));
@@ -614,7 +625,7 @@ solu_cnode_ex solu_cnode(solu_compiler *c, solu_node *node, uint32_t t_reg) {
                                 solu_cnode_ex ex = solu_cmembers(c, node->n_binary.right, loc.reg);
                                 if (!ex.is_ok) return ex;
                             } else if (node->n_binary.op != TK_EQUAL) {
-                                solu_cemit(c, solu_ins_abc(node->n_binary.op == TK_PLUS_EQUAL ? SOLU_OP_ADD : SOLU_OP_SUB, loc.reg,
+                                solu_cemit(c, solu_ins_abc(solu_eq_op(node->n_binary.op), loc.reg,
                                 solu_reg(loc.reg), rl ? solu_const(right) : solu_reg(right)));
                             } else solu_cemit(c, solu_ins_ab(rl ? SOLU_OP_LOAD : SOLU_OP_MOVE, loc.reg, right));
                             if (t_reg != UINT32_MAX)
@@ -627,7 +638,7 @@ solu_cnode_ex solu_cnode(solu_compiler *c, solu_node *node, uint32_t t_reg) {
                         if (node->n_binary.op != TK_EQUAL) {
                             ot = solu_rtemp(c);
                             solu_cemit(c, solu_ins_abc(SOLU_OP_GUPO, ot, solu_reg(0), solu_const(name_i)));
-                            solu_cemit(c, solu_ins_abc(node->n_binary.op == TK_PLUS_EQUAL ? SOLU_OP_ADD : SOLU_OP_SUB, ot, solu_reg(ot), rl ? solu_const(right) : solu_reg(right)));
+                            solu_cemit(c, solu_ins_abc(solu_eq_op(node->n_binary.op), ot, solu_reg(ot), rl ? solu_const(right) : solu_reg(right)));
                         }
                         solu_cemit(c, solu_ins_abc(SOLU_OP_SUPO, 0, solu_const(name_i), ot == UINT32_MAX ?
                             (rl ? solu_const(right) : solu_reg(right)) : solu_reg(ot)));
@@ -668,7 +679,7 @@ solu_cnode_ex solu_cnode(solu_compiler *c, solu_node *node, uint32_t t_reg) {
                         if (node->n_binary.op != TK_EQUAL) {
                             ot = solu_rtemp(c);
                             solu_cemit(c, solu_ins_abc(SOLU_OP_GET, ot, solu_reg(obj), key_r));
-                            solu_cemit(c, solu_ins_abc(node->n_binary.op == TK_PLUS_EQUAL ? SOLU_OP_ADD : SOLU_OP_SUB, ot, solu_reg(ot), rl ? solu_const(right) : solu_reg(right)));
+                            solu_cemit(c, solu_ins_abc(solu_eq_op(node->n_binary.op), ot, solu_reg(ot), rl ? solu_const(right) : solu_reg(right)));
                         }
                         solu_instruction ins = solu_ins_abc(SOLU_OP_SET, obj, key_r, ot == UINT32_MAX ?
                             (rl ? solu_const(right) : solu_reg(right)) : solu_reg(ot));
@@ -704,15 +715,17 @@ solu_cnode_ex solu_cnode(solu_compiler *c, solu_node *node, uint32_t t_reg) {
 
             case TK_NOT_EQUAL: solu_cemit(c, solu_ins_abc(SOLU_OP_EQ, 1, ll ? solu_const(left) : solu_reg(left),
                 rl ? solu_const(right) : solu_reg(right))); break;
-            case TK_GREATER: solu_cemit(c, solu_ins_abc(SOLU_OP_LT, 1, ll ? solu_const(left) : solu_reg(left),
+            case TK_GREATER: solu_cemit(c, solu_ins_abc(SOLU_OP_LE, 1, ll ? solu_const(left) : solu_reg(left),
                 rl ? solu_const(right) : solu_reg(right))); break;
-            case TK_GREATER_EQUAL: solu_cemit(c, solu_ins_abc(SOLU_OP_LE, 1, ll ? solu_const(left) : solu_reg(left),
+            case TK_GREATER_EQUAL: solu_cemit(c, solu_ins_abc(SOLU_OP_LT, 1, ll ? solu_const(left) : solu_reg(left),
                 rl ? solu_const(right) : solu_reg(right))); break;
 
             default:
                 return solu_cerr(SOLU_ERRC_UNKNOWN_OPERATION);
             }
 
+            if (t_reg == UINT32_MAX)
+                return solu_cerr(SOLU_ERRC_UNUSED_EVALUATION);
             if (!set)
                 solu_evalcond(c, node, t_reg);
 
@@ -883,7 +896,7 @@ solu_cnode_ex solu_cnode(solu_compiler *c, solu_node *node, uint32_t t_reg) {
                     if (!solu_lexists(c, name, &loc))
                         return solu_cerr(SOLU_ERRC_UNKNOWN_LOCAL);
                     if (loc.upval)
-                        upvals[ofs + i] = (solu_upvalue){sf_str_cdup(name), .tt = SOLU_UP_REF, .ref = loc.reg, .frame = loc.frame, .mut = loc.mut };
+                        upvals[ofs + i] = (solu_upvalue){sf_str_cdup(name), .tt = SOLU_UP_REF, .ref = loc.oreg, .frame = loc.frame, .mut = loc.mut };
                     else {
                         solu_cemit(c, solu_ins_a(SOLU_OP_REFU, loc.reg));
                         upvals[ofs + i] = (solu_upvalue){sf_str_cdup(name), .tt = SOLU_UP_REF, .ref = loc.reg, .frame = c->frame, .mut = loc.mut };
@@ -940,11 +953,12 @@ solu_compile_ex solu_cproto(sf_str path, char *src, uint32_t arg_c, solu_val *ar
     solu_parse_ex par_ex = solu_parse(path, scan_ex);
     solu_tokenvec_free(&scan_ex.ok.tv);
     if (!par_ex.is_ok) {
-        for (solu_dalloc *ac = scan_ex.ok.alloc; ac; ) {
-            solu_dalloc *next = ac->next;
-            free(ac);
-            ac = next;
-        }
+        if (scan_ex.is_ok)
+            for (solu_dalloc *ac = scan_ex.ok.alloc; ac; ) {
+                solu_dalloc *next = ac->next;
+                free(ac);
+                ac = next;
+            }
         return solu_compile_ex_err((solu_compile_err){
             .tt = par_ex.err.tt,
             .line = par_ex.err.token.line,

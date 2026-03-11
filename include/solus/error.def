@@ -38,7 +38,7 @@ X(P, NEGATIVE_REGISTERS, "Negative registers are not allowed") \
 X(P, EXPECTED_SHARED, "Unexpected allocation error") \
 X(P, UNREACHABLE_CODE, "Early return causes unreachable code") \
 X(P, UNEXPECTED_IDENTIFIER, "Unexpected identifier. Missing ';'?") \
-X(P, UNTERMINATED_ARGS, "Unterminated argument list") \
+X(P, MALFORMED_CALL, "Malformed function call") \
 X(P, UNTERMINATED_CAPTURES, "Unterminated capture list") \
 X(P, DUPLICATE_CAPTURE, "Duplicate capture") \
 X(P, SELF_FIRST, "Keyword 'self' must appear as first capture") \
