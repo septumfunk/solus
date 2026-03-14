@@ -963,9 +963,13 @@ solu_call_ex solu_call_bc(solu_state *s, solu_fproto *proto, const solu_val *arg
                 case SOLU_DOBJ:
                     get = ((solu_dobj *)obj.dyn)->metafuns[SOLU_META_GET];
                     break;
-                case SOLU_DUSR:
-                    get = solu_uheader(obj)->metafuns[SOLU_META_GET];
+                case SOLU_DUSR: {
+                    solu_usrwrap *d = solu_uheader(obj);
+                    if (solu_isdtype(d->metafuns[SOLU_META_EXTEND], SOLU_DOBJ)) {
+                        fun = solu_dobj_get(s, d->metafuns[SOLU_META_EXTEND].dyn, key);
+                    } else get = d->metafuns[SOLU_META_GET];
                     break;
+                }
                 case SOLU_DSTR:
                     prim = true;
                     if (s->meta.string.tt != SOLU_TDYN)
@@ -984,10 +988,10 @@ solu_call_ex solu_call_bc(solu_state *s, solu_fproto *proto, const solu_val *arg
                 default:
                     return solu_callerr(SOLU_ERRV_TYPE_MISMATCH, "Attempted to index type %s", solu_typename(obj).c_str);
             }
-            if (dt != SOLU_DOBJ && !solu_isdtype(fun, SOLU_DFUN))
+            if (prim && !solu_isdtype(fun, SOLU_DFUN))
                 return solu_callerr(SOLU_ERRV_PANIC, "Member function not found", NULL);
 
-            if (!prim) {
+            if (!prim && (dt != SOLU_DUSR || get.dyn)) {
                 if (solu_isdtype(get, SOLU_DFUN)) {
                     solu_call_ex ex = solu_call(s, get.dyn, (solu_val[]){key}, 1);
                     if (!ex.is_ok) return ex;
@@ -1006,11 +1010,11 @@ solu_call_ex solu_call_bc(solu_state *s, solu_fproto *proto, const solu_val *arg
                     if (solu_isdtype(call, SOLU_DFUN))
                         fun = call;
                 }
-                if (!solu_isdtype(fun, SOLU_DFUN)) {
-                    if (solu_isdtype(fun, SOLU_DERR))
-                        return solu_callerr(SOLU_ERRV_TYPE_MISMATCH, "Attempted to call type %s: %s", solu_typename(fun).c_str, fun.dyn);
-                    return solu_callerr(SOLU_ERRV_TYPE_MISMATCH, "Attempted to call type %s", solu_typename(fun).c_str);
-                }
+            }
+            if (!solu_isdtype(fun, SOLU_DFUN)) {
+                if (solu_isdtype(fun, SOLU_DERR))
+                    return solu_callerr(SOLU_ERRV_TYPE_MISMATCH, "Attempted to call type %s: %s", solu_typename(fun).c_str, fun.dyn);
+                return solu_callerr(SOLU_ERRV_TYPE_MISMATCH, "Attempted to call type %s", solu_typename(fun).c_str);
             }
 
             solu_fproto *f = fun.dyn;

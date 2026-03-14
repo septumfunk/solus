@@ -1,6 +1,7 @@
 #ifndef VM_H
 #define VM_H
 
+#include "sf/str.h"
 #include "val.h"
 #include "compiler.h"
 #include <stdarg.h>
@@ -176,12 +177,11 @@ static inline solu_val solu_capturec(solu_state *state, uint32_t index) {
     return state->ccall->upvals[index].value;
 }
 static inline solu_val solu_selfc(solu_state *state) {
-    solu_val self = solu_get(state, 0);
-    if (!solu_isdtype(self, SOLU_DOBJ) && state->ccall->up_c) {
+    if (state->ccall->up_c && sf_str_eq(state->ccall->upvals[0].name, sf_lit("self"))) {
         state->frames.data[state->frames.count - 1].bottom_o -= 1;
         return solu_capturec(state, 0);
     }
-    return self;
+    return solu_get(state, 0);
 }
 /// Wrap a c function into a member fun (has the 'self' upvalue)
 static inline solu_val solu_wrapmfun(solu_state *state, solu_cfunction fptr, uint32_t arg_c, solu_val *captures, uint32_t cap_c) {
