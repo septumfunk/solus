@@ -354,10 +354,6 @@ solu_val solu_dscopy(solu_state *state, solu_val val, bool kconst) {
     solu_val nv = (solu_val){SOLU_TDYN, .dyn=(char*)ac + sizeof(solu_dalloc)};
 
     switch (solu_dheader(nv)->tt) {
-        case SOLU_DOBJ:
-            *(solu_dobj *)nv.dyn = solu_dobj_new();
-            solu_dappend(nv, val);
-            break;
         case SOLU_DSTR:
             memcpy(nv.dyn, val.dyn, ac->size);
             break;
@@ -379,13 +375,14 @@ solu_val solu_dscopy(solu_state *state, solu_val val, bool kconst) {
                 } else {
                     solu_val nv;
                     if (upv.tt == SOLU_UP_REF) {
-                        uint32_t frame = state->rcmp ? state->frames.count - 1 - upv.frame : upv.frame;
-                        solu_val cv = solu_valvec_get(&state->stack, state->frames.data[frame].bottom_o + upv.ref);
+                        solu_val cv = solu_valvec_get(&state->stack, state->frames.data[state->frames.count - 1].bottom_o + upv.ref);
                         if (cv.tt != SOLU_TDYN) {
                             nv = solu_dnew(state, SOLU_DREF);
-                            solu_rawset(state, upv.ref, nv, frame);
+                            solu_rawset(state, upv.ref, nv, state->frames.count - 1);
                             *(solu_val *)nv.dyn = cv;
                         } else nv = cv;
+                    } else if (upv.tt == SOLU_UP_UPV) {
+                        nv = state->ccall->upvals[upv.ref].value;
                     } else nv = upv.value;
 
                     nfp->upvals[i] = (solu_upvalue){
@@ -419,10 +416,8 @@ solu_val solu_dcopy(solu_state *state, solu_val val) {
 
 void solu_dmarkfun(solu_fproto *fp) {
     for (solu_upvalue *v = fp->upvals; v && v < fp->upvals + fp->up_c; ++v) {
-        if (v->tt == SOLU_UP_VAL && v->value.tt == SOLU_TDYN) {
-            solu_dalloc *dc = solu_dheader(v->value);
-            dc->mark = SOLU_DYN_BLACK;
-        }
+        if (v->tt == SOLU_UP_VAL && v->value.tt == SOLU_TDYN)
+            solu_dmark(v->value);
     }
 }
 static void solu_dmarkmember(void *ud, sf_str _k, solu_val member) {
@@ -433,22 +428,25 @@ void solu_dmarkobj(solu_val obj) {
     solu_dobj *dobj = (solu_dobj *)obj.dyn;
     for (uint32_t i = 0; i < dobj->array.count; ++i)
         solu_dmark(dobj->array.data[i]);
-    solu_valmap_foreach(obj.dyn, solu_dmarkmember, NULL);
+    solu_valmap_foreach(&dobj->map, solu_dmarkmember, NULL);
     if (dobj->meta.tt == SOLU_TDYN)
         solu_dmark(dobj->meta);
+    for (int i = 0; i < SOLU_META_COUNT; ++i)
+        if (dobj->metafuns[i].tt == SOLU_TDYN)
+            solu_dmark(dobj->metafuns[i]);
 }
 void solu_dmarkref(solu_val r) {
     solu_val inner = solu_dval(r);
     while (inner.tt == SOLU_TDYN) {
         solu_dalloc *dc = solu_dheader(inner);
         if (dc->mark == SOLU_DYN_BLACK) return;
-        dc->mark = SOLU_DYN_BLACK;
         switch (solu_dtypeof(inner)) {
             case SOLU_DREF:
                 inner = solu_dval(inner);
                 break;
             default: solu_dmark(inner);
         }
+        dc->mark = SOLU_DYN_BLACK;
     }
 }
 void solu_dmark(solu_val val) {
@@ -1401,10 +1399,9 @@ solu_call_ex solu_call_bc(solu_state *s, solu_fproto *proto, const solu_val *arg
             solu_val key = solu_iabc_ck(ins) ? solu_getk(s, proto, solu_iabc_cx(ins)) : solu_get(s, solu_iabc_cx(ins));
 
             solu_val get = SOLU_NIL;
-            bool u = false;
             if (solu_isdtype(obj, SOLU_DUSR)) {
-                u = true;
                 get = solu_uheader(obj)->metafuns[SOLU_META_GET];
+                obj = solu_uheader(obj)->metafuns[SOLU_META_EXTEND];
             } else {
                 if (!solu_isdtype(obj, SOLU_DOBJ))
                     return solu_callerr(SOLU_ERRV_TYPE_MISMATCH, "Attempted to index type %s", solu_typename(obj).c_str);
@@ -1415,9 +1412,8 @@ solu_call_ex solu_call_bc(solu_state *s, solu_fproto *proto, const solu_val *arg
                 if (!ex.is_ok) return ex;
                 solu_set(s, solu_iabc_a(ins), ex.ok);
                 DISPATCH();
-            } else if (u)
-                return solu_callerr(SOLU_ERRV_TYPE_MISMATCH, "Attempted to index type %s", solu_typename(obj).c_str);
-
+            } else if (!solu_isdtype(obj, SOLU_DOBJ))
+                return solu_callerr(SOLU_ERRV_TYPE_MISMATCH, "Attempted to index type %s", solu_typename(solu_get(s, solu_iabc_bx(ins))).c_str);
             solu_set(s, solu_iabc_a(ins), solu_dobj_get(s, obj.dyn, key));
             DISPATCH();
         }

@@ -140,10 +140,9 @@ solu_call_ex builtin_str(solu_state *s) {
     return ex;
 }
 static solu_call_ex builtin_i64(solu_state *s) {
-    solu_val conv = solu_get(s, 0);
-    if (conv.tt != SOLU_TF64 && conv.tt != SOLU_TBOOL && !solu_isdtype(conv, SOLU_DSTR))
-        return solu_panic("'%s' expected f64|str, found %s", solu_typename(conv).c_str);
+    solu_val conv = solu_selfc(s);
     switch (conv.tt) {
+        case SOLU_TI64: return solu_ok(conv);
         case SOLU_TBOOL: return solu_ok((solu_val){SOLU_TI64, .i64 = conv.boolean ? 1 : 0});
         case SOLU_TF64: return solu_ok((solu_val){SOLU_TI64, .i64 = (solu_i64)conv.f64});
         case SOLU_TDYN: return solu_ok((solu_val){SOLU_TI64, .i64 = (solu_i64)strtoll(conv.dyn, NULL, 10)});
@@ -151,12 +150,14 @@ static solu_call_ex builtin_i64(solu_state *s) {
     }
 }
 static solu_call_ex builtin_f64(solu_state *s) {
-    solu_val conv = solu_get(s, 0);
-    if (conv.tt != SOLU_TI64 && !solu_isdtype(conv, SOLU_DSTR))
-        return solu_panic("'%s' expected i64|str, found %s", solu_typename(conv).c_str);
-    return conv.tt == SOLU_TI64 ?
-        solu_ok((solu_val){SOLU_TF64, .f64 = (solu_f64)conv.i64}) :
-        solu_ok((solu_val){SOLU_TF64, .f64 = (solu_f64)strtod(conv.dyn, NULL)});
+    solu_val conv = solu_selfc(s);
+    switch (conv.tt) {
+        case SOLU_TF64: return solu_ok(conv);
+        case SOLU_TBOOL: return solu_ok((solu_val){SOLU_TF64, .f64 = conv.boolean ? 1 : 0});
+        case SOLU_TI64: return solu_ok((solu_val){SOLU_TF64, .f64 = (solu_f64)conv.i64});
+        case SOLU_TDYN: return solu_ok((solu_val){SOLU_TF64, .f64 = (solu_f64)strtof(conv.dyn, NULL)});
+        default: return solu_panic("'%s' expected i64|str, found %s", solu_typename(conv).c_str);
+    }
 }
 
 void solu_mod_builtin(solu_state *s) {

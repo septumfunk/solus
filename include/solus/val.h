@@ -71,6 +71,7 @@ typedef struct {
     enum {
         SOLU_UP_VAL,
         SOLU_UP_REF,
+        SOLU_UP_UPV,
     } tt;
     union {
         solu_val value;

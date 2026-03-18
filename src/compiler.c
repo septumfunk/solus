@@ -23,7 +23,7 @@
 
 /// A simple representation of a local variable (or upvalue)
 typedef struct {
-    uint32_t reg, oreg, scope;
+    uint32_t reg, scope;
     bool upval, mut;
     uint32_t frame;
 } solu_local;
@@ -92,7 +92,7 @@ static inline void solu_cemitraw(solu_compiler *c, solu_instruction ins, uint16_
 static inline solu_opcode solu_eq_op(solu_tokentype tt) {
     switch (tt) {
         case TK_PLUS_EQUAL: return SOLU_OP_ADD;
-        case TK_MINUS_EQUAL: return SOLU_OP_ADD;
+        case TK_MINUS_EQUAL: return SOLU_OP_SUB;
         case TK_STAR_EQUAL: return SOLU_OP_MUL;
         case TK_SLASH_EQUAL: return SOLU_OP_DIV;
         default: return SOLU_OP_ADD;
@@ -198,9 +198,9 @@ solu_compile_ex solu_cfun(uint32_t frame, solu_dalloc *alloc, solu_node *ast, ui
     c.proto.arg_c = arg_c;
     solu_scopes_push(&c.scopes, solu_scope_new());
     for (uint32_t i = 0; i < arg_c; ++i)
-        solu_scope_set(c.scopes.data + c.scopes.count - 1, sf_str_cdup(args[i].dyn), (solu_local){i, 0, 0, false, true, 0});
+        solu_scope_set(c.scopes.data + c.scopes.count - 1, sf_str_cdup(args[i].dyn), (solu_local){i, 0, false, true, 0});
     for (uint32_t i = 0; i < up_c; ++i)
-        solu_scope_set(c.scopes.data + c.scopes.count - 1, sf_str_dup(upvals[i].name), (solu_local){i, 0, 0, true, upvals[i].mut, upvals[i].frame});
+        solu_scope_set(c.scopes.data + c.scopes.count - 1, sf_str_dup(upvals[i].name), (solu_local){i, 0, true, upvals[i].mut, upvals[i].frame});
 
     solu_kadd(&c, (solu_val){.tt = SOLU_TBOOL, .boolean = false});
     solu_kadd(&c, (solu_val){.tt = SOLU_TBOOL, .boolean = true});
@@ -270,7 +270,7 @@ solu_cnode_ex solu_cnode(solu_compiler *c, solu_node *node, uint32_t t_reg) {
                 return solu_cerr(SOLU_ERRC_REDEFINED_LOCAL);
             uint32_t rhs = solu_rlocal(c);
             solu_scope_set(c->scopes.data + c->scopes.count - 1, sf_str_cdup(node->n_local.name.dyn), (solu_local){
-                rhs, rhs, c->scopes.count - 1, false, node->n_local.mut, 0
+                rhs, c->scopes.count - 1, false, node->n_local.mut, 0
             });
             return solu_cnode(c, node->n_local.value, rhs);
         }
@@ -879,7 +879,7 @@ solu_cnode_ex solu_cnode(solu_compiler *c, solu_node *node, uint32_t t_reg) {
                     upv.tt,
                     .mut = upv.mut,
                 };
-                if (upv.tt == SOLU_UP_REF)
+                if (upv.tt == SOLU_UP_REF || upv.tt == SOLU_UP_UPV)
                     upvals[0].ref = upv.ref;
                 else upvals[0].value = upv.value;
                 ofs = 1;
@@ -893,10 +893,10 @@ solu_cnode_ex solu_cnode(solu_compiler *c, solu_node *node, uint32_t t_reg) {
                 if (c->obj_r != UINT_MAX && strcmp(name, "self") == 0)
                     upvals[ofs + i] = (solu_upvalue){sf_lit("self"), .tt = SOLU_UP_REF, .ref = c->obj_r, .frame = c->frame, .mut = false};
                 else {
-                    if (!solu_lexists(c, name, &loc))
+                    if (!solu_lexists(c, name, &loc) && strcmp(name, "self") != 0)
                         return solu_cerr(SOLU_ERRC_UNKNOWN_LOCAL);
                     if (loc.upval)
-                        upvals[ofs + i] = (solu_upvalue){sf_str_cdup(name), .tt = SOLU_UP_REF, .ref = loc.oreg, .frame = loc.frame, .mut = loc.mut };
+                        upvals[ofs + i] = (solu_upvalue){sf_str_cdup(name), .tt = SOLU_UP_UPV, .ref = loc.reg, .frame = loc.frame, .mut = loc.mut };
                     else {
                         solu_cemit(c, solu_ins_a(SOLU_OP_REFU, loc.reg));
                         upvals[ofs + i] = (solu_upvalue){sf_str_cdup(name), .tt = SOLU_UP_REF, .ref = loc.reg, .frame = c->frame, .mut = loc.mut };

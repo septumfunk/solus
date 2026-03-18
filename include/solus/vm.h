@@ -13,6 +13,7 @@
 typedef struct {
     uint32_t bottom_o;
     uint32_t size;
+    bool self;
 } solu_stackframe;
 /// Stack frame stack (i know that sounds confusing)
 #define VEC_NAME solu_frames
@@ -115,7 +116,7 @@ static inline void solu_drelease(solu_val val) {
 
 /// Get the value of a register from a specific stack frame
 static inline solu_val solu_rawget(solu_state *state, uint32_t index, uint32_t frame) {
-    solu_val val = solu_valvec_get(&state->stack, state->frames.data[frame].bottom_o + index);
+    solu_val val = solu_valvec_get(&state->stack, state->frames.data[frame].bottom_o + index - (state->frames.data[frame].self ? 1 : 0));
     if (solu_isdtype(val, SOLU_DREF))
         return *(solu_val *)val.dyn;
     return val;
@@ -128,12 +129,13 @@ EXPORT solu_val solu_getk(solu_state *state, solu_fproto *proto, uint32_t index)
 
 /// Set the value of a register in a specific stack frame
 static inline void solu_rawset(solu_state *state, uint32_t index, solu_val val, uint32_t frame) {
-    solu_val old = solu_valvec_get(&state->stack, state->frames.data[frame].bottom_o + index);
+    uint32_t i = state->frames.data[frame].bottom_o + index - (state->frames.data[frame].self ? 1 : 0);
+    solu_val old = solu_valvec_get(&state->stack, i);
     if (solu_isdtype(old, SOLU_DREF)) {
         *(solu_val *)old.dyn = val;
         return;
     }
-    solu_valvec_set(&state->stack, state->frames.data[frame].bottom_o + index, val);
+    solu_valvec_set(&state->stack, i, val);
 }
 /// Set the value of a register in the current stack frame
 static inline void solu_set(solu_state *state, uint32_t index, solu_val val) {
@@ -152,6 +154,7 @@ static inline uint32_t solu_pushframe(solu_state *state, uint32_t reg_c) {
     solu_frames_push(&state->frames, (solu_stackframe){
         state->frames.count == 0 ? 0 : state->frames.data[state->frames.count - 1].bottom_o + state->frames.data[state->frames.count - 1].size,
         reg_c,
+        false,
     });
     for (uint32_t i = 0; i < reg_c; ++i)
         solu_valvec_push(&state->stack, SOLU_NIL);
@@ -178,7 +181,7 @@ static inline solu_val solu_capturec(solu_state *state, uint32_t index) {
 }
 static inline solu_val solu_selfc(solu_state *state) {
     if (state->ccall->up_c && sf_str_eq(state->ccall->upvals[0].name, sf_lit("self"))) {
-        state->frames.data[state->frames.count - 1].bottom_o -= 1;
+        state->frames.data[state->frames.count - 1].self = true;
         return solu_capturec(state, 0);
     }
     return solu_get(state, 0);
