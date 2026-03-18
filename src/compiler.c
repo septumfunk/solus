@@ -615,7 +615,7 @@ solu_cnode_ex solu_cnode(solu_compiler *c, solu_node *node, uint32_t t_reg) {
                             } else {
                                 ot = solu_rtemp(c);
                                 solu_cemit(c, solu_ins_ab(SOLU_OP_GETU, ot, loc.reg));
-                                solu_cemit(c, solu_ins_abc(solu_eq_op(node->n_binary.op), ot, solu_reg(ot), rl ? solu_const(right) : solu_reg(right)));
+                                solu_cemit(c, solu_ins_abc((unsigned int)solu_eq_op(node->n_binary.op), ot, solu_reg(ot), rl ? solu_const(right) : solu_reg(right)));
                                 solu_cemit(c, solu_ins_ab(SOLU_OP_SETU, loc.reg, ot));
                                 if (t_reg != UINT32_MAX)
                                     solu_cemit(c, solu_ins_ab(SOLU_OP_MOVE, t_reg, ot));
@@ -625,7 +625,7 @@ solu_cnode_ex solu_cnode(solu_compiler *c, solu_node *node, uint32_t t_reg) {
                                 solu_cnode_ex ex = solu_cmembers(c, node->n_binary.right, loc.reg);
                                 if (!ex.is_ok) return ex;
                             } else if (node->n_binary.op != TK_EQUAL) {
-                                solu_cemit(c, solu_ins_abc(solu_eq_op(node->n_binary.op), loc.reg,
+                                solu_cemit(c, solu_ins_abc((unsigned int)solu_eq_op(node->n_binary.op), loc.reg,
                                 solu_reg(loc.reg), rl ? solu_const(right) : solu_reg(right)));
                             } else solu_cemit(c, solu_ins_ab(rl ? SOLU_OP_LOAD : SOLU_OP_MOVE, loc.reg, right));
                             if (t_reg != UINT32_MAX)
@@ -638,7 +638,7 @@ solu_cnode_ex solu_cnode(solu_compiler *c, solu_node *node, uint32_t t_reg) {
                         if (node->n_binary.op != TK_EQUAL) {
                             ot = solu_rtemp(c);
                             solu_cemit(c, solu_ins_abc(SOLU_OP_GUPO, ot, solu_reg(0), solu_const(name_i)));
-                            solu_cemit(c, solu_ins_abc(solu_eq_op(node->n_binary.op), ot, solu_reg(ot), rl ? solu_const(right) : solu_reg(right)));
+                            solu_cemit(c, solu_ins_abc((unsigned int)solu_eq_op(node->n_binary.op), ot, solu_reg(ot), rl ? solu_const(right) : solu_reg(right)));
                         }
                         solu_cemit(c, solu_ins_abc(SOLU_OP_SUPO, 0, solu_const(name_i), ot == UINT32_MAX ?
                             (rl ? solu_const(right) : solu_reg(right)) : solu_reg(ot)));
@@ -679,7 +679,7 @@ solu_cnode_ex solu_cnode(solu_compiler *c, solu_node *node, uint32_t t_reg) {
                         if (node->n_binary.op != TK_EQUAL) {
                             ot = solu_rtemp(c);
                             solu_cemit(c, solu_ins_abc(SOLU_OP_GET, ot, solu_reg(obj), key_r));
-                            solu_cemit(c, solu_ins_abc(solu_eq_op(node->n_binary.op), ot, solu_reg(ot), rl ? solu_const(right) : solu_reg(right)));
+                            solu_cemit(c, solu_ins_abc((unsigned int)solu_eq_op(node->n_binary.op), ot, solu_reg(ot), rl ? solu_const(right) : solu_reg(right)));
                         }
                         solu_instruction ins = solu_ins_abc(SOLU_OP_SET, obj, key_r, ot == UINT32_MAX ?
                             (rl ? solu_const(right) : solu_reg(right)) : solu_reg(ot));
