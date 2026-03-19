@@ -624,8 +624,12 @@ void solu_savefun(solu_fproto *proto, char *path) {
         return;
     sf_buffer buf = solu_fproto_serialize(proto);
     FILE *f = fopen(path, "wb");
-    if (!f) return;
+    if (!f) {
+        sf_buffer_clear(&buf);
+        return;
+    }
     fwrite(buf.ptr, 1, buf.size, f);
+    sf_buffer_clear(&buf);
     fclose(f);
 }
 

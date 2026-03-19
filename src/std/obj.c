@@ -1,3 +1,4 @@
+#include "sf/str.h"
 #include "solus/val.h"
 #include "solus/vm.h"
 #include "std.h"
@@ -51,9 +52,38 @@ typedef struct {
 } _solu_stringify_args;
 static void _stringify_fe(void *u, sf_str key, solu_val val);
 static sf_str _stringify(solu_state *s, solu_dobj *obj, bool pretty, bool commas, uint32_t id) {
-    if (obj->map.pair_count == 0) return sf_lit("{}");
+    if (obj->map.pair_count == 0 && obj->array.count == 0) return sf_lit("{}");
     sf_str out = sf_str_cdup(pretty ? "{\n" : "{ ");
     solu_valmap_foreach(&obj->map, _stringify_fe, &(_solu_stringify_args){s, &out, pretty, commas, id});
+
+    if (obj->array.count) {
+        size_t size = sizeof(char) * id * 2;
+        char *idt = malloc(size + 1);
+        memset(idt, ' ', sizeof(char) * id * 2);
+        sf_str_append(&out, sf_ref(idt));
+        free(idt);
+        for (uint32_t i = 0; i < obj->array.count; ++i) {
+            solu_val val = obj->array.data[i];
+            switch (val.tt) {
+                case SOLU_TDYN: if (solu_isdtype(val, SOLU_DOBJ)) {
+                    sf_str_append(&out, _stringify(s, val.dyn, pretty, commas, id + 1));
+                    break;
+                }
+                default: {
+                    char *str = solu_tostr(s, val);
+                    if (solu_isdtype(val, SOLU_DSTR)) {
+                        sf_str s2 = sf_str_fmt("\"%s\"", str);
+                        free(str);
+                        str = s2.c_str;
+                    }
+                    sf_str_append(&out, sf_ref(str));
+                    free(str);
+                    break;
+                }
+            }
+            sf_str_append(&out, i == obj->array.count - 1 && pretty ? sf_lit("\n") : sf_lit(", "));
+        }
+    }
 
     if (pretty && id) {
         size_t s = sizeof(char) * (id-1) * 2;
@@ -245,6 +275,8 @@ solu_val solu_mod_obj(solu_state *s) {
     solu_dobj_strset(obj.dyn, "then", solu_wrapmfun(s, builtin_then, 2, NULL, 0));
     solu_dobj_strset(obj.dyn, "type", solu_wrapmfun(s, builtin_type, 1, NULL, 0));
     solu_dobj_strset(obj.dyn, "str", solu_wrapmfun(s, builtin_str, 1, NULL, 0));
+    solu_dobj_strset(obj.dyn, "unwrap", solu_wrapmfun(s, builtin_unwrap, 0, NULL, 0));
+    solu_dobj_strset(obj.dyn, "or_else", solu_wrapmfun(s, builtin_or_else, 1, NULL, 0));
 
     solu_dobj_strset(s->global.dyn, "obj", obj);
     return obj;

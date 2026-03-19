@@ -16,6 +16,8 @@
 solu_call_ex builtin_then(solu_state *s);
 solu_call_ex builtin_type(solu_state *s);
 solu_call_ex builtin_str(solu_state *s);
+solu_call_ex builtin_unwrap(solu_state *s);
+solu_call_ex builtin_or_else(solu_state *s);
 
 EXPORT void solu_mod_builtin(solu_state *s);
 EXPORT solu_val solu_mod_io(solu_state *s);

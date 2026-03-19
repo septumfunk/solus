@@ -105,14 +105,14 @@ static solu_call_ex builtin_attempt(solu_state *s) {
     }
     return solu_ok(try_ex.ok);
 }
-static solu_call_ex builtin_unwrap(solu_state *s) {
-    solu_val val = solu_get(s, 0);
+solu_call_ex builtin_unwrap(solu_state *s) {
+    solu_val val = solu_selfc(s);
     if (!solu_isdtype(val, SOLU_DERR))
         return solu_ok(val);
     return solu_call_ex_err((solu_call_err){SOLU_ERRV_PANIC, _strdup(val.dyn), 0});
 }
-static solu_call_ex builtin_or_else(solu_state *s) {
-    solu_val val = solu_get(s, 0);
+solu_call_ex builtin_or_else(solu_state *s) {
+    solu_val val = solu_selfc(s);
     if (!solu_isdtype(val, SOLU_DERR))
         return solu_ok(val);
     return solu_ok(solu_get(s, 1));
