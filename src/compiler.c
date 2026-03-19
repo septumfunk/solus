@@ -69,7 +69,7 @@ typedef struct {
     solu_fproto proto;
     solu_ast ast;
     solu_scopes scopes;
-    uint32_t locals, max_locals, temps, max_temps, frame;
+    uint32_t temps, max_reg, frame;
     solu_dalloc *alloc;
 
     uint32_t obj_r;
@@ -100,15 +100,12 @@ static inline solu_opcode solu_eq_op(solu_tokentype tt) {
 }
 
 /// Reserve local variable register
-static inline uint32_t solu_rlocal(solu_compiler *c) {
-    ++c->locals;
-    c->max_locals = c->locals > c->max_locals ? c->locals : c->max_locals;
-    return c->locals - 1;
+static inline uint32_t solu_rtemp(solu_compiler *c) {
+    ++c->temps;
+    c->max_reg = c->temps > c->max_reg ? c->temps : c->max_reg;
+    return c->temps - 1;
 }
-/// Clear local variable register(s)
-static inline void solu_clocals(solu_compiler *c, uint32_t count) {
-    c->locals -= count;
-}
+#define solu_rlocal solu_rtemp
 /// Find whether a local exists, and output the local if it does
 static inline bool solu_lexists(solu_compiler *c, char *name, solu_local *loc) {
     for (solu_scope *s = c->scopes.data + c->scopes.count - 1; s != c->scopes.data - 1; --s) {
@@ -120,11 +117,6 @@ static inline bool solu_lexists(solu_compiler *c, char *name, solu_local *loc) {
     }
     return false;
 }
-static inline uint32_t solu_rtemp(solu_compiler *c) {
-    ++c->temps;
-    c->max_temps = c->temps > c->max_temps ? c->temps : c->max_temps;
-    return c->max_locals + c->temps - 1;  // temps are above max locals
-}
 /// Clear temporary register(s)
 static inline void solu_ctemps(solu_compiler *c, uint32_t count) {
     if (count > c->temps) {
@@ -133,6 +125,7 @@ static inline void solu_ctemps(solu_compiler *c, uint32_t count) {
     }
     c->temps -= count;
 }
+#define solu_clocals solu_ctemps
 /// Find whether a constant exists, and output the index if it does
 bool solu_kfind(solu_compiler *c, solu_val con, uint32_t *idx) {
     if (con.tt == SOLU_TBOOL) {
@@ -186,9 +179,8 @@ solu_compile_ex solu_cfun(uint32_t frame, solu_dalloc *alloc, solu_node *ast, ui
         .proto = solu_fproto_new(),
         .ast = ast,
         .scopes = solu_scopes_new(),
-        .locals = arg_c,
-        .max_locals = arg_c,
-        .temps = 0, .max_temps = 0,
+        .temps = arg_c,
+        .max_reg = arg_c,
         .alloc = alloc,
         .obj_r = UINT_MAX,
         .frame = frame,
@@ -210,7 +202,7 @@ solu_compile_ex solu_cfun(uint32_t frame, solu_dalloc *alloc, solu_node *ast, ui
     c.proto.up_c = up_c;
 
     solu_cnode_ex e = solu_cnode(&c, c.ast, UINT32_MAX);
-    c.proto.reg_c = c.max_locals + c.max_temps;
+    c.proto.reg_c = c.max_reg;
 
     solu_scopes_free(&c.scopes);
     solu_controls_free(&c.controls);
