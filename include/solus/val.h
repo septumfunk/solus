@@ -105,6 +105,7 @@ typedef struct {
     uint32_t reg_c, arg_c, up_c; // registers, args, upvals,
     solu_valvec constants;
     solu_upvalue *upvals;
+    bool self;
 } solu_fproto;
 EXPORT solu_fproto solu_fproto_new(void);
 EXPORT solu_fproto solu_fproto_c(solu_cfunction c_fun, uint32_t arg_c, solu_val *captures, uint32_t cap_c);

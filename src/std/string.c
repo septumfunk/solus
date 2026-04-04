@@ -1,4 +1,5 @@
 #include "solus/val.h"
+#include "solus/vm.h"
 #include "std.h"
 
 static inline solu_i64 clamp_i64(solu_i64 v, solu_i64 lo, solu_i64 hi) {
@@ -23,7 +24,7 @@ static solu_call_ex string_sub(solu_state *s) {
     expect_type(SOLU_TI64, end);
 
     char *sstr = (char *)str.dyn;
-    solu_i64 len = (solu_i64)strlen(sstr);
+    solu_i64 len = (solu_i64)solu_dheader(str)->size - 1;
 
     start.i64 = clamp_i64(start.i64, 0, len);
     end.i64 = clamp_i64(end.i64, 0, len);
@@ -135,7 +136,13 @@ static solu_call_ex string_split(solu_state *s) {
 
     return solu_ok(out);
 }
-
+static solu_call_ex string_ord(solu_state *s) {
+    solu_val str = solu_get(s, 0);
+    expect_dtype(SOLU_DSTR, str);
+    if (solu_dheader(str)->size - 1 < 1)
+        return solu_panic("Empty string");
+    return solu_ok((solu_val){SOLU_TI64, .i64=((char *)str.dyn)[0]});
+}
 
 solu_val solu_mod_string(solu_state *s) {
     solu_val string = solu_dnew(s, SOLU_DOBJ);

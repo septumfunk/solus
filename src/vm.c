@@ -63,7 +63,7 @@ void solu_usestd(solu_state *s) {
 
 solu_compile_ex solu_csrc(solu_state *state, char *src) {
     solu_compile_ex ex = solu_cproto(SF_STR_EMPTY, src, 0, NULL, 1, (solu_upvalue[]){
-        (solu_upvalue){sf_lit("_g"), SOLU_UP_VAL, .value = state->global, .mut = false}
+        (solu_upvalue){sf_lit("global"), SOLU_UP_VAL, .value = state->global, .mut = false}
     });
     ex.ok.line_c = 1;
     for (char *c = src; *c != '\0'; ++c)
@@ -94,7 +94,7 @@ solu_compile_ex solu_cfile(solu_state *state, char *path) {
     }
 
     solu_compile_ex ex = solu_cproto(sf_ref(realpath), (char *)fsb.ok.ptr, 0, NULL, 1, (solu_upvalue[]){
-        (solu_upvalue){sf_lit("_g"), SOLU_UP_VAL, .value = state->global, .mut = false}
+        (solu_upvalue){sf_lit("global"), SOLU_UP_VAL, .value = state->global, .mut = false}
     });
     free(realpath);
     if (!ex.is_ok) {
@@ -105,7 +105,6 @@ solu_compile_ex solu_cfile(solu_state *state, char *path) {
     for (char *c = (char *)fsb.ok.ptr; *c != '\0'; ++c)
         if (*c == '\n') ++ex.ok.line_c;
     sf_buffer_clear(&fsb.ok);
-    ex.ok.file_name = sf_str_cdup(path);
     return ex;
 }
 
@@ -288,16 +287,9 @@ solu_val solu_dobj_get(solu_state *s, solu_dobj *obj, solu_val key) {
 void solu_dobj_set(solu_state *s, solu_dobj *obj, solu_val key, solu_val val) {
     if (solu_isdtype(val, SOLU_DFUN)) {
         solu_fproto *fp = val.dyn;
-        uint32_t self = UINT32_MAX;
-        for (uint32_t i = 0; i < fp->up_c; ++i) {
-            if (sf_str_eq(fp->upvals[i].name, sf_lit("self"))) {
-                self = i;
-                break;
-            }
-        }
-        if (self != UINT32_MAX) {
-            solu_upvalue op = fp->upvals[self];
-            fp->upvals[self] = (solu_upvalue){ op.name, SOLU_UP_VAL, .value = (solu_val){SOLU_TDYN, .dyn = obj} };
+        if (fp->self) {
+            solu_upvalue op = fp->upvals[1];
+            fp->upvals[1] = (solu_upvalue){ op.name, SOLU_UP_VAL, .value = (solu_val){SOLU_TDYN, .dyn = obj} };
         }
     }
     if ((key.tt == SOLU_TI64 && key.i64 >= 0) || (key.tt == SOLU_TF64 && key.f64 >= 0)) {
@@ -364,6 +356,7 @@ solu_val solu_dscopy(solu_state *state, solu_val val, bool kconst) {
             nfp->constants = solu_valvec_new();
             nfp->code = malloc(sizeof(solu_instruction) * fp->code_c);
             nfp->dbg = fp->dbg ? malloc(sizeof(solu_dbg) * fp->code_c) : NULL;
+            nfp->self = fp->self;
 
             // Deref Upvals
             nfp->upvals = malloc(sizeof(solu_upvalue) * nfp->up_c);
@@ -569,6 +562,7 @@ sf_buffer solu_fproto_serialize(solu_fproto *proto) {
     sf_buffer_insert(&buf, proto->file_name.c_str, proto->file_name.len);
     sf_buffer_autoins(&buf, &(uint16_t){htons(proto->code_c)});
     sf_buffer_autoins(&buf, &(uint16_t){htons(proto->line_c)});
+    sf_buffer_autoins(&buf, &(uint8_t){proto->self});
 
     sf_buffer_autoins(&buf, &(uint32_t){htonl(proto->constants.count)});
     for (solu_val *k = proto->constants.data; k < proto->constants.data + proto->constants.count; ++k) {
@@ -602,7 +596,7 @@ sf_buffer solu_fproto_serialize(solu_fproto *proto) {
     sf_buffer_autoins(&buf, &(uint32_t){htonl(proto->reg_c)});
     sf_buffer_autoins(&buf, &(uint32_t){htonl(proto->arg_c)});
     uint32_t upc = proto->up_c;
-    if (upc > 0 && sf_str_eq(proto->upvals[0].name, sf_lit("_g")))
+    if (upc > 0 && sf_str_eq(proto->upvals[0].name, sf_lit("global")))
         --upc;
     sf_buffer_autoins(&buf, &(uint32_t){htonl(upc)});
     for (solu_upvalue *u = proto->upvals + (proto->up_c - upc); u < proto->upvals + proto->up_c; ++u) {
@@ -664,6 +658,8 @@ solu_load_ex _solu_loadfun(solu_state *s, sf_buffer *buf) {
     ex = sf_buffer_autoread(buf, &proto.line_c);
     if (!ex.is_ok) goto corrupt;
     proto.line_c = ntohs(proto.line_c);
+    ex = sf_buffer_autoread(buf, &proto.self);
+    if (!ex.is_ok) goto corrupt;
 
     uint32_t kcount;
     ex = sf_buffer_autoread(buf, &kcount);
@@ -754,7 +750,7 @@ solu_load_ex _solu_loadfun(solu_state *s, sf_buffer *buf) {
     if (!ex.is_ok) goto corrupt;
     proto.up_c = ntohl(proto.up_c) + 1;
     upvals = calloc(proto.up_c, sizeof(solu_upvalue));
-    upvals[0] = (solu_upvalue){sf_lit("_g"), SOLU_UP_VAL, .value = s->global, .mut = false};
+    upvals[0] = (solu_upvalue){sf_lit("global"), SOLU_UP_VAL, .value = s->global, .mut = false};
     for (uint32_t u = 1; u < proto.up_c; ++u) {
         uint64_t slen;
         ex = sf_buffer_autoread(buf, &slen);
@@ -946,7 +942,7 @@ solu_call_ex solu_call_bc(solu_state *s, solu_fproto *proto, const solu_val *arg
             } else fex = solu_call(s, f, NULL, 0);
 
             if (!fex.is_ok) {
-                fex.err.pc = pc - 1;
+                s->ecall = f;
                 return fex;
             }
             solu_set(s, solu_iabc_a(ins), fex.ok);
@@ -1022,10 +1018,8 @@ solu_call_ex solu_call_bc(solu_state *s, solu_fproto *proto, const solu_val *arg
             solu_fproto *f = fun.dyn;
             int i = -1;
             solu_val ov = SOLU_NIL;
-            if (f->tt == SOLU_FPROTO_C && f->up_c && sf_str_eq(f->upvals[0].name, sf_lit("self")))
-                i = 0;
-            else if (f->up_c > 1 && sf_str_eq(f->upvals[1].name, sf_lit("self")))
-                i = 1;
+            if (f->self)
+                i = f->tt == SOLU_FPROTO_C ? 0 : 1;
             if (i >= 0) {
                 ov = f->upvals[i].value;
                 f->upvals[i].value = obj;
@@ -1045,7 +1039,7 @@ solu_call_ex solu_call_bc(solu_state *s, solu_fproto *proto, const solu_val *arg
                 f->upvals[i].value = ov;
 
             if (!fex.is_ok) {
-                fex.err.pc = pc - 1;
+                s->ecall = f;
                 return fex;
             }
             solu_set(s, solu_iabc_a(ins), fex.ok);
@@ -1406,6 +1400,15 @@ solu_call_ex solu_call_bc(solu_state *s, solu_fproto *proto, const solu_val *arg
             if (solu_isdtype(obj, SOLU_DUSR)) {
                 get = solu_uheader(obj)->metafuns[SOLU_META_GET];
                 obj = solu_uheader(obj)->metafuns[SOLU_META_EXTEND];
+            } else if (solu_isdtype(obj, SOLU_DSTR)) {
+                solu_dalloc *da = solu_dheader(obj);
+                if (key.tt != SOLU_TI64)
+                    return solu_callerr(SOLU_ERRV_TYPE_MISMATCH, "Attempted to index string with type %s", solu_typename(key).c_str);
+                if (key.i64 < 0 || key.i64 > (solu_i64)da->size - 2)
+                    return solu_callerr(SOLU_ERRV_TYPE_MISMATCH, "Index %lld out of bounds (string length %llu)", key.i64, da->size - 1);
+                char str[2] = { ((char *)obj.dyn)[key.i64], '\0' };
+                solu_set(s, solu_iabc_a(ins), solu_dnstr(s, str));
+                DISPATCH();
             } else {
                 if (!solu_isdtype(obj, SOLU_DOBJ))
                     return solu_callerr(SOLU_ERRV_TYPE_MISMATCH, "Attempted to index type %s", solu_typename(obj).c_str);
@@ -1430,25 +1433,17 @@ solu_call_ex solu_call_bc(solu_state *s, solu_fproto *proto, const solu_val *arg
         }
 
         CASE(SOLU_OP_SUPO) {
+            solu_val kkey = solu_valvec_get(&proto->constants, solu_iabc_bx(ins));
+            solu_val val = solu_iabc_ck(ins) ? solu_getk(s, proto, solu_iabc_cx(ins)) : solu_get(s, solu_iabc_cx(ins));
             solu_upvalue *upv = proto->upvals + solu_iabc_a(ins);
             solu_val upo = upv->tt == SOLU_UP_VAL ? upv->value : solu_rawget(s, upv->ref, upv->frame);
-            if (!solu_isdtype(upo, SOLU_DOBJ))
-                return solu_callerr(SOLU_ERRV_CORRUPT, "Corrupt bytecode", NULL);
-            solu_val kkey = solu_valvec_get(&proto->constants, solu_iabc_bx(ins));
-            if (!solu_isdtype(kkey, SOLU_DSTR))
-                return solu_callerr(SOLU_ERRV_CORRUPT, "Corrupt bytecode", NULL);
-            solu_val val = solu_iabc_ck(ins) ? solu_getk(s, proto, solu_iabc_cx(ins)) : solu_get(s, solu_iabc_cx(ins));
             solu_dobj_strset(upo.dyn, kkey.dyn, val);
             DISPATCH();
         }
         CASE(SOLU_OP_GUPO) {
+            solu_val kkey = solu_valvec_get(&proto->constants, solu_iabc_cx(ins));
             solu_upvalue *upv = proto->upvals + solu_iabc_bx(ins);
             solu_val upo = upv->tt == SOLU_UP_VAL ? upv->value : solu_rawget(s, upv->ref, upv->frame);
-            if (!solu_isdtype(upo, SOLU_DOBJ))
-                return solu_callerr(SOLU_ERRV_CORRUPT, "Corrupt bytecode", NULL);
-            solu_val kkey = solu_valvec_get(&proto->constants, solu_iabc_cx(ins));
-            if (!solu_isdtype(kkey, SOLU_DSTR))
-                return solu_callerr(SOLU_ERRV_CORRUPT, "Corrupt bytecode", NULL);
             solu_set(s, solu_iabc_a(ins), solu_dobj_strget(upo.dyn, kkey.dyn));
             DISPATCH();
         }
@@ -1469,20 +1464,32 @@ ret: {}
 solu_call_ex solu_call(solu_state *state, solu_fproto *proto, const solu_val *args, uint32_t arg_c) {
     if (state->call_stack > CALL_STACK_MAX)
         return solu_panic("Stack Overflow");
+    sf_str od = proto->file_name;
+    if (proto->file_name.len)
+        state->cwd = proto->file_name;
 
+    state->ecall = NULL;
     ++state->call_stack;
+    solu_fproto *ocall = state->ccall;
     state->ccall = proto;
     if (proto->tt == SOLU_FPROTO_BC) {
         solu_call_ex ex = solu_call_bc(state, proto, args, arg_c, NULL);
-        if (!ex.is_ok)
+        if (!ex.is_ok) {
+            if (!state->ecall)
+                state->ecall = proto;
             solu_popframe(state);
-        state->ccall = NULL;
+        }
         --state->call_stack;
+        state->ccall = ocall;
+        state->cwd = od;
         return ex;
     }
     solu_call_ex ex = solu_call_cfun(state, proto, args, arg_c);
-    state->ccall = NULL;
+    if (!ex.is_ok && !state->ecall)
+        state->ecall = proto;
     --state->call_stack;
+    state->ccall = ocall;
+    state->cwd = od;
     return ex;
 }
 

@@ -251,6 +251,7 @@ solu_scan_ex solu_scan(sf_str src) {
     solu_keywords_set(&s.keywords, sf_lit("include"), TK_INCLUDE);
     solu_keywords_set(&s.keywords, sf_lit("break"), TK_BREAK);
     solu_keywords_set(&s.keywords, sf_lit("continue"), TK_CONTINUE);
+    solu_keywords_set(&s.keywords, sf_lit("return"), TK_RETURN);
     // operators
     solu_keywords_set(&s.keywords, sf_lit("and"), TK_AND);
     solu_keywords_set(&s.keywords, sf_lit("or"), TK_OR);
@@ -576,6 +577,7 @@ solu_parse_ex solu_pins(solu_parser *p);
 solu_parse_ex solu_pobj(solu_parser *p);
 solu_parse_ex solu_pwhile(solu_parser *p);
 solu_parse_ex solu_pfor(solu_parser *p);
+solu_parse_ex solu_preturn(solu_parser *p);
 solu_parse_ex solu_pinclude(solu_parser *p);
 solu_parse_ex solu_pstmt(solu_parser *p);
 
@@ -1076,7 +1078,7 @@ solu_parse_ex solu_pfun(solu_parser *p) {
                 solu_node_free(n_fun);
                 return solu_perr(SOLU_ERRP_DUPLICATE_CAPTURE, p->tok);
             }
-        if (strcmp(p->tok->value.dyn, "_g") == 0) {
+        if (strcmp(p->tok->value.dyn, "global") == 0) {
             solu_node_free(n_fun);
             return solu_perr(SOLU_ERRP_DUPLICATE_CAPTURE, p->tok);
         }
@@ -1371,6 +1373,41 @@ solu_parse_ex solu_pfor(solu_parser *p) {
     return solu_parse_ex_ok(n_for);
 }
 
+solu_parse_ex solu_preturn(solu_parser *p) {
+    solu_token *tk = p->tok++;
+    if (p->tok->tt == TK_SEMICOLON) {
+        ++p->tok;
+        solu_node *nd = malloc(sizeof(solu_node));
+        solu_node *val = malloc(sizeof(solu_node));
+        *val = (solu_node){
+            SOLU_ND_LITERAL,
+            .line = tk->line, .column = tk->column,
+            .n_literal = SOLU_NIL,
+        };
+        *nd = (solu_node){
+            SOLU_ND_RETURN,
+            .line = tk->line, .column = tk->column,
+            .n_return = { val, false }
+        };
+        return solu_parse_ex_ok(nd);
+    }
+    solu_parse_ex val = solu_pexpr(p, 0);
+    if (!val.is_ok) return val;
+    if (p->tok->tt != TK_SEMICOLON) {
+        solu_node_free(val.ok);
+        return solu_perr(SOLU_ERRP_EXPECTED_SEMICOLON, p->tok - 1);
+    }
+    ++p->tok;
+
+    solu_node *nd = malloc(sizeof(solu_node));
+    *nd = (solu_node){
+        SOLU_ND_RETURN,
+        .line = tk->line, .column = tk->column,
+        .n_return = { val.ok, false }
+    };
+    return solu_parse_ex_ok(nd);
+}
+
 static inline void free_alloc(solu_dalloc *alloc) {
     for (solu_dalloc *ac = alloc; ac; ) {
         solu_dalloc *next = ac->next;
@@ -1467,6 +1504,7 @@ solu_parse_ex solu_pstmt(solu_parser *p) {
             ++p->tok;
             return solu_parse_ex_ok(nd);
         }
+        case TK_RETURN: return solu_preturn(p);
 
         case TK_DO: ++p->tok;
         case TK_SOF: return solu_pblock(p);

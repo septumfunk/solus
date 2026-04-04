@@ -73,6 +73,7 @@ typedef struct {
     solu_dalloc *alloc;
 
     uint32_t obj_r;
+    solu_valmap fields;
     bool inloop;
     solu_controls controls;
 } solu_compiler;
@@ -114,6 +115,10 @@ static inline bool solu_lexists(solu_compiler *c, char *name, solu_local *loc) {
             *loc = sc_ex.ok;
             return true;
         }
+    }
+    if (strcmp(name, "self") == 0 && c->obj_r != UINT32_MAX) {
+        *loc = (solu_local){c->obj_r, c->scopes.count - 1, false, false, c->frame};
+        return true;
     }
     return false;
 }
@@ -174,7 +179,7 @@ static uint32_t solu_kadd(solu_compiler *c, solu_val con) {
 solu_cnode_ex solu_cnode(solu_compiler *c, solu_node *node, uint32_t t_reg);
 
 /// Compile a fun from a block and info
-solu_compile_ex solu_cfun(uint32_t frame, solu_dalloc *alloc, solu_node *ast, uint32_t arg_c, solu_val *args, uint32_t up_c, solu_upvalue *upvals) {
+solu_compile_ex solu_cfun(sf_str file_name, uint32_t frame, solu_dalloc *alloc, solu_node *ast, uint32_t arg_c, solu_val *args, uint32_t up_c, solu_upvalue *upvals) {
     solu_compiler c = {
         .proto = solu_fproto_new(),
         .ast = ast,
@@ -188,6 +193,7 @@ solu_compile_ex solu_cfun(uint32_t frame, solu_dalloc *alloc, solu_node *ast, ui
         .controls = solu_controls_new(),
     };
     c.proto.arg_c = arg_c;
+    c.proto.file_name = file_name;
     solu_scopes_push(&c.scopes, solu_scope_new());
     for (uint32_t i = 0; i < arg_c; ++i)
         solu_scope_set(c.scopes.data + c.scopes.count - 1, sf_str_cdup(args[i].dyn), (solu_local){i, 0, false, true, 0});
@@ -585,6 +591,8 @@ solu_cnode_ex solu_cnode(solu_compiler *c, solu_node *node, uint32_t t_reg) {
             case TK_EQUAL: {
                 if (node->n_binary.left->tt == SOLU_ND_IDENTIFIER) {
                     solu_local loc;
+                    if (strcmp(node->n_binary.left->n_identifier.dyn, "self") == 0)
+                        return solu_cerr(SOLU_ERRC_REASSIGNED_SELF);
                     if (solu_lexists(c, node->n_binary.left->n_identifier.dyn, &loc)) {
                         if (!loc.mut)
                             return solu_cerr(SOLU_ERRC_REASSIGNED_VAL);
@@ -623,19 +631,20 @@ solu_cnode_ex solu_cnode(solu_compiler *c, solu_node *node, uint32_t t_reg) {
                             if (t_reg != UINT32_MAX)
                                 solu_cemit(c, solu_ins_ab(SOLU_OP_MOVE, t_reg, loc.reg));
                         }
-                    } else { // global
+                    } else {
+                        uint32_t up = solu_reg(0);
                         uint32_t name_i;
                         if (!solu_kfind(c, node->n_binary.left->n_identifier, &name_i))
                             name_i = solu_kadd(c, node->n_binary.left->n_identifier);
                         if (node->n_binary.op != TK_EQUAL) {
                             ot = solu_rtemp(c);
-                            solu_cemit(c, solu_ins_abc(SOLU_OP_GUPO, ot, solu_reg(0), solu_const(name_i)));
+                            solu_cemit(c, solu_ins_abc(SOLU_OP_GUPO, ot, up, solu_const(name_i)));
                             solu_cemit(c, solu_ins_abc((unsigned int)solu_eq_op(node->n_binary.op), ot, solu_reg(ot), rl ? solu_const(right) : solu_reg(right)));
                         }
                         solu_cemit(c, solu_ins_abc(SOLU_OP_SUPO, 0, solu_const(name_i), ot == UINT32_MAX ?
                             (rl ? solu_const(right) : solu_reg(right)) : solu_reg(ot)));
                         if (t_reg != UINT32_MAX)
-                            solu_cemit(c, ot == UINT32_MAX ? solu_ins_abc(SOLU_OP_GUPO, t_reg, solu_reg(0), solu_const(name_i))
+                            solu_cemit(c, ot == UINT32_MAX ? solu_ins_abc(SOLU_OP_GUPO, t_reg, up, solu_const(name_i))
                                 : solu_ins_ab(SOLU_OP_MOVE, t_reg, ot));
                     }
                 } else if (node->n_binary.left->tt == SOLU_ND_POSTFIX) {
@@ -727,6 +736,8 @@ solu_cnode_ex solu_cnode(solu_compiler *c, solu_node *node, uint32_t t_reg) {
         }
 
         case SOLU_ND_POSTFIX: {
+            if (t_reg == UINT32_MAX)
+                return solu_cerr(SOLU_ERRC_UNUSED_EVALUATION);
             uint32_t lhs;
             bool rl = false;
             solu_local loc;
@@ -823,6 +834,8 @@ solu_cnode_ex solu_cnode(solu_compiler *c, solu_node *node, uint32_t t_reg) {
             return solu_cnode_ex_ok();
         }
         case SOLU_ND_OBJ: {
+            if (t_reg == UINT32_MAX)
+                return solu_cerr(SOLU_ERRC_UNUSED_EVALUATION);
             solu_cemit(c, solu_ins_a(SOLU_OP_NEW, t_reg));
             return solu_cmembers(c, node, t_reg);
         }
@@ -860,10 +873,10 @@ solu_cnode_ex solu_cnode(solu_compiler *c, solu_node *node, uint32_t t_reg) {
                 r_asm = (uint32_t)node->n_asm.temps;
                 node = node->n_asm.n_fun;
             }
-            // Propagate _g
+            // Propagate global
             solu_upvalue *upvals;
             uint32_t ofs = 0;
-            if (c->proto.upvals && sf_str_eq(c->proto.upvals[0].name, sf_lit("_g"))) {
+            if (c->proto.upvals && sf_str_eq(c->proto.upvals[0].name, sf_lit("global"))) {
                 solu_upvalue upv = c->proto.upvals[0];
                 upvals = malloc((1 + node->n_fun.cap_c) * sizeof(solu_upvalue));
                 upvals[0] = (solu_upvalue){
@@ -877,14 +890,16 @@ solu_cnode_ex solu_cnode(solu_compiler *c, solu_node *node, uint32_t t_reg) {
                 ofs = 1;
             } else upvals = malloc(node->n_fun.cap_c * sizeof(solu_upvalue));
 
+            bool self = false;
             for (uint32_t i = 0; i < node->n_fun.cap_c; ++i) {
                 solu_val *cap = node->n_fun.captures + i;
                 char *name = cap->dyn;
                 // Self capture (reserved name)
                 solu_local loc;
-                if (c->obj_r != UINT_MAX && strcmp(name, "self") == 0)
+                if (c->obj_r != UINT_MAX && strcmp(name, "self") == 0) {
+                    self = true;
                     upvals[ofs + i] = (solu_upvalue){sf_lit("self"), .tt = SOLU_UP_REF, .ref = c->obj_r, .frame = c->frame, .mut = false};
-                else {
+                } else {
                     if (!solu_lexists(c, name, &loc) && strcmp(name, "self") != 0)
                         return solu_cerr(SOLU_ERRC_UNKNOWN_LOCAL);
                     if (loc.upval)
@@ -897,6 +912,7 @@ solu_cnode_ex solu_cnode(solu_compiler *c, solu_node *node, uint32_t t_reg) {
             }
 
             solu_compile_ex ex = solu_cfun(
+                sf_str_dup(c->proto.file_name),
                 c->frame + 1,
                 c->alloc,
                 node->n_fun.stmt,
@@ -906,6 +922,7 @@ solu_cnode_ex solu_cnode(solu_compiler *c, solu_node *node, uint32_t t_reg) {
             if (upvals) free(upvals);
 
             if (!ex.is_ok) return solu_cnode_ex_err(ex.err);
+            ex.ok.self = self;
             if (r_asm != 0) ex.ok.reg_c += r_asm;
             solu_dyn p = calloc(1, sizeof(solu_dalloc) + sizeof(solu_fproto));
             solu_dalloc *dh = p, *dd = c->alloc;
@@ -958,7 +975,7 @@ solu_compile_ex solu_cproto(sf_str path, char *src, uint32_t arg_c, solu_val *ar
         });
     }
 
-    solu_compile_ex ex = solu_cfun(0, scan_ex.ok.alloc, par_ex.ok, arg_c, args, up_c, upvals);
+    solu_compile_ex ex = solu_cfun(sf_str_dup(path), 0, scan_ex.ok.alloc, par_ex.ok, arg_c, args, up_c, upvals);
     solu_node_free(par_ex.ok);
 
     for (solu_dalloc *ac = scan_ex.ok.alloc; ac;) {

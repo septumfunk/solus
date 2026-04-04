@@ -42,7 +42,8 @@ typedef struct solu_state {
     solu_dalloc *alloc, *alloc_tail; // gc allocations
     solu_strcache strcache; // short string cache
     size_t lb, cb, nb; // last bytes, current bytes, next bytes
-    solu_fproto *ccall; // the proto being called currently
+    solu_fproto *ccall, *ecall; // the proto being called currently
+    sf_str cwd;
 
     struct {
         solu_val base;
@@ -190,6 +191,7 @@ static inline solu_val solu_selfc(solu_state *state) {
 static inline solu_val solu_wrapmfun(solu_state *state, solu_cfunction fptr, uint32_t arg_c, solu_val *captures, uint32_t cap_c) {
     solu_val fun = solu_wrapcfun(state, fptr, arg_c, captures, cap_c);
     solu_fproto *f = fun.dyn;
+    f->self = true;
     solu_upvalue *u = f->upvals;
     f->upvals = malloc(sizeof(solu_upvalue) * ++f->up_c);
     if (u) {

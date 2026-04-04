@@ -7,7 +7,7 @@
 #include <string.h>
 
 static inline sf_str solu_cwd(solu_state *s) {
-    return sf_own(solu_realdir(solu_realpath(s->ccall->file_name.len ? s->ccall->file_name.c_str : ".")));
+    return sf_own(solu_realdir(solu_realpath(s->cwd.len ? s->cwd.c_str : ".")));
 }
 
 static solu_call_ex builtin_import(solu_state *s) {

@@ -57,6 +57,7 @@ X(C, UNEXPECTED_CONTINUE, "continue can only be used within loops") \
 X(C, UNKNOWN_LOCAL, "Unknown local variable") \
 X(C, REDEFINED_LOCAL, "Redefined local variable") \
 X(C, REASSIGNED_VAL, "Attempted to reassign a value. vals are immutable, did you mean var?") \
+X(C, REASSIGNED_SELF, "Attempted to assign self, a reserved keyword") \
 X(C, UNKNOWN_OPERATION, "Unknown operation") \
 X(C, UNUSED_EVALUATION, "Unused (discarded) evaluation") \
 X(C, INVALID_ASSIGN, "Malformed assignment") \

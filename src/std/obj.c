@@ -14,11 +14,49 @@ static solu_call_ex obj_set(solu_state *s) {
     return solu_ok(SOLU_NIL);
 }
 static solu_call_ex obj_get(solu_state *s) {
-    solu_val obj = solu_get(s, 0);
-    if (!solu_isdtype(obj, SOLU_DOBJ) && s->ccall->up_c)
-        obj = solu_capturec(s, 0);
+    solu_val obj = solu_selfc(s);
     expect_dtype(SOLU_DOBJ, obj);
     return solu_ok(solu_dobj_get(s, obj.dyn, solu_get(s, 1)));
+}
+static solu_call_ex obj_push(solu_state *s) {
+    solu_val obj = solu_selfc(s);
+    expect_dtype(SOLU_DOBJ, obj);
+    solu_dobj *d = obj.dyn;
+    solu_valvec_push(&d->array, solu_get(s, 1));
+    return solu_ok(SOLU_NIL);
+}
+static solu_call_ex obj_pop(solu_state *s) {
+    solu_val obj = solu_selfc(s);
+    expect_dtype(SOLU_DOBJ, obj);
+    solu_dobj *d = obj.dyn;
+    if (d->array.count == 0)
+        return solu_ok(SOLU_NIL);
+    return solu_ok(solu_valvec_pop(&d->array));
+}
+static solu_call_ex obj_remove(solu_state *s) {
+    solu_val obj = solu_selfc(s);
+    expect_dtype(SOLU_DOBJ, obj);
+    solu_val val = solu_get(s, 1);
+    solu_dobj *d = obj.dyn;
+    if (d->array.count == 0)
+        return solu_err(s, "Item not found");
+    for (uint32_t i = 0; i < d->array.count; ++i) {
+        bool f = false;
+        solu_val v = d->array.data[i];
+        switch (v.tt) {
+            case SOLU_TNIL: f = val.tt == SOLU_TNIL; break;
+            case SOLU_TF64: f = val.tt == SOLU_TF64 && v.f64 == val.f64; break;
+            case SOLU_TI64: f = val.tt == SOLU_TI64 && v.i64 == val.i64; break;
+            case SOLU_TBOOL: f = val.tt == SOLU_TBOOL && v.boolean == val.boolean; break;
+            case SOLU_TDYN: f = val.tt == SOLU_TDYN && v.dyn == val.dyn; break;
+            case SOLU_TCOUNT: f = false; break;
+        }
+        if (f) {
+            solu_valvec_delete(&d->array, i);
+            return solu_ok(v);
+        }
+    }
+    return solu_err(s, "Item not found");
 }
 
 static solu_call_ex obj_usemeta(solu_state *s) {
@@ -259,6 +297,9 @@ solu_val solu_mod_obj(solu_state *s) {
     solu_dobj_strset(obj.dyn, "new", solu_wrapmfun(s, obj_new, 0, NULL, 0));
     solu_dobj_strset(obj.dyn, "set", solu_wrapmfun(s, obj_set, 3, NULL, 0));
     solu_dobj_strset(obj.dyn, "get", solu_wrapmfun(s, obj_get, 2, NULL, 0));
+    solu_dobj_strset(obj.dyn, "push", solu_wrapmfun(s, obj_push, 2, NULL, 0));
+    solu_dobj_strset(obj.dyn, "pop", solu_wrapmfun(s, obj_pop, 1, NULL, 0));
+    solu_dobj_strset(obj.dyn, "remove", solu_wrapmfun(s, obj_remove, 1, NULL, 0));
     solu_dobj_strset(obj.dyn, "usemeta", solu_wrapmfun(s, obj_usemeta, 2, NULL, 0));
     solu_dobj_strset(obj.dyn, "meta", solu_wrapmfun(s, obj_meta, 1, NULL, 0));
     solu_dobj_strset(obj.dyn, "stringify", solu_wrapmfun(s, obj_stringify, 3, NULL, 0));
