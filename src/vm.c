@@ -1037,15 +1037,17 @@ solu_call_ex solu_call_bc(solu_state *s, solu_fproto *proto, const solu_val *arg
             solu_call_ex fex;
             uint32_t argc = solu_iabc_cx(ins) + prim;
             if (argc > 0) {
-                solu_val *argv = calloc(argc, sizeof(solu_val));
+                solu_val local_argv[8];
+                solu_val *argv = argc <= 8 ? local_argv : malloc(sizeof(solu_val) * argc);
                 if (prim) argv[0] = obj;
-                for (uint32_t i = prim; i < argc; ++i)
-                    argv[i] = solu_get(s, obj_r + (i-prim) + 2);
+                for (uint32_t j = prim; j < argc; ++j)
+                    argv[j] = solu_get(s, obj_r + (j - prim) + 2);
                 fex = solu_call(s, f, argv, argc);
-                free(argv);
+                if (argv != local_argv) free(argv);
             } else fex = solu_call(s, f, NULL, 0);
-            if (i >= 0)
-                f->upvals[i].value = ov;
+
+    if (i >= 0)
+        f->upvals[i].value = ov;
 
             if (!fex.is_ok) {
                 s->ecall = f;
