@@ -211,7 +211,7 @@ solu_val solu_dnstr(solu_state *s, const char *str) {
     memcpy(p, str, size);
     solu_dpush(s, dh);
     if (size > 1 && size <= SOLU_STRCACHE_MAX - 1)
-        solu_strcache_set(&s->strcache, sf_ref(p), dh);
+        solu_strcache_set(&s->strcache, sf_str_cdup(p), dh);
     return (solu_val){ .tt = SOLU_TDYN, .dyn = p };
 }
 
@@ -336,7 +336,6 @@ solu_val solu_dscopy(solu_state *state, solu_val val, bool kconst) {
     if (val.tt != SOLU_TDYN)
         return val; // This function only needs to copy dynamic constants
 
-    solu_dalloc *ov = solu_dheader(val); (void)ov;
     solu_dalloc *ac = malloc(sizeof(solu_dalloc) + solu_dheader(val)->size);
     *ac = *(solu_dheader(val));
     ac->size = solu_dheader(val)->size;
@@ -401,7 +400,23 @@ solu_val solu_dscopy(solu_state *state, solu_val val, bool kconst) {
 
 solu_val solu_dcopy(solu_state *state, solu_val val) {
     if (val.tt == SOLU_TDYN) {
+        solu_dalloc *dh = solu_dheader(val);
+        bool cache = false;
+
+        if (dh->tt == SOLU_DSTR) {
+            if (dh->size <= SOLU_STRCACHE_MAX - 1) {
+                cache = true;
+                solu_strcache_ex sex = solu_strcache_get(&state->strcache, sf_ref(val.dyn));
+                if (sex.is_ok)
+                    return (solu_val){ .tt = SOLU_TDYN, .dyn = sex.ok + 1 };
+            }
+        }
+
         val = solu_dscopy(state, val, false);
+        if (cache) {
+            dh = solu_dheader(val);
+            solu_strcache_set(&state->strcache, sf_str_cdup(val.dyn), dh);
+        }
         solu_dpush(state, solu_dheader(val));
     }
     return val;
@@ -1081,7 +1096,8 @@ solu_call_ex solu_call_bc(solu_state *s, solu_fproto *proto, const solu_val *arg
                     solu_set(s, solu_iabc_a(ins), (solu_val){.tt = SOLU_TI64, .i64 = lhs.i64 + rhs.i64});
                     break;
                 case SOLU_TDYN: {
-                    switch (solu_dtypeof(lhs)) {
+                    solu_dalloc *dh = solu_dheader(lhs);
+                    switch (dh->tt) {
                         case SOLU_DSTR: {
                             sf_str l =  sf_str_join(sf_ref(lhs.dyn), sf_ref(rhs.dyn));
                             solu_set(s, solu_iabc_a(ins), solu_dnstr(s, l.c_str));
