@@ -712,6 +712,7 @@ solu_parse_ex solu_pprimary(solu_parser *p) {
 
                     solu_parse_ex ex2 = solu_pexpr(p, 0);
                     p->tok = ot;
+                    solu_tokenvec_free(&ex.ok.tv);
                     if (!ex2.is_ok) {
                         ex2.err.token = *ot;
                         solu_node_free(left);
@@ -1068,6 +1069,7 @@ solu_parse_ex solu_pfun(solu_parser *p) {
         },
     };
 
+    bool self = false;
     while (p->tok->tt != TK_RIGHT_BRACKET && p->tok->tt != TK_EOF) {
         if (p->tok->tt != TK_IDENTIFIER) {
             solu_node_free(n_fun);
@@ -1082,9 +1084,12 @@ solu_parse_ex solu_pfun(solu_parser *p) {
             solu_node_free(n_fun);
             return solu_perr(SOLU_ERRP_DUPLICATE_CAPTURE, p->tok);
         }
-        if (strcmp(p->tok->value.dyn, "self") == 0 && n_fun->n_fun.cap_c > 0) { // Self Check!
-            solu_node_free(n_fun);
-            return solu_perr(SOLU_ERRP_SELF_FIRST, p->tok);
+        if (strcmp(p->tok->value.dyn, "self") == 0) { // Self Check!
+            if (n_fun->n_fun.cap_c > 0) {
+                solu_node_free(n_fun);
+                return solu_perr(SOLU_ERRP_SELF_FIRST, p->tok);
+            }
+            self = true;
         }
 
         n_fun->n_fun.captures = realloc(n_fun->n_fun.captures, (++n_fun->n_fun.cap_c) * sizeof(solu_val));
@@ -1108,6 +1113,10 @@ solu_parse_ex solu_pfun(solu_parser *p) {
         if (p->tok->tt != TK_IDENTIFIER) {
             solu_node_free(n_fun);
             return solu_perr(SOLU_ERRP_EXPECTED_IDENTIFIER, p->tok);
+        }
+        if (self && strcmp(p->tok->value.dyn, "self") == 0) {
+            solu_node_free(n_fun);
+            return solu_perr(SOLU_ERRP_DUPLICATE_SELF, p->tok);
         }
         n_fun->n_fun.args = realloc(n_fun->n_fun.args, ++n_fun->n_fun.arg_c * sizeof(solu_val));
         n_fun->n_fun.args[n_fun->n_fun.arg_c - 1] = p->tok->value;

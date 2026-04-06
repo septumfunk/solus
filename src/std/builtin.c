@@ -7,17 +7,24 @@
 #include <string.h>
 
 static inline sf_str solu_cwd(solu_state *s) {
-    return sf_own(solu_realdir(solu_realpath(s->cwd.len ? s->cwd.c_str : ".")));
+    char *rp = solu_realpath(s->cwd.len ? s->cwd.c_str : ".");
+    char *rd = solu_realdir(rp);
+    free(rp);
+    return sf_own(rd);
 }
 
 static solu_call_ex builtin_import(solu_state *s) {
     solu_val path = solu_get(s, 0);
     expect_dtype(SOLU_DSTR, path);
 
-    char *rpath = solu_findfile(solu_cwd(s).c_str, path.dyn);
+    sf_str cwd = solu_cwd(s);
+    char *rpath = solu_findfile(cwd.c_str, path.dyn);
+    sf_str_free(cwd);
     if (!rpath) {
         sf_str p2 = sf_str_fmt("File '%s' not found", path.dyn);
-        return solu_ok(solu_dnerr(s, p2.c_str));
+        solu_val e = solu_dnerr(s, p2.c_str);
+        sf_str_free(p2);
+        return solu_ok(e);
     }
 
     solu_call_ex cl_ex;
@@ -33,13 +40,16 @@ static solu_call_ex builtin_import(solu_state *s) {
         solu_compile_ex cm_ex = solu_cfile(s, rpath);
         free(rpath);
         if (!cm_ex.is_ok)
-            return solu_ok(solu_dnerr(s, solu_err_string(cm_ex.err.tt)));
+            return solu_err(s, "%s", solu_err_string(cm_ex.err.tt));
         cl_ex = solu_call(s, &cm_ex.ok, NULL, 0);
         solu_fproto_free(&cm_ex.ok);
     }
 
-    if (!cl_ex.is_ok)
-        return solu_ok(solu_dnerr(s, cl_ex.err.panic));
+    if (!cl_ex.is_ok) {
+        solu_val e = solu_dnerr(s, cl_ex.err.panic);
+        free(cl_ex.err.panic);
+        return solu_ok(e);
+    }
     return cl_ex;
 }
 static solu_call_ex builtin_require(solu_state *s) {

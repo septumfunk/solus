@@ -317,7 +317,6 @@ solu_val solu_djoin(solu_state *s, solu_val obj1, solu_val obj2) {
     if (!solu_isdtype(obj1, SOLU_DOBJ))
         return SOLU_NIL;
     solu_val nobj = solu_dnew(s, SOLU_DOBJ);
-    *(solu_dobj *)nobj.dyn = solu_dobj_new();
     solu_dappend(nobj, obj1);
     if (solu_isdtype(obj2, SOLU_DOBJ))
         solu_dappend(nobj, obj2);
@@ -825,7 +824,9 @@ corrupt:
 solu_load_ex solu_loadfun(solu_state *state, char *path) {
     sf_fsb_ex fsb = sf_file_buffer(sf_ref(path));
     if (!fsb.is_ok) return solu_load_ex_err(SOLU_ERRC_FILE_NOT_FOUND);
-    return _solu_loadfun(state, &fsb.ok);
+    solu_load_ex ex = _solu_loadfun(state, &fsb.ok);
+    sf_buffer_clear(&fsb.ok);
+    return ex;
 }
 
 static sf_str solu_dirname(sf_str path) {
@@ -948,7 +949,16 @@ solu_call_ex solu_call_bc(solu_state *s, solu_fproto *proto, const solu_val *arg
 
             solu_fproto *f = fun.dyn;
             uint32_t argc = solu_iabc_cx(ins);
-            solu_call_ex fex = solu_call(s, f, s->stack.data + s->frames.data[s->frames.count - 1].bottom_o + fun_r + 1, argc);
+            solu_call_ex fex;
+            if (argc > 0) {
+                solu_val local_argv[8];
+                solu_val *argv = argc <= 8 ? local_argv : malloc(sizeof(solu_val) * argc);
+                for (uint32_t i = 0; i < argc; ++i)
+                    argv[i] = solu_get(s, fun_r + 1 + i);
+                fex = solu_call(s, f, argv, argc);
+                if (argv != local_argv)
+                    free(argv);
+            } else fex = solu_call(s, f, NULL, 0);
 
             if (!fex.is_ok) {
                 s->ecall = f;
@@ -1099,7 +1109,8 @@ solu_call_ex solu_call_bc(solu_state *s, solu_fproto *proto, const solu_val *arg
                     switch (dh->tt) {
                         case SOLU_DSTR:
                         strcat: {
-                            size_t lsize = solu_dheader(lhs)->size - 1, rsize = solu_dheader(rhs)->size - 1;
+                            size_t lsize = lhs.tt == SOLU_TCOUNT ? strlen(lhs.dyn) : solu_dheader(lhs)->size - 1;
+                            size_t rsize = rhs.tt == SOLU_TCOUNT ? strlen(rhs.dyn) : solu_dheader(rhs)->size - 1;
                             solu_dalloc *ac = malloc(sizeof(solu_dalloc) + lsize + rsize + 1);
                             *ac = (solu_dalloc) {
                                 NULL, lsize+rsize+1,

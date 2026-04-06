@@ -959,6 +959,8 @@ solu_compile_ex solu_cproto(sf_str path, char *src, uint32_t arg_c, solu_val *ar
     if (memcmp(src, "[SOLC]", 6) == 0)
         return solu_compile_ex_err((solu_compile_err){SOLU_ERRP_EXPECTED_SOURCE, 0, 0});
     solu_scan_ex scan_ex = solu_scan(sf_ref(src));
+    if (!scan_ex.is_ok)
+        return solu_compile_ex_err((solu_compile_err){scan_ex.err.tt, scan_ex.err.line, scan_ex.err.column});
     solu_parse_ex par_ex = solu_parse(path, scan_ex);
     solu_tokenvec_free(&scan_ex.ok.tv);
     if (!par_ex.is_ok) {
