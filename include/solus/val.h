@@ -65,7 +65,7 @@ typedef struct solu_dalloc {
     solu_dstate mark;
     bool held;
     solu_val meta;
-    solu_val metafuns[SOLU_META_COUNT];
+    solu_val metadata[SOLU_META_COUNT];
 } solu_dalloc;
 
 #define SOLU_NIL (solu_val){.tt = SOLU_TNIL}

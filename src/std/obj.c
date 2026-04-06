@@ -65,7 +65,7 @@ static solu_call_ex obj_usemeta(solu_state *s) {
     solu_val meta = solu_get(s, 1);
     solu_dalloc *objp = solu_dheader(obj);
     if (meta.tt == SOLU_TNIL) {
-        memset(&objp->metafuns, 0, SOLU_META_COUNT * sizeof(solu_val));
+        memset(&objp->metadata, 0, SOLU_META_COUNT * sizeof(solu_val));
         objp->meta = meta;
         return solu_ok(SOLU_NIL);
     }
@@ -288,7 +288,7 @@ static solu_call_ex obj_template(solu_state *s) {
     solu_val ud = solu_dnusr(s, sizeof(solu_template), "template", &(solu_template){
         s, serialize,
     }, NULL, template_mark);
-    solu_dheader(ud)->metafuns[SOLU_META_STR] = solu_wrapcfun(s, template_tostring, 0, &ud, 1);
+    solu_dheader(ud)->metadata[SOLU_META_STR] = solu_wrapcfun(s, template_tostring, 0, &ud, 1);
     return solu_ok(ud);
 }
 
