@@ -544,6 +544,8 @@ static solu_val solu_pstr(solu_parser *p, char *str) {
         SOLU_DSTR,
         SOLU_DYN_WHITE,
         true,
+        SOLU_NIL,
+        {SOLU_NIL}
     };
     solu_dalloc *dd = p->shared->alloc;
     if (dd == NULL) p->shared->alloc = dc;

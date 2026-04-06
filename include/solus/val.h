@@ -37,14 +37,6 @@ typedef enum {
     SOLU_DYN_WHITE, /// Not yet marked, will be swept if it's not
     SOLU_DYN_BLACK, /// Marked valid
 } solu_dstate;
-/// GC header
-typedef struct solu_dalloc {
-    struct solu_dalloc *next;
-    size_t size, thread;
-    solu_dtype tt;
-    solu_dstate mark;
-    bool held;
-} solu_dalloc;
 
 /// A primitive value, which may be a (dyn) reference to a GC/heap managed dynamic value
 typedef struct {
@@ -56,6 +48,25 @@ typedef struct {
         solu_dyn dyn;
     };
 } solu_val;
+/// GC header
+typedef enum {
+    SOLU_META_GET,
+    SOLU_META_SET,
+    SOLU_META_CALL,
+    SOLU_META_STR,
+    SOLU_META_EXTEND,
+
+    SOLU_META_COUNT,
+} solu_metafun;
+typedef struct solu_dalloc {
+    struct solu_dalloc *next;
+    size_t size, thread;
+    solu_dtype tt;
+    solu_dstate mark;
+    bool held;
+    solu_val meta;
+    solu_val metafuns[SOLU_META_COUNT];
+} solu_dalloc;
 
 #define SOLU_NIL (solu_val){.tt = SOLU_TNIL}
 #define SOLU_TRUE (solu_val){.tt = SOLU_TBOOL, .boolean = true}
@@ -126,28 +137,16 @@ void _solu_valmap_cleanup(struct solu_valmap *obj);
 #define KCLEANUP sf_str_free
 #include <sf/containers/map.h>
 
-typedef enum {
-    SOLU_META_GET,
-    SOLU_META_SET,
-    SOLU_META_CALL,
-    SOLU_META_STR,
-    SOLU_META_EXTEND,
-
-    SOLU_META_COUNT,
-} solu_metafun;
-
 typedef struct {
     solu_valmap map;
     solu_valvec array;
-    solu_val meta;
-    solu_val metafuns[SOLU_META_COUNT];
 } solu_dobj;
 EXPORT solu_dobj solu_dobj_new(void);
 EXPORT void solu_dobj_free(solu_dobj *obj);
 EXPORT solu_val solu_dobj_strget(solu_dobj *obj, char *key);
 /// You do NOT need to pass an owned string
 EXPORT void solu_dobj_strset(solu_dobj *obj, char *key, solu_val val);
-EXPORT void solu_usemeta(solu_dobj *obj, solu_dobj *meta);
+EXPORT void solu_usemeta(solu_val obj, solu_dobj *meta);
 // fun
 typedef solu_fproto *solu_dfun;
 
@@ -169,7 +168,6 @@ typedef char *(*solu_usrtostring)(void *);
 typedef void (*solu_usrmark)(void *);
 typedef struct {
     sf_str name;
-    solu_val metafuns[SOLU_META_COUNT];
     solu_usrdel del;
     solu_usrmark mark;
 } solu_usrwrap;

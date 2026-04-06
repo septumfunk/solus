@@ -144,13 +144,24 @@ static solu_call_ex string_ord(solu_state *s) {
     return solu_ok((solu_val){SOLU_TI64, .i64=((char *)str.dyn)[0]});
 }
 
-solu_val solu_mod_string(solu_state *s) {
+solu_val solu_mod_string(solu_state *s, bool meta) {
+    solu_val (*fun)(solu_state *, solu_cfunction, uint32_t, solu_val *, uint32_t) = meta ?
+        solu_wrapmfun : solu_wrapcfun;
+
     solu_val string = solu_dnew(s, SOLU_DOBJ);
-    solu_dobj_strset(string.dyn, "len", solu_wrapcfun(s, string_len, 1, NULL, 0));
-    solu_dobj_strset(string.dyn, "sub", solu_wrapcfun(s, string_sub, 3, NULL, 0));
-    solu_dobj_strset(string.dyn, "repeat", solu_wrapcfun(s, string_repeat, 2, NULL, 0));
-    solu_dobj_strset(string.dyn, "join", solu_wrapcfun(s, string_join, 1, NULL, 0));
-    solu_dobj_strset(string.dyn, "split", solu_wrapcfun(s, string_split, 2, NULL, 0));
-    solu_dobj_strset(s->global.dyn, "string", string);
+    solu_dobj_strset(string.dyn, "len", fun(s, string_len, 1, NULL, 0));
+    solu_dobj_strset(string.dyn, "sub", fun(s, string_sub, 3, NULL, 0));
+    solu_dobj_strset(string.dyn, "repeat", fun(s, string_repeat, 2, NULL, 0));
+    solu_dobj_strset(string.dyn, "join", fun(s, string_join, 1, NULL, 0));
+    solu_dobj_strset(string.dyn, "split", fun(s, string_split, 2, NULL, 0));
+
+    // Builtins that extend to string
+    if (meta) {
+        solu_dobj_strset(string.dyn, "then", fun(s, builtin_then, 2, NULL, 0));
+        solu_dobj_strset(string.dyn, "type", fun(s, builtin_type, 1, NULL, 0));
+        solu_dobj_strset(string.dyn, "str", fun(s, builtin_str, 1, NULL, 0));
+        solu_dobj_strset(string.dyn, "unwrap", fun(s, builtin_unwrap, 0, NULL, 0));
+        solu_dobj_strset(string.dyn, "or_else", fun(s, builtin_or_else, 1, NULL, 0));
+    } else solu_dobj_strset(s->global.dyn, "string", string);
     return string;
 }

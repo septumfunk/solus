@@ -15,13 +15,6 @@ solu_dobj solu_dobj_new(void) {
     return (solu_dobj){
         solu_valmap_new(),
         solu_valvec_new(),
-        SOLU_NIL,
-        .metafuns = {
-            [SOLU_META_GET] = SOLU_NIL,
-            [SOLU_META_SET] = SOLU_NIL,
-            [SOLU_META_CALL] = SOLU_NIL,
-            [SOLU_META_STR] = SOLU_NIL,
-        }
     };
 }
 void solu_dobj_free(solu_dobj *obj) {
@@ -30,24 +23,36 @@ void solu_dobj_free(solu_dobj *obj) {
 }
 solu_val solu_dobj_strget(solu_dobj *obj, char *key) {
     solu_valmap_ex ex = solu_valmap_get(&obj->map, sf_ref(key));
-    if (!ex.is_ok && solu_isdtype(obj->metafuns[SOLU_META_EXTEND], SOLU_DOBJ)) {
+    solu_dalloc *da = (solu_dalloc *)obj - 1;
+    if (!ex.is_ok && da->metafuns[SOLU_META_EXTEND].tt != SOLU_TNIL) {
         ex.is_ok = true;
-        ex.ok = solu_dobj_strget(obj->metafuns[SOLU_META_EXTEND].dyn, key);
+        ex.ok = solu_dobj_strget(da->metafuns[SOLU_META_EXTEND].dyn, key);
     }
     return ex.is_ok ? ex.ok : SOLU_NIL;
 }
 void solu_dobj_strset(solu_dobj *obj, char *key, solu_val val) {
     solu_valmap_set(&obj->map, sf_str_cdup(key), val);
 }
-void solu_usemeta(solu_dobj *obj, solu_dobj *meta) {
-    memset(&obj->metafuns, 0, SOLU_META_COUNT * sizeof(solu_val));
-    obj->meta = (solu_val){SOLU_TDYN, .dyn=meta};
 
-    obj->metafuns[SOLU_META_GET] = solu_dobj_strget(meta, "_get");
-    obj->metafuns[SOLU_META_SET] = solu_dobj_strget(meta, "_set");
-    obj->metafuns[SOLU_META_CALL] = solu_dobj_strget(meta, "_call");
-    obj->metafuns[SOLU_META_STR] = solu_dobj_strget(meta, "_str");
-    obj->metafuns[SOLU_META_EXTEND] = solu_dobj_strget(meta, "_extend");
+void solu_usemeta(solu_val obj, solu_dobj *meta) {
+    solu_dalloc *da = solu_dheader(obj);
+    memset(&da->metafuns, 0, SOLU_META_COUNT * sizeof(solu_val));
+    da->meta = (solu_val){SOLU_TDYN, .dyn=meta};
+
+    da->metafuns[SOLU_META_GET] = solu_dobj_strget(meta, "_get");
+    da->metafuns[SOLU_META_GET] = solu_isdtype(da->metafuns[SOLU_META_GET], SOLU_DFUN) ? da->metafuns[SOLU_META_GET] : SOLU_NIL;
+
+    da->metafuns[SOLU_META_SET] = solu_dobj_strget(meta, "_set");
+    da->metafuns[SOLU_META_SET] = solu_isdtype(da->metafuns[SOLU_META_SET], SOLU_DFUN) ? da->metafuns[SOLU_META_SET] : SOLU_NIL;
+
+    da->metafuns[SOLU_META_CALL] = solu_dobj_strget(meta, "_call");
+    da->metafuns[SOLU_META_CALL] = solu_isdtype(da->metafuns[SOLU_META_CALL], SOLU_DFUN) ? da->metafuns[SOLU_META_CALL] : SOLU_NIL;
+
+    da->metafuns[SOLU_META_STR] = solu_dobj_strget(meta, "_str");
+    da->metafuns[SOLU_META_STR] = solu_isdtype(da->metafuns[SOLU_META_STR], SOLU_DFUN) ? da->metafuns[SOLU_META_STR] : SOLU_NIL;
+
+    da->metafuns[SOLU_META_EXTEND] = solu_dobj_strget(meta, "_extend");
+    da->metafuns[SOLU_META_EXTEND] = solu_isdtype(da->metafuns[SOLU_META_EXTEND], SOLU_DOBJ) ? da->metafuns[SOLU_META_EXTEND] : SOLU_NIL;
 }
 
 solu_fproto solu_fproto_new(void) {
