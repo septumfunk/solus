@@ -1071,11 +1071,13 @@ solu_call_ex solu_call_bc(solu_state *s, solu_fproto *proto, const solu_val *arg
                         solu_valvec_push(&((solu_dobj *)lhs.dyn)->array, rhs);
                         DISPATCH();
                     }
-                    if (solu_isdtype(lhs, SOLU_DSTR) && !solu_isdtype(rhs, SOLU_DSTR))
-                        rhs = solu_dnstr(s, solu_tostr(s, rhs));
-                    else if (solu_isdtype(rhs, SOLU_DSTR) && !solu_isdtype(lhs, SOLU_DSTR))
-                        lhs = solu_dnstr(s, solu_tostr(s, lhs));
-                    else return solu_callerr(SOLU_ERRV_TYPE_MISMATCH, "Implicit conversion %s into %s", solu_typename(rhs).c_str, solu_typename(lhs).c_str);
+                    if (solu_isdtype(lhs, SOLU_DSTR) && !solu_isdtype(rhs, SOLU_DSTR)) {
+                        rhs = (solu_val){SOLU_TCOUNT, .dyn = solu_tostr(s, rhs)};
+                        goto strcat;
+                    } else if (solu_isdtype(rhs, SOLU_DSTR) && !solu_isdtype(lhs, SOLU_DSTR)) {
+                        lhs = (solu_val){SOLU_TCOUNT, .dyn = solu_tostr(s, lhs)};
+                        goto strcat;
+                    } else return solu_callerr(SOLU_ERRV_TYPE_MISMATCH, "Implicit conversion %s into %s", solu_typename(rhs).c_str, solu_typename(lhs).c_str);
                 }
             } else if (lhs.tt != rhs.tt) {
                 switch (lhs.tt) {
@@ -1095,7 +1097,8 @@ solu_call_ex solu_call_bc(solu_state *s, solu_fproto *proto, const solu_val *arg
                 case SOLU_TDYN: {
                     solu_dalloc *dh = solu_dheader(lhs);
                     switch (dh->tt) {
-                        case SOLU_DSTR: {
+                        case SOLU_DSTR:
+                        strcat: {
                             size_t lsize = solu_dheader(lhs)->size - 1, rsize = solu_dheader(rhs)->size - 1;
                             solu_dalloc *ac = malloc(sizeof(solu_dalloc) + lsize + rsize + 1);
                             *ac = (solu_dalloc) {
@@ -1108,6 +1111,8 @@ solu_call_ex solu_call_bc(solu_state *s, solu_fproto *proto, const solu_val *arg
                             memcpy(((char *)(ac + 1)) + lsize, rhs.dyn, rsize);
                             ((char *)(ac+1))[lsize+rsize] = 0;
                             solu_dpush(s, ac);
+                            if (rhs.tt == SOLU_TCOUNT) free(rhs.dyn);
+                            if (lhs.tt == SOLU_TCOUNT) free(lhs.dyn);
                             solu_set(s, solu_iabc_a(ins), (solu_val){SOLU_TDYN, .dyn=ac+1});
                             break;
                         }
@@ -1130,97 +1135,81 @@ solu_call_ex solu_call_bc(solu_state *s, solu_fproto *proto, const solu_val *arg
         CASE(SOLU_OP_SUB) {
             solu_val lhs = solu_iabc_bk(ins) ? solu_getk(s, proto, solu_iabc_bx(ins)) : solu_get(s, solu_iabc_bx(ins));
             solu_val rhs = solu_iabc_ck(ins) ? solu_getk(s, proto, solu_iabc_cx(ins)) : solu_get(s, solu_iabc_cx(ins));
-            if (solu_isdtype(lhs, SOLU_DERR))
-                return solu_callerr(SOLU_ERRV_PANIC, "%s", lhs.dyn);
-            if (solu_isdtype(rhs, SOLU_DERR))
-                return solu_callerr(SOLU_ERRV_PANIC, "%s", rhs.dyn);
 
-            if (solu_isdtype(lhs, SOLU_DOBJ) && solu_isdtype(rhs, SOLU_DSTR) &&
-                solu_iabc_a(ins) == solu_iabc_bx(ins)) {
-                solu_valmap_delete(&((solu_dobj *)lhs.dyn)->map, sf_ref(rhs.dyn));
-                DISPATCH();
+            if (lhs.tt == SOLU_TDYN || rhs.tt == SOLU_TDYN) {
+                if (solu_isdtype(lhs, SOLU_DERR))
+                    return solu_callerr(SOLU_ERRV_PANIC, "%s", lhs.dyn);
+                if (solu_isdtype(rhs, SOLU_DERR))
+                    return solu_callerr(SOLU_ERRV_PANIC, "%s", rhs.dyn);
+                if (solu_isdtype(lhs, SOLU_DOBJ) && solu_isdtype(rhs, SOLU_DSTR) &&
+                    solu_iabc_a(ins) == solu_iabc_bx(ins)) {
+                    solu_valmap_delete(&((solu_dobj *)lhs.dyn)->map, sf_ref(rhs.dyn));
+                    DISPATCH();
+                }
             }
 
             if (lhs.tt != SOLU_TI64 && lhs.tt != SOLU_TF64)
                 return solu_callerr(SOLU_ERRV_TYPE_MISMATCH, "Type %s does not support operator '-'", solu_typename(lhs).c_str);
             if (rhs.tt != SOLU_TI64 && rhs.tt != SOLU_TF64)
                 return solu_callerr(SOLU_ERRV_TYPE_MISMATCH, "Type %s does not support operator '-'", solu_typename(rhs).c_str);
-            if (lhs.tt != rhs.tt) {
-                switch (lhs.tt) {
-                    case SOLU_TI64: rhs = (solu_val){.tt = SOLU_TI64, .i64 = (solu_i64)rhs.f64}; break;
-                    case SOLU_TF64: rhs = (solu_val){.tt = SOLU_TF64, .f64 = (solu_f64)rhs.i64}; break;
-                    default: return solu_callerr(SOLU_ERRV_TYPE_MISMATCH, "Type %s does not support operator '-'", solu_typename(lhs).c_str);
-                }
-            }
-            switch (lhs.tt) {
-                case SOLU_TF64:
-                    solu_set(s, solu_iabc_a(ins), (solu_val){.tt = SOLU_TF64, .f64 = lhs.f64 - rhs.f64});
-                    break;
-                case SOLU_TI64:
-                    solu_set(s, solu_iabc_a(ins), (solu_val){.tt = SOLU_TI64, .i64 = lhs.i64 - rhs.i64});
-                    break;
-                default: return solu_callerr(SOLU_ERRV_TYPE_MISMATCH, "Type %s does not support operator '-'", solu_typename(lhs).c_str); break;
-            }
+            if (lhs.tt != rhs.tt)
+                rhs = lhs.tt == SOLU_TI64 ?
+                    (solu_val){.tt = SOLU_TI64, .i64 = (solu_i64)rhs.f64} :
+                    (solu_val){.tt = SOLU_TF64, .f64 = (solu_f64)rhs.i64};
+            solu_set(s, solu_iabc_a(ins), lhs.tt == SOLU_TI64 ?
+                (solu_val){.tt = SOLU_TI64, .i64 = lhs.i64 - rhs.i64} :
+                (solu_val){.tt = SOLU_TF64, .f64 = lhs.f64 - rhs.f64}
+            );
             DISPATCH();
         }
         CASE(SOLU_OP_MUL) {
             solu_val lhs = solu_iabc_bk(ins) ? solu_getk(s, proto, solu_iabc_bx(ins)) : solu_get(s, solu_iabc_bx(ins));
             solu_val rhs = solu_iabc_ck(ins) ? solu_getk(s, proto, solu_iabc_cx(ins)) : solu_get(s, solu_iabc_cx(ins));
-            if (solu_isdtype(lhs, SOLU_DERR))
-                return solu_callerr(SOLU_ERRV_PANIC, "%s", lhs.dyn);
-            if (solu_isdtype(rhs, SOLU_DERR))
-                return solu_callerr(SOLU_ERRV_PANIC, "%s", rhs.dyn);
+            if (rhs.tt == SOLU_TDYN) {
+                if (solu_isdtype(lhs, SOLU_DERR))
+                    return solu_callerr(SOLU_ERRV_PANIC, "%s", lhs.dyn);
+                if (solu_isdtype(rhs, SOLU_DERR))
+                    return solu_callerr(SOLU_ERRV_PANIC, "%s", rhs.dyn);
+                return solu_callerr(SOLU_ERRV_TYPE_MISMATCH, "Type %s does not support operator '*'", solu_typename(lhs).c_str);
+            }
 
             if (lhs.tt != SOLU_TI64 && lhs.tt != SOLU_TF64)
                 return solu_callerr(SOLU_ERRV_TYPE_MISMATCH, "Type %s does not support operator '*'", solu_typename(lhs).c_str);
             if (rhs.tt != SOLU_TI64 && rhs.tt != SOLU_TF64)
                 return solu_callerr(SOLU_ERRV_TYPE_MISMATCH, "Type %s does not support operator '*'", solu_typename(rhs).c_str);
-            if (lhs.tt != rhs.tt) {
-                switch (lhs.tt) {
-                    case SOLU_TI64: rhs = (solu_val){.tt = SOLU_TI64, .i64 = (solu_i64)rhs.f64}; break;
-                    case SOLU_TF64: rhs = (solu_val){.tt = SOLU_TF64, .f64 = (solu_f64)rhs.i64}; break;
-                    default: return solu_callerr(SOLU_ERRV_TYPE_MISMATCH, "Type %s does not support operator '*'", solu_typename(lhs).c_str);
-                }
-            }
-            switch (lhs.tt) {
-                case SOLU_TF64:
-                    solu_set(s, solu_iabc_a(ins), (solu_val){.tt = SOLU_TF64, .f64 = lhs.f64 * rhs.f64});
-                    break;
-                case SOLU_TI64:
-                    solu_set(s, solu_iabc_a(ins), (solu_val){.tt = SOLU_TI64, .i64 = lhs.i64 * rhs.i64});
-                    break;
-                default: return solu_callerr(SOLU_ERRV_TYPE_MISMATCH, "Type %s does not support operator '*'", NULL); break;
-            }
+            if (lhs.tt != rhs.tt)
+                rhs = lhs.tt == SOLU_TI64 ?
+                    (solu_val){.tt = SOLU_TI64, .i64 = (solu_i64)rhs.f64} :
+                    (solu_val){.tt = SOLU_TF64, .f64 = (solu_f64)rhs.i64};
+            solu_set(s, solu_iabc_a(ins), lhs.tt == SOLU_TI64 ?
+                (solu_val){.tt = SOLU_TI64, .i64 = lhs.i64 * rhs.i64} :
+                (solu_val){.tt = SOLU_TF64, .f64 = lhs.f64 * rhs.f64}
+            );
             DISPATCH();
         }
         CASE(SOLU_OP_DIV) {
             solu_val lhs = solu_iabc_bk(ins) ? solu_getk(s, proto, solu_iabc_bx(ins)) : solu_get(s, solu_iabc_bx(ins));
             solu_val rhs = solu_iabc_ck(ins) ? solu_getk(s, proto, solu_iabc_cx(ins)) : solu_get(s, solu_iabc_cx(ins));
-            if (solu_isdtype(lhs, SOLU_DERR))
-                return solu_callerr(SOLU_ERRV_PANIC, "%s", lhs.dyn);
-            if (solu_isdtype(rhs, SOLU_DERR))
-                return solu_callerr(SOLU_ERRV_PANIC, "%s", rhs.dyn);
+            if (rhs.tt == SOLU_TDYN) {
+                if (solu_isdtype(lhs, SOLU_DERR))
+                    return solu_callerr(SOLU_ERRV_PANIC, "%s", lhs.dyn);
+                if (solu_isdtype(rhs, SOLU_DERR))
+                    return solu_callerr(SOLU_ERRV_PANIC, "%s", rhs.dyn);
+                return solu_callerr(SOLU_ERRV_TYPE_MISMATCH, "Type %s does not support operator '/'", solu_typename(lhs).c_str);
+            }
 
             if (lhs.tt != SOLU_TI64 && lhs.tt != SOLU_TF64)
                 return solu_callerr(SOLU_ERRV_TYPE_MISMATCH, "Type %s does not support operator '/'", solu_typename(lhs).c_str);
             if (rhs.tt != SOLU_TI64 && rhs.tt != SOLU_TF64)
                 return solu_callerr(SOLU_ERRV_TYPE_MISMATCH, "Type %s does not support operator '/'", solu_typename(rhs).c_str);
-            if (lhs.tt != rhs.tt) {
-                switch (lhs.tt) {
-                    case SOLU_TI64: rhs = (solu_val){.tt = SOLU_TI64, .i64 = (solu_i64)rhs.f64}; break;
-                    case SOLU_TF64: rhs = (solu_val){.tt = SOLU_TF64, .f64 = (solu_f64)rhs.i64}; break;
-                    default: return solu_callerr(SOLU_ERRV_TYPE_MISMATCH, "Type %s does not support operator '/'", solu_typename(lhs).c_str);
-                }
-            }
-            switch (lhs.tt) {
-                case SOLU_TF64:
-                    solu_set(s, solu_iabc_a(ins), (solu_val){.tt = SOLU_TF64, .f64 = lhs.f64 / rhs.f64});
-                    break;
-                case SOLU_TI64:
-                    solu_set(s, solu_iabc_a(ins), (solu_val){.tt = SOLU_TI64, .i64 = lhs.i64 / rhs.i64});
-                    break;
-                default: return solu_callerr(SOLU_ERRV_TYPE_MISMATCH, "Type %s does not support operator '/'", solu_typename(lhs).c_str);
-            }
+            if (lhs.tt != rhs.tt)
+                rhs = lhs.tt == SOLU_TI64 ?
+                    (solu_val){.tt = SOLU_TI64, .i64 = (solu_i64)rhs.f64} :
+                    (solu_val){.tt = SOLU_TF64, .f64 = (solu_f64)rhs.i64};
+            solu_set(s, solu_iabc_a(ins), lhs.tt == SOLU_TI64 ?
+                (solu_val){.tt = SOLU_TI64, .i64 = lhs.i64 / rhs.i64} :
+                (solu_val){.tt = SOLU_TF64, .f64 = lhs.f64 / rhs.f64}
+            );
             DISPATCH();
         }
 

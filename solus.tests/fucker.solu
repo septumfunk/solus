@@ -1,5 +1,13 @@
-var h = '';
-val start = io.time();
-for var i = 0; i < 100000; ++i
-    h += 'a';
-io.time() - start
+val trials = 100;
+val iterations = 100000;
+
+var total = 0.0;
+for var t = 0; t < trials; ++t {
+    var h = '';
+    val start = io.time();
+    for var i = 0; i < iterations; ++i
+        h += 'a';
+    val elapsed = io.time() - start;
+    total += elapsed;
+}
+total / trials
