@@ -9,12 +9,12 @@ static inline solu_i64 clamp_i64(solu_i64 v, solu_i64 lo, solu_i64 hi) {
 }
 
 static solu_call_ex string_len(solu_state *s) {
-    solu_val str = solu_get(s, 0);
+    solu_val str = solu_selfc(s);
     expect_dtype(SOLU_DSTR, str);
     return solu_ok((solu_val){.tt = SOLU_TI64, .i64 = (solu_i64)(solu_dheader(str)->size - 1)});
 }
 static solu_call_ex string_sub(solu_state *s) {
-    solu_val str = solu_get(s, 0);
+    solu_val str = solu_selfc(s);
     expect_dtype(SOLU_DSTR, str);
 
     solu_val start = solu_get(s, 1);
@@ -42,7 +42,7 @@ static solu_call_ex string_sub(solu_state *s) {
     return solu_ok(nstr);
 }
 static solu_call_ex string_repeat(solu_state *s) {
-    solu_val str = solu_get(s, 0);
+    solu_val str = solu_selfc(s);
     expect_dtype(SOLU_DSTR, str);
     solu_val count = solu_get(s, 1);
     expect_type(SOLU_TI64, count);
@@ -80,7 +80,7 @@ static solu_call_ex string_join(solu_state *s) {
     return solu_ok(str);
 }
 static solu_call_ex string_split(solu_state *s) {
-    solu_val string = solu_get(s, 0);
+    solu_val string = solu_selfc(s);
     expect_dtype(SOLU_DSTR, string);
     solu_val delim = solu_get(s, 1);
     expect_dtype(SOLU_DSTR, delim);
@@ -137,7 +137,7 @@ static solu_call_ex string_split(solu_state *s) {
     return solu_ok(out);
 }
 static solu_call_ex string_ord(solu_state *s) {
-    solu_val str = solu_get(s, 0);
+    solu_val str = solu_selfc(s);
     expect_dtype(SOLU_DSTR, str);
     if (solu_dheader(str)->size - 1 < 1)
         return solu_panic("Empty string");
@@ -152,7 +152,6 @@ solu_val solu_mod_string(solu_state *s, bool meta) {
     solu_dobj_strset(string.dyn, "len", fun(s, string_len, 1, NULL, 0));
     solu_dobj_strset(string.dyn, "sub", fun(s, string_sub, 3, NULL, 0));
     solu_dobj_strset(string.dyn, "repeat", fun(s, string_repeat, 2, NULL, 0));
-    solu_dobj_strset(string.dyn, "join", fun(s, string_join, 1, NULL, 0));
     solu_dobj_strset(string.dyn, "split", fun(s, string_split, 2, NULL, 0));
 
     // Builtins that extend to string
@@ -162,6 +161,9 @@ solu_val solu_mod_string(solu_state *s, bool meta) {
         solu_dobj_strset(string.dyn, "str", fun(s, builtin_str, 1, NULL, 0));
         solu_dobj_strset(string.dyn, "unwrap", fun(s, builtin_unwrap, 0, NULL, 0));
         solu_dobj_strset(string.dyn, "or_else", fun(s, builtin_or_else, 1, NULL, 0));
-    } else solu_dobj_strset(s->global.dyn, "string", string);
+    } else { // Some don't make sense as member functions
+        solu_dobj_strset(string.dyn, "join", fun(s, string_join, 1, NULL, 0));
+        solu_dobj_strset(s->global.dyn, "string", string);
+    }
     return string;
 }

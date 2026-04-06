@@ -51,8 +51,9 @@ void solu_usemeta(solu_val obj, solu_dobj *meta) {
     da->metafuns[SOLU_META_STR] = solu_dobj_strget(meta, "_str");
     da->metafuns[SOLU_META_STR] = solu_isdtype(da->metafuns[SOLU_META_STR], SOLU_DFUN) ? da->metafuns[SOLU_META_STR] : SOLU_NIL;
 
+    solu_val oe = da->metafuns[SOLU_META_EXTEND];
     da->metafuns[SOLU_META_EXTEND] = solu_dobj_strget(meta, "_extend");
-    da->metafuns[SOLU_META_EXTEND] = solu_isdtype(da->metafuns[SOLU_META_EXTEND], SOLU_DOBJ) ? da->metafuns[SOLU_META_EXTEND] : SOLU_NIL;
+    da->metafuns[SOLU_META_EXTEND] = solu_isdtype(da->metafuns[SOLU_META_EXTEND], SOLU_DOBJ) ? da->metafuns[SOLU_META_EXTEND] : oe;
 }
 
 solu_fproto solu_fproto_new(void) {

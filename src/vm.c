@@ -51,9 +51,8 @@ void solu_usestd(solu_state *s) {
     solu_dobj_strset(s->global.dyn, "solus", solus);
 
     s->meta.string = solu_mod_string(s, true);
-    solu_dheader(s->meta.string)->metafuns[SOLU_META_EXTEND] = s->meta.base;
-    solu_dhold(s->meta.string);
     s->meta.obj = solu_mod_obj(s, true);
+    solu_dhold(s->meta.string);
     solu_dhold(s->meta.obj);
 
     solu_mod_builtin(s);
@@ -352,6 +351,7 @@ solu_val solu_dscopy(solu_state *state, solu_val val, bool kconst) {
             nfp->code = malloc(sizeof(solu_instruction) * fp->code_c);
             nfp->dbg = fp->dbg ? malloc(sizeof(solu_dbg) * fp->code_c) : NULL;
             nfp->self = fp->self;
+            ac->metafuns[SOLU_META_EXTEND] = state->meta.base;
 
             // Deref Upvals
             nfp->upvals = malloc(sizeof(solu_upvalue) * nfp->up_c);
@@ -991,31 +991,27 @@ solu_call_ex solu_call_bc(solu_state *s, solu_fproto *proto, const solu_val *arg
             solu_dalloc *da = solu_dheader(obj);
             bool extend = false;
             bool prim = dt == SOLU_DCOUNT;
-            if (dt != SOLU_DCOUNT) {
+            if (!prim) {
                 extend = da->metafuns[SOLU_META_EXTEND].tt != SOLU_TNIL;
-                prim = extend && da->metafuns[SOLU_META_EXTEND].dyn == s->meta.base.dyn; // Base does not use member functions
-                switch (dt) {
-                    case SOLU_DOBJ:
-                        fun = solu_dobj_get(s, obj.dyn, key);
-                    default:
-                        get = da->metafuns[SOLU_META_GET];
-                        break;
+                get = da->metafuns[SOLU_META_GET];
+                if (get.tt != SOLU_TNIL) {
+                    solu_call_ex ex = solu_call(s, get.dyn, (solu_val[]){key}, 1);
+                    if (!ex.is_ok) return ex;
+                    fun = ex.ok;
                 }
-            }
-            if (solu_isdtype(get, SOLU_DFUN)) { // attempt get first
-                solu_call_ex ex = solu_call(s, get.dyn, (solu_val[]){key}, 1);
-                if (!ex.is_ok) return ex;
-                fun = ex.ok;
-            }
-
-            solu_dalloc *fh = solu_dheader(fun);
-            if (extend && !(fh && fh->tt == SOLU_DFUN)) // attempt extend next if get fails
-                fun = solu_dobj_get(s, da->metafuns[SOLU_META_EXTEND].dyn, key);
-            if ((fh = solu_dheader(fun)) && fh->tt != SOLU_DFUN && fh->metafuns[SOLU_META_CALL].tt == SOLU_TNIL)
-                return solu_callerr(SOLU_ERRV_PANIC, "Member function not found", NULL);
-
-            if (fun.tt == SOLU_TDYN && fh->metafuns[SOLU_META_CALL].tt != SOLU_TNIL)
-                fun = fh->metafuns[SOLU_META_CALL];
+                solu_dalloc *fh = solu_dheader(fun);
+                if (dt == SOLU_DOBJ && !(fh && (fh->tt == SOLU_DFUN || fh->metafuns[SOLU_META_CALL].tt != SOLU_TNIL))) {
+                    fun = solu_dobj_get(s, obj.dyn, key);
+                    fh = solu_dheader(fun);
+                }
+                if (extend && !(fh && (fh->tt == SOLU_DFUN || fh->metafuns[SOLU_META_CALL].tt != SOLU_TNIL))) {
+                    fun = solu_dobj_get(s, da->metafuns[SOLU_META_EXTEND].dyn, key);
+                    fh = solu_dheader(fun);
+                }
+                if (fun.tt == SOLU_TDYN && fh->metafuns[SOLU_META_CALL].tt != SOLU_TNIL)
+                    fun = fh->metafuns[SOLU_META_CALL];
+            } else
+                fun = solu_dobj_get(s, s->meta.base.dyn, key);
 
             if (!solu_isdtype(fun, SOLU_DFUN)) {
                 if (solu_isdtype(fun, SOLU_DERR))
@@ -1428,23 +1424,30 @@ solu_call_ex solu_call_bc(solu_state *s, solu_fproto *proto, const solu_val *arg
                 DISPATCH();
             } else {
                 get = da->metafuns[SOLU_META_GET];
-                if (da->tt != SOLU_DOBJ && get.tt == SOLU_TNIL) {
-                    solu_val ext = da->metafuns[SOLU_META_EXTEND];
-                    if (ext.tt != SOLU_TNIL) {
-                        obj = ext;
-                        da = solu_dheader(obj);
-                        if (get.tt == SOLU_TNIL)
-                            get = da->metafuns[SOLU_META_GET];
+                if (da->tt != SOLU_DOBJ) {
+                    if (get.tt != SOLU_TNIL) {
+                        solu_call_ex ex = solu_call(s, get.dyn, (solu_val[]){key}, 1);
+                        if (!ex.is_ok) return ex;
+                        solu_set(s, solu_iabc_a(ins), ex.ok);
+                        DISPATCH();
+                    } else {
+                        solu_val ext = da->metafuns[SOLU_META_EXTEND];
+                        if (ext.tt != SOLU_TNIL) {
+                            obj = ext;
+                            da = solu_dheader(obj);
+                            if (get.tt == SOLU_TNIL)
+                                get = da->metafuns[SOLU_META_GET];
+                        } else
+                            return solu_callerr(SOLU_ERRV_TYPE_MISMATCH, "Attempted to index type %s", solu_typename(solu_get(s, solu_iabc_bx(ins))).c_str);
                     }
                 }
             }
-            if (solu_isdtype(get, SOLU_DFUN)) {
+            if (get.tt != SOLU_TNIL) {
                 solu_call_ex ex = solu_call(s, get.dyn, (solu_val[]){key}, 1);
                 if (!ex.is_ok) return ex;
                 solu_set(s, solu_iabc_a(ins), ex.ok);
                 DISPATCH();
-            } else if (da->tt != SOLU_DOBJ)
-                return solu_callerr(SOLU_ERRV_TYPE_MISMATCH, "Attempted to index type %s", solu_typename(solu_get(s, solu_iabc_bx(ins))).c_str);
+            }
             solu_set(s, solu_iabc_a(ins), solu_dobj_get(s, obj.dyn, key));
             DISPATCH();
         }

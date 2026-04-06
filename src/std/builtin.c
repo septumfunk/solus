@@ -181,30 +181,22 @@ void solu_mod_builtin(solu_state *s) {
     solu_dobj_strset(_g, "import", solu_wrapcfun(s, builtin_import, 1, NULL, 0));
     solu_dobj_strset(_g, "require", solu_wrapcfun(s, builtin_require, 1, NULL, 0));
 
-    solu_val then = solu_wrapcfun(s, builtin_then, 2, NULL, 0);
-    solu_val type = solu_wrapcfun(s, builtin_type, 1, NULL, 0);
-    solu_val str = solu_wrapcfun(s, builtin_str, 1, NULL, 0);
-    solu_val i64 = solu_wrapcfun(s, builtin_i64, 1, NULL, 0);
-    solu_val f64 = solu_wrapcfun(s, builtin_f64, 1, NULL, 0);
-    solu_val unwrap = solu_wrapcfun(s, builtin_unwrap, 1, NULL, 0);
-    solu_val or_else = solu_wrapcfun(s, builtin_or_else, 2, NULL, 0);
-
-    solu_dobj_strset(_g, "then", then);
-    solu_dobj_strset(_g, "type", type);
-    solu_dobj_strset(_g, "str", str);
-    solu_dobj_strset(_g, "i64", i64);
-    solu_dobj_strset(_g, "f64", f64);
-    solu_dobj_strset(_g, "unwrap", unwrap);
-    solu_dobj_strset(_g, "or_else", or_else);
+    solu_dobj_strset(_g, "then", solu_wrapcfun(s, builtin_then, 2, NULL, 0));
+    solu_dobj_strset(_g, "type", solu_wrapcfun(s, builtin_type, 1, NULL, 0));
+    solu_dobj_strset(_g, "str", solu_wrapcfun(s, builtin_str, 1, NULL, 0));
+    solu_dobj_strset(_g, "i64", solu_wrapcfun(s, builtin_i64, 1, NULL, 0));
+    solu_dobj_strset(_g, "f64", solu_wrapcfun(s, builtin_f64, 1, NULL, 0));
+    solu_dobj_strset(_g, "unwrap", solu_wrapcfun(s, builtin_unwrap, 1, NULL, 0));
+    solu_dobj_strset(_g, "or_else", solu_wrapcfun(s, builtin_or_else, 2, NULL, 0));
 
     solu_drelease(s->meta.base);
     s->meta.base = solu_dnew(s, SOLU_DOBJ);
     solu_dhold(s->meta.base);
-    solu_dobj_strset(s->meta.base.dyn, "then", then);
-    solu_dobj_strset(s->meta.base.dyn, "type", type);
-    solu_dobj_strset(s->meta.base.dyn, "str", str);
-    solu_dobj_strset(s->meta.base.dyn, "i64", i64);
-    solu_dobj_strset(s->meta.base.dyn, "f64", f64);
-    solu_dobj_strset(s->meta.base.dyn, "unwrap", unwrap);
-    solu_dobj_strset(s->meta.base.dyn, "or_else", or_else);
+    solu_dobj_strset(s->meta.base.dyn, "then", solu_wrapmfun(s, builtin_then, 1, NULL, 0));
+    solu_dobj_strset(s->meta.base.dyn, "type", solu_wrapmfun(s, builtin_type, 0, NULL, 0));
+    solu_dobj_strset(s->meta.base.dyn, "str", solu_wrapmfun(s, builtin_str, 0, NULL, 0));
+    solu_dobj_strset(s->meta.base.dyn, "i64", solu_wrapmfun(s, builtin_i64, 0, NULL, 0));
+    solu_dobj_strset(s->meta.base.dyn, "f64", solu_wrapmfun(s, builtin_f64, 0, NULL, 0));
+    solu_dobj_strset(s->meta.base.dyn, "unwrap", solu_wrapmfun(s, builtin_unwrap, 0, NULL, 0));
+    solu_dobj_strset(s->meta.base.dyn, "or_else", solu_wrapmfun(s, builtin_or_else, 1, NULL, 0));
 }
