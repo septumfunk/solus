@@ -34,6 +34,7 @@ elseif(UNIX)
         -Wall -Wextra -Werror
         -Wpedantic -Wconversion -Wuninitialized
         -Wsign-conversion -Wnull-dereference
+        $<$<CONFIG:Release>:-O3>
     )
 endif()
 target_compile_options(${PROJECT_NAME} PUBLIC ${COMPILE_OPTIONS})

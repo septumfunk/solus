@@ -10,7 +10,7 @@ typedef enum {
     TK_VAL, TK_VAR, TK_DO, TK_IF, TK_ELSE, TK_FOR, TK_WHILE, TK_INCLUDE,
     TK_BREAK, TK_CONTINUE, TK_RETURN,
     // Operators
-    TK_PLUS, TK_MINUS, TK_BANG, TK_INCREMENT, TK_DECREMENT, TK_ASTERISK, TK_SLASH,
+    TK_PLUS, TK_MINUS, TK_BANG, TK_NEG, TK_INCREMENT, TK_DECREMENT, TK_ASTERISK, TK_SLASH,
     TK_EQUAL, TK_PLUS_EQUAL, TK_MINUS_EQUAL, TK_STAR_EQUAL, TK_SLASH_EQUAL,
     TK_NOT_EQUAL, TK_DOUBLE_EQUAL, TK_GREATER, TK_GREATER_EQUAL,
     TK_LESS, TK_LESS_EQUAL, TK_AND, TK_OR,
@@ -41,6 +41,7 @@ struct solu_tokenvec;
 #define VEC_NAME solu_tokenvec
 #define VEC_T solu_token
 #define VSIZE_T uint32_t
+#define VSIZE_MAX UINT32_MAX
 #include <sf/containers/vec.h>
 
 /// Maps keyword strings to tokentype
@@ -120,8 +121,10 @@ typedef struct solu_node {
             solu_tokentype op;
             struct solu_node *left;
             struct solu_node *right;
+            bool flip;
         } n_binary;
         struct { // e.p
+            solu_tokentype op;
             struct solu_node *expr;
             struct solu_node *postfix;
         } n_postfix;

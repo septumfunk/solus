@@ -51,6 +51,7 @@ static void _solu_scopes_cleanup(struct solu_scopes *);
 #define VEC_NAME solu_scopes
 #define VEC_T solu_scope
 #define VSIZE_T uint32_t
+#define VSIZE_MAX UINT32_MAX
 #define CLEANUP_FN _solu_scopes_cleanup
 #include <sf/containers/vec.h>
 static void _solu_scopes_cleanup(struct solu_scopes *v) {
@@ -62,6 +63,7 @@ typedef struct { uint16_t idx; solu_tokentype tt; } solu_control;
 #define VEC_NAME solu_controls
 #define VEC_T solu_control
 #define VSIZE_T uint32_t
+#define VSIZE_MAX UINT32_MAX
 #include <sf/containers/vec.h>
 
 /// Temporary compilation info that's shared between all compiler functions
@@ -615,12 +617,16 @@ solu_cnode_ex solu_cnode(solu_compiler *c, solu_node *node, uint32_t t_reg) {
                             } else {
                                 ot = solu_rtemp(c);
                                 solu_cemit(c, solu_ins_ab(SOLU_OP_GETU, ot, loc.reg));
+                                if (t_reg != UINT32_MAX && node->n_binary.flip)
+                                    solu_cemit(c, solu_ins_ab(SOLU_OP_MOVE, t_reg, ot));
                                 solu_cemit(c, solu_ins_abc((unsigned int)solu_eq_op(node->n_binary.op), ot, solu_reg(ot), rl ? solu_const(right) : solu_reg(right)));
                                 solu_cemit(c, solu_ins_ab(SOLU_OP_SETU, loc.reg, ot));
-                                if (t_reg != UINT32_MAX)
+                                if (t_reg != UINT32_MAX && !node->n_binary.flip)
                                     solu_cemit(c, solu_ins_ab(SOLU_OP_MOVE, t_reg, ot));
                             }
                         } else {
+                            if (t_reg != UINT32_MAX && node->n_binary.flip)
+                                solu_cemit(c, solu_ins_ab(SOLU_OP_MOVE, t_reg, loc.reg));
                             if (node->n_binary.op == TK_PLUS_EQUAL && node->n_binary.right->tt == SOLU_ND_OBJ) {
                                 solu_cnode_ex ex = solu_cmembers(c, node->n_binary.right, loc.reg);
                                 if (!ex.is_ok) return ex;
@@ -628,7 +634,7 @@ solu_cnode_ex solu_cnode(solu_compiler *c, solu_node *node, uint32_t t_reg) {
                                 solu_cemit(c, solu_ins_abc((unsigned int)solu_eq_op(node->n_binary.op), loc.reg,
                                 solu_reg(loc.reg), rl ? solu_const(right) : solu_reg(right)));
                             } else solu_cemit(c, solu_ins_ab(rl ? SOLU_OP_LOAD : SOLU_OP_MOVE, loc.reg, right));
-                            if (t_reg != UINT32_MAX)
+                            if (t_reg != UINT32_MAX && !node->n_binary.flip)
                                 solu_cemit(c, solu_ins_ab(SOLU_OP_MOVE, t_reg, loc.reg));
                         }
                     } else {
@@ -639,11 +645,13 @@ solu_cnode_ex solu_cnode(solu_compiler *c, solu_node *node, uint32_t t_reg) {
                         if (node->n_binary.op != TK_EQUAL) {
                             ot = solu_rtemp(c);
                             solu_cemit(c, solu_ins_abc(SOLU_OP_GUPO, ot, up, solu_const(name_i)));
+                            if (t_reg != UINT32_MAX && node->n_binary.flip)
+                                solu_cemit(c, solu_ins_ab(SOLU_OP_MOVE, t_reg, ot));
                             solu_cemit(c, solu_ins_abc((unsigned int)solu_eq_op(node->n_binary.op), ot, solu_reg(ot), rl ? solu_const(right) : solu_reg(right)));
                         }
                         solu_cemit(c, solu_ins_abc(SOLU_OP_SUPO, 0, solu_const(name_i), ot == UINT32_MAX ?
                             (rl ? solu_const(right) : solu_reg(right)) : solu_reg(ot)));
-                        if (t_reg != UINT32_MAX)
+                        if (t_reg != UINT32_MAX && !node->n_binary.flip)
                             solu_cemit(c, ot == UINT32_MAX ? solu_ins_abc(SOLU_OP_GUPO, t_reg, up, solu_const(name_i))
                                 : solu_ins_ab(SOLU_OP_MOVE, t_reg, ot));
                     }
@@ -680,12 +688,14 @@ solu_cnode_ex solu_cnode(solu_compiler *c, solu_node *node, uint32_t t_reg) {
                         if (node->n_binary.op != TK_EQUAL) {
                             ot = solu_rtemp(c);
                             solu_cemit(c, solu_ins_abc(SOLU_OP_GET, ot, solu_reg(obj), key_r));
+                            if (t_reg != UINT32_MAX && node->n_binary.flip)
+                                solu_cemit(c, solu_ins_ab(SOLU_OP_MOVE, t_reg, ot));
                             solu_cemit(c, solu_ins_abc((unsigned int)solu_eq_op(node->n_binary.op), ot, solu_reg(ot), rl ? solu_const(right) : solu_reg(right)));
                         }
                         solu_instruction ins = solu_ins_abc(SOLU_OP_SET, obj, key_r, ot == UINT32_MAX ?
                             (rl ? solu_const(right) : solu_reg(right)) : solu_reg(ot));
                         solu_cemit(c, ins);
-                        if (t_reg != UINT32_MAX)
+                        if (t_reg != UINT32_MAX && !node->n_binary.flip)
                             solu_cemit(c, ot == UINT32_MAX ? solu_ins_abc(SOLU_OP_GET, t_reg, solu_reg(obj), key_r) :
                                 solu_ins_ab(SOLU_OP_MOVE, t_reg, ot));
                         solu_ctemps(c, solu_iabc_bk(ins) ? 1 : 2);

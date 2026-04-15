@@ -35,7 +35,9 @@ void solu_dobj_strset(solu_dobj *obj, char *key, solu_val val) {
 }
 
 void solu_usemeta(solu_val obj, solu_dobj *meta) {
+    if (obj.tt != SOLU_TDYN) return;
     solu_dalloc *da = solu_dheader(obj);
+    solu_val oe = da->metadata[SOLU_META_EXTEND];
     memset(&da->metadata, 0, SOLU_META_COUNT * sizeof(solu_val));
     da->meta = (solu_val){SOLU_TDYN, .dyn=meta};
 
@@ -51,9 +53,21 @@ void solu_usemeta(solu_val obj, solu_dobj *meta) {
     da->metadata[SOLU_META_STR] = solu_dobj_strget(meta, "_str");
     da->metadata[SOLU_META_STR] = solu_isdtype(da->metadata[SOLU_META_STR], SOLU_DFUN) ? da->metadata[SOLU_META_STR] : SOLU_NIL;
 
-    solu_val oe = da->metadata[SOLU_META_EXTEND];
     da->metadata[SOLU_META_EXTEND] = solu_dobj_strget(meta, "_extend");
     da->metadata[SOLU_META_EXTEND] = solu_isdtype(da->metadata[SOLU_META_EXTEND], SOLU_DOBJ) ? da->metadata[SOLU_META_EXTEND] : oe;
+
+    da->metadata[SOLU_META_ADD] = solu_dobj_strget(meta, "_add");
+    da->metadata[SOLU_META_ADD] = solu_isdtype(da->metadata[SOLU_META_ADD], SOLU_DFUN) ? da->metadata[SOLU_META_ADD] : SOLU_NIL;
+    da->metadata[SOLU_META_SUB] = solu_dobj_strget(meta, "_sub");
+    da->metadata[SOLU_META_SUB] = solu_isdtype(da->metadata[SOLU_META_SUB], SOLU_DFUN) ? da->metadata[SOLU_META_SUB] : SOLU_NIL;
+    da->metadata[SOLU_META_MUL] = solu_dobj_strget(meta, "_mul");
+    da->metadata[SOLU_META_MUL] = solu_isdtype(da->metadata[SOLU_META_MUL], SOLU_DFUN) ? da->metadata[SOLU_META_MUL] : SOLU_NIL;
+    da->metadata[SOLU_META_DIV] = solu_dobj_strget(meta, "_div");
+    da->metadata[SOLU_META_DIV] = solu_isdtype(da->metadata[SOLU_META_DIV], SOLU_DFUN) ? da->metadata[SOLU_META_DIV] : SOLU_NIL;
+    da->metadata[SOLU_META_EQ] = solu_dobj_strget(meta, "_eq");
+    da->metadata[SOLU_META_EQ] = solu_isdtype(da->metadata[SOLU_META_EQ], SOLU_DFUN) ? da->metadata[SOLU_META_EQ] : SOLU_NIL;
+    da->metadata[SOLU_META_NEG] = solu_dobj_strget(meta, "_neg");
+    da->metadata[SOLU_META_NEG] = solu_isdtype(da->metadata[SOLU_META_NEG], SOLU_DFUN) ? da->metadata[SOLU_META_NEG] : SOLU_NIL;
 }
 
 solu_fproto solu_fproto_new(void) {
