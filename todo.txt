@@ -1,0 +1,5 @@
+i % 2
+var x;
+[8] = x
+.lower()
+.upper()

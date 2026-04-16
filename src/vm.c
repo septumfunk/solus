@@ -1017,7 +1017,7 @@ solu_call_ex solu_call_bc(solu_state *s, solu_fproto *proto, const solu_val *arg
                 if (fun.tt == SOLU_TDYN && fh->metadata[SOLU_META_CALL].tt != SOLU_TNIL)
                     fun = fh->metadata[SOLU_META_CALL];
             } else
-                fun = solu_dobj_get(s, s->meta.base.dyn, key);
+                fun = solu_dobj_get(s, s->meta.prim.dyn, key);
 
             if (!solu_isdtype(fun, SOLU_DFUN)) {
                 if (solu_isdtype(fun, SOLU_DERR))
@@ -1482,7 +1482,7 @@ solu_call_ex solu_call_bc(solu_state *s, solu_fproto *proto, const solu_val *arg
                 }
             }
             if (solu_isdtype(set, SOLU_DFUN)) {
-                solu_call_ex ex = solu_call(s, set.dyn, (solu_val[]){key, val}, 2);
+                solu_call_ex ex = solu_call(s, set.dyn, (solu_val[]){obj, key, val}, 3);
                 if (!ex.is_ok) return ex;
                 DISPATCH();
             } else if (da->tt != SOLU_DOBJ)
@@ -1512,7 +1512,7 @@ solu_call_ex solu_call_bc(solu_state *s, solu_fproto *proto, const solu_val *arg
                 get = da->metadata[SOLU_META_GET];
                 if (da->tt != SOLU_DOBJ) {
                     if (get.tt != SOLU_TNIL) {
-                        solu_call_ex ex = solu_call(s, get.dyn, (solu_val[]){key}, 1);
+                        solu_call_ex ex = solu_call(s, get.dyn, (solu_val[]){obj, key}, 2);
                         if (!ex.is_ok) return ex;
                         solu_set(s, solu_iabc_a(ins), ex.ok);
                         DISPATCH();

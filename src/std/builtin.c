@@ -3,6 +3,7 @@
 #include "solus/val.h"
 #include "solus/vm.h"
 #include "std.h"
+#include <errno.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -155,8 +156,19 @@ static solu_call_ex builtin_i64(solu_state *s) {
         case SOLU_TI64: return solu_ok(conv);
         case SOLU_TBOOL: return solu_ok((solu_val){SOLU_TI64, .i64 = conv.boolean ? 1 : 0});
         case SOLU_TF64: return solu_ok((solu_val){SOLU_TI64, .i64 = (solu_i64)conv.f64});
-        case SOLU_TDYN: return solu_ok((solu_val){SOLU_TI64, .i64 = (solu_i64)strtoll(conv.dyn, NULL, 10)});
-        default: return solu_panic("'%s' expected f64|str, found %s", solu_typename(conv).c_str);
+        case SOLU_TDYN: {
+            if (!solu_isdtype(conv, SOLU_DSTR))
+                return solu_panic("'%s' expected f64|str|bool, found %s", solu_typename(conv).c_str);
+            errno = 0;
+            char *end;
+            solu_val out = {SOLU_TI64, .i64 = (solu_i64)strtoll(conv.dyn, &end, 10)};
+            if (end == conv.dyn)
+                return solu_err(s, "no value found for conversion");
+            if (errno == ERANGE)
+                return solu_err(s, "value out of range for type i64");
+            return solu_ok(out);
+        }
+        default: return solu_panic("'%s' expected f64|str|bool, found %s", solu_typename(conv).c_str);
     }
 }
 static solu_call_ex builtin_f64(solu_state *s) {
@@ -165,8 +177,19 @@ static solu_call_ex builtin_f64(solu_state *s) {
         case SOLU_TF64: return solu_ok(conv);
         case SOLU_TBOOL: return solu_ok((solu_val){SOLU_TF64, .f64 = conv.boolean ? 1 : 0});
         case SOLU_TI64: return solu_ok((solu_val){SOLU_TF64, .f64 = (solu_f64)conv.i64});
-        case SOLU_TDYN: return solu_ok((solu_val){SOLU_TF64, .f64 = (solu_f64)strtof(conv.dyn, NULL)});
-        default: return solu_panic("'%s' expected i64|str, found %s", solu_typename(conv).c_str);
+        case SOLU_TDYN: {
+            if (!solu_isdtype(conv, SOLU_DSTR))
+                return solu_panic("'%s' expected i64|str|bool, found %s", solu_typename(conv).c_str);
+            errno = 0;
+            char *end;
+            solu_val out = {SOLU_TI64, .i64 = (solu_i64)strtof(conv.dyn, &end)};
+            if (end == conv.dyn)
+                return solu_err(s, "no value found for conversion");
+            if (errno == ERANGE)
+                return solu_err(s, "value out of range for type f64");
+            return solu_ok(out);
+        }
+        default: return solu_panic("'%s' expected i64|str|bool, found %s", solu_typename(conv).c_str);
     }
 }
 
@@ -190,13 +213,21 @@ void solu_mod_builtin(solu_state *s) {
     solu_dobj_strset(_g, "or_else", solu_wrapcfun(s, builtin_or_else, 2, NULL, 0));
 
     solu_drelease(s->meta.base);
+    solu_drelease(s->meta.prim);
     s->meta.base = solu_dnew(s, SOLU_DOBJ);
+    s->meta.prim = solu_dnew(s, SOLU_DOBJ);
     solu_dhold(s->meta.base);
-    solu_dobj_strset(s->meta.base.dyn, "then", solu_wrapmfun(s, builtin_then, 1, NULL, 0));
-    solu_dobj_strset(s->meta.base.dyn, "type", solu_wrapmfun(s, builtin_type, 0, NULL, 0));
-    solu_dobj_strset(s->meta.base.dyn, "str", solu_wrapmfun(s, builtin_str, 0, NULL, 0));
-    solu_dobj_strset(s->meta.base.dyn, "i64", solu_wrapmfun(s, builtin_i64, 0, NULL, 0));
-    solu_dobj_strset(s->meta.base.dyn, "f64", solu_wrapmfun(s, builtin_f64, 0, NULL, 0));
-    solu_dobj_strset(s->meta.base.dyn, "unwrap", solu_wrapmfun(s, builtin_unwrap, 0, NULL, 0));
-    solu_dobj_strset(s->meta.base.dyn, "or_else", solu_wrapmfun(s, builtin_or_else, 1, NULL, 0));
+    solu_dhold(s->meta.prim);
+
+    for (int i = 0; i < 2; ++i) {
+        solu_val (*fun)(solu_state *, solu_cfunction, uint32_t, solu_val *, uint32_t) = i ?
+            solu_wrapmfun : solu_wrapcfun;
+        solu_dobj_strset((i ? s->meta.base : s->meta.prim).dyn, "then", fun(s, builtin_then, i ? 1 : 2, NULL, 0));
+        solu_dobj_strset((i ? s->meta.base : s->meta.prim).dyn, "type", fun(s, builtin_type, 0, NULL, 0));
+        solu_dobj_strset((i ? s->meta.base : s->meta.prim).dyn, "str", fun(s, builtin_str, 0, NULL, 0));
+        solu_dobj_strset((i ? s->meta.base : s->meta.prim).dyn, "i64", fun(s, builtin_i64, 0, NULL, 0));
+        solu_dobj_strset((i ? s->meta.base : s->meta.prim).dyn, "f64", fun(s, builtin_f64, 0, NULL, 0));
+        solu_dobj_strset((i ? s->meta.base : s->meta.prim).dyn, "unwrap", fun(s, builtin_unwrap, 0, NULL, 0));
+        solu_dobj_strset((i ? s->meta.base : s->meta.prim).dyn, "or_else", fun(s, builtin_or_else, 1, NULL, 0));
+    }
 }

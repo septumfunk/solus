@@ -46,6 +46,7 @@ typedef struct solu_state {
     sf_str cwd;
 
     struct {
+        solu_val prim;
         solu_val base;
         solu_val obj;
         solu_val string;

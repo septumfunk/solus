@@ -3,6 +3,7 @@
 #include "solus/bytecode.h"
 #include "solus/val.h"
 #include "sf/str.h"
+#include <math.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
@@ -258,6 +259,7 @@ solu_scan_ex solu_scan(sf_str src) {
     solu_keywords_set(&s.keywords, sf_lit("or"), TK_OR);
     // literals
     solu_keywords_set(&s.keywords, sf_lit("nil"), TK_NIL);
+    solu_keywords_set(&s.keywords, sf_lit("NaN"), TK_NAN);
     solu_keywords_set(&s.keywords, sf_lit("true"), TK_TRUE);
     solu_keywords_set(&s.keywords, sf_lit("false"), TK_FALSE);
 
@@ -650,7 +652,10 @@ solu_node *solu_pfstr_app(solu_parser *p, solu_node *left, char *pp, char *ep) {
 }
 solu_parse_ex solu_pprimary(solu_parser *p) {
     switch (p->tok->tt) {
-        case TK_INTEGER: case TK_NUMBER: case TK_STRING: case TK_TRUE: case TK_FALSE: case TK_NIL: {
+        case TK_NAN:
+            p->tok->value = (solu_val){SOLU_TF64, .f64=NAN};
+        case TK_INTEGER: case TK_NUMBER: case TK_STRING:
+        case TK_TRUE: case TK_FALSE: case TK_NIL: {
             solu_node *n = malloc(sizeof(solu_node));
             *n = (solu_node){
                 p->tok->tt == TK_IDENTIFIER ? SOLU_ND_IDENTIFIER : SOLU_ND_LITERAL,

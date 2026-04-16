@@ -1,6 +1,9 @@
+#include "sf/str.h"
 #include "solus/val.h"
 #include "solus/vm.h"
 #include "std.h"
+#include <ctype.h>
+#include <string.h>
 
 static inline solu_i64 clamp_i64(solu_i64 v, solu_i64 lo, solu_i64 hi) {
     if (v < lo) return lo;
@@ -143,6 +146,36 @@ static solu_call_ex string_ord(solu_state *s) {
         return solu_panic("Empty string");
     return solu_ok((solu_val){SOLU_TI64, .i64=((char *)str.dyn)[0]});
 }
+static solu_call_ex string_upper(solu_state *s) {
+    solu_val str = solu_selfc(s);
+    expect_dtype(SOLU_DSTR, str);
+
+    solu_dalloc *da = solu_dheader(str);
+    char *up = malloc(da->size);
+    assert(up && "Out of memory");
+    for (size_t i = 0; i < da->size - 1; ++i)
+        up[i] = (char)toupper(((char *)str.dyn)[i]);
+    up[da->size - 1] = 0;
+
+    str = solu_dnstr(s, up);
+    free(up);
+    return solu_ok(str);
+}
+static solu_call_ex string_lower(solu_state *s) {
+    solu_val str = solu_selfc(s);
+    expect_dtype(SOLU_DSTR, str);
+
+    solu_dalloc *da = solu_dheader(str);
+    char *up = malloc(da->size);
+    assert(up && "Out of memory");
+    for (size_t i = 0; i < da->size - 1; ++i)
+        up[i] = (char)tolower(((char *)str.dyn)[i]);
+    up[da->size - 1] = 0;
+
+    str = solu_dnstr(s, up);
+    free(up);
+    return solu_ok(str);
+}
 
 solu_val solu_mod_string(solu_state *s, bool meta) {
     solu_val (*fun)(solu_state *, solu_cfunction, uint32_t, solu_val *, uint32_t) = meta ?
@@ -153,6 +186,9 @@ solu_val solu_mod_string(solu_state *s, bool meta) {
     solu_dobj_strset(string.dyn, "sub", fun(s, string_sub, 3, NULL, 0));
     solu_dobj_strset(string.dyn, "repeat", fun(s, string_repeat, 2, NULL, 0));
     solu_dobj_strset(string.dyn, "split", fun(s, string_split, 2, NULL, 0));
+    solu_dobj_strset(string.dyn, "ord", fun(s, string_ord, 1, NULL, 0));
+    solu_dobj_strset(string.dyn, "upper", fun(s, string_upper, 2, NULL, 0));
+    solu_dobj_strset(string.dyn, "lower", fun(s, string_lower, 2, NULL, 0));
 
     // Builtins that extend to string
     if (meta) {
