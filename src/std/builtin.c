@@ -222,12 +222,12 @@ void solu_mod_builtin(solu_state *s) {
     for (int i = 0; i < 2; ++i) {
         solu_val (*fun)(solu_state *, solu_cfunction, uint32_t, solu_val *, uint32_t) = i ?
             solu_wrapmfun : solu_wrapcfun;
-        solu_dobj_strset((i ? s->meta.base : s->meta.prim).dyn, "then", fun(s, builtin_then, i ? 1 : 2, NULL, 0));
-        solu_dobj_strset((i ? s->meta.base : s->meta.prim).dyn, "type", fun(s, builtin_type, 0, NULL, 0));
-        solu_dobj_strset((i ? s->meta.base : s->meta.prim).dyn, "str", fun(s, builtin_str, 0, NULL, 0));
-        solu_dobj_strset((i ? s->meta.base : s->meta.prim).dyn, "i64", fun(s, builtin_i64, 0, NULL, 0));
-        solu_dobj_strset((i ? s->meta.base : s->meta.prim).dyn, "f64", fun(s, builtin_f64, 0, NULL, 0));
-        solu_dobj_strset((i ? s->meta.base : s->meta.prim).dyn, "unwrap", fun(s, builtin_unwrap, 0, NULL, 0));
-        solu_dobj_strset((i ? s->meta.base : s->meta.prim).dyn, "or_else", fun(s, builtin_or_else, 1, NULL, 0));
+        solu_dobj_strset((i ? s->meta.base : s->meta.prim).dyn, "then", fun(s, builtin_then, 2, NULL, 0));
+        solu_dobj_strset((i ? s->meta.base : s->meta.prim).dyn, "type", fun(s, builtin_type, 1, NULL, 0));
+        solu_dobj_strset((i ? s->meta.base : s->meta.prim).dyn, "str", fun(s, builtin_str, 1, NULL, 0));
+        solu_dobj_strset((i ? s->meta.base : s->meta.prim).dyn, "i64", fun(s, builtin_i64, 1, NULL, 0));
+        solu_dobj_strset((i ? s->meta.base : s->meta.prim).dyn, "f64", fun(s, builtin_f64, 1, NULL, 0));
+        solu_dobj_strset((i ? s->meta.base : s->meta.prim).dyn, "unwrap", fun(s, builtin_unwrap, 1, NULL, 0));
+        solu_dobj_strset((i ? s->meta.base : s->meta.prim).dyn, "or_else", fun(s, builtin_or_else, 2, NULL, 0));
     }
 }
