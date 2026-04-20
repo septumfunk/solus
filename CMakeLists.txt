@@ -36,42 +36,14 @@ elseif(UNIX)
         $<$<CONFIG:Release>:-O3>
     )
 endif()
-target_compile_options(${PROJECT_NAME} PUBLIC ${COMPILE_OPTIONS})
 
 # CLI
 if (PROJECT_IS_TOP_LEVEL)
     set(CLI_TARGET solus_cli)
-    add_executable(${CLI_TARGET} src/cli/cli.c)
+    add_executable(${CLI_TARGET} src/cli.c)
     set_target_properties(${CLI_TARGET} PROPERTIES OUTPUT_NAME "solus")
     target_compile_definitions(${CLI_TARGET} PUBLIC _CRT_SECURE_NO_WARNINGS)
     target_link_libraries(${CLI_TARGET} PRIVATE ${PROJECT_NAME})
-    target_compile_options(${CLI_TARGET} PUBLIC ${COMPILE_OPTIONS})
-endif()
-
-# Sanitizer
-option(ENABLE_SANITIZERS "Enable sanitizers" OFF)
-if (ENABLE_SANITIZERS AND NOT MSVC)
-    message(STATUS "Sanitizers enabled")
-    set(SANITIZER_FLAGS
-        -fsanitize=address
-        -fsanitize=undefined
-        -fno-omit-frame-pointer
-        -g
-    )
-    target_compile_options(${PROJECT_NAME} PUBLIC ${SANITIZER_FLAGS})
-    target_link_options(${PROJECT_NAME} PUBLIC ${SANITIZER_FLAGS})
-    target_compile_definitions(${PROJECT_NAME} PUBLIC USE_SANITIZERS)
-    set(SANITIZER_COMPILE_FLAGS ${SANITIZER_FLAGS})
-    set(SANITIZER_DEFINE USE_SANITIZERS)
-endif()
-
-if (WIN32)
-    if (BUILD_SHARED_LIBS)
-        set(CMAKE_SHARED_LIBRARY_PREFIX "")
-        target_compile_definitions(${PROJECT_NAME} PUBLIC LIB_DYNAMIC)
-        target_compile_definitions(${PROJECT_NAME} PRIVATE LIB_EXPORTS)
-    endif()
-    target_link_libraries(${PROJECT_NAME} PRIVATE Ws2_32)
 endif()
 
 # Fetch Dependencies
@@ -83,3 +55,30 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(sf-std)
 target_link_libraries(${PROJECT_NAME} PUBLIC sf-std)
+
+option(ENABLE_SANITIZERS "Enable sanitizers" OFF)
+if (ENABLE_SANITIZERS)
+    message(STATUS "Sanitizers enabled")
+    set(SANITIZER_COMPILE_FLAGS
+        -fsanitize=address,undefined
+        -fno-omit-frame-pointer
+        -g
+        -O0
+    )
+
+    target_compile_options(sf-std PRIVATE ${SANITIZER_COMPILE_FLAGS})
+    target_compile_options(${PROJECT_NAME} PRIVATE ${SANITIZER_COMPILE_FLAGS})
+    if (PROJECT_IS_TOP_LEVEL)
+        target_compile_options(${CLI_TARGET} PRIVATE ${SANITIZER_COMPILE_FLAGS})
+        target_link_options(${CLI_TARGET} PRIVATE -fsanitize=address,undefined)
+    endif()
+endif()
+
+if (WIN32)
+    if (BUILD_SHARED_LIBS)
+        set(CMAKE_SHARED_LIBRARY_PREFIX "")
+        target_compile_definitions(${PROJECT_NAME} PUBLIC LIB_DYNAMIC)
+        target_compile_definitions(${PROJECT_NAME} PRIVATE LIB_EXPORTS)
+    endif()
+    target_link_libraries(${PROJECT_NAME} PRIVATE Ws2_32)
+endif()

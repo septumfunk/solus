@@ -262,6 +262,7 @@ int cli_test(char *dirpath) {
             fprintf(stderr, TUI_ERR TUI_UL "Test %s failed to open!\n" TUI_CLR, full);
             continue;
         }
+        sf_buffer_autoins(&fsb.ok, "\0");
         cli_tf(full, sf_ref((char *)fsb.ok.ptr));
         sf_buffer_clear(&fsb.ok);
     }
