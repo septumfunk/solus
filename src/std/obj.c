@@ -316,10 +316,10 @@ solu_val solu_mod_obj(solu_state *s, bool meta) {
 
     // Builtins that extend to obj
     if (meta) {
-        solu_dobj_strset(obj.dyn, "then", fun(s, builtin_then, 1, NULL, 0));
-        solu_dobj_strset(obj.dyn, "type", fun(s, builtin_type, 0, NULL, 0));
-        solu_dobj_strset(obj.dyn, "str", fun(s, builtin_str, 0, NULL, 0));
-        solu_dobj_strset(obj.dyn, "unwrap", fun(s, builtin_unwrap, 0, NULL, 0));
+        solu_dobj_strset(obj.dyn, "then", fun(s, builtin_then, 2, NULL, 0));
+        solu_dobj_strset(obj.dyn, "type", fun(s, builtin_type, 1, NULL, 0));
+        solu_dobj_strset(obj.dyn, "str", fun(s, builtin_str, 1, NULL, 0));
+        solu_dobj_strset(obj.dyn, "unwrap", fun(s, builtin_unwrap, 1, NULL, 0));
         solu_dobj_strset(obj.dyn, "or_else", fun(s, builtin_or_else, 1, NULL, 0));
     } else solu_dobj_strset(s->global.dyn, "obj", obj);
     return obj;
