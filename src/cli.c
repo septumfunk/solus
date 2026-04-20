@@ -3,11 +3,22 @@
 #include "solus/val.h"
 #include "solus/compiler.h"
 #include "solus/vm.h"
-#include "cli/cli.h"
 #include <sf/str.h>
 #include <sf/fs.h>
 #include <stdio.h>
 #include <string.h>
+
+#ifndef _WIN32
+#define TUI_UL  "\x1b[4m"
+#define TUI_BLD "\x1b[1m"
+#define TUI_ERR "\x1b[1;31m"
+#define TUI_CLR "\x1b[0m"
+#else
+#define TUI_UL  ""
+#define TUI_BLD ""
+#define TUI_ERR ""
+#define TUI_CLR ""
+#endif
 
 #ifdef _WIN32
 //TODO: pdcurses
@@ -17,7 +28,6 @@
 
 typedef enum {
     CLI_RUN,
-    CLI_DBG,
     CLI_TEST,
     CLI_COMPILE,
 } cli_mode;
@@ -272,7 +282,7 @@ int main(int argc, char **argv) {
             return cli_run("bundle.solc", src);
         }
         free(fp);
-        printf("Usage: %s [run|compile|dbg|test] <file>\n", argv[0]);
+        printf("Usage: %s [run|compile|test] <file>\n", argv[0]);
         return 1;
     }
 
@@ -283,12 +293,6 @@ int main(int argc, char **argv) {
             return 1;
         }
         mode = CLI_RUN;
-    } else if (!strcmp(argv[1], "dbg")) {
-        if (argc == 2) {
-            printf("Usage: %s dbg <file>\n", argv[0]);
-            return 1;
-        }
-        mode = CLI_DBG;
     } else if (!strcmp(argv[1], "test")) {
         if (argc == 2) {
             printf("Usage: %s test <dir>\n", argv[0]);
@@ -302,7 +306,7 @@ int main(int argc, char **argv) {
         }
         mode = CLI_COMPILE;
     } else {
-        printf("Unknown option '%s'.\nUsage: %s [run|dbg|test] <file|dir>\n", argv[1], argv[0]);
+        printf("Unknown option '%s'.\nUsage: %s [run|test] <file|dir>\n", argv[1], argv[0]);
         return 1;
     }
 
@@ -316,7 +320,6 @@ int main(int argc, char **argv) {
     int ret = 0;
     switch (mode) {
         case CLI_RUN: ret = cli_run(argv[2], src); break;
-        case CLI_DBG: ret = solu_cli_cbg(argv[2], src); break;
         case CLI_COMPILE: ret = cli_compile(argv[2], src); break;
         default: ret = -1; break;
     }

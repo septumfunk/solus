@@ -25,7 +25,6 @@ add_library(${PROJECT_NAME} ${LIBRARY_TYPE}
 target_include_directories(${PROJECT_NAME} PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_compile_definitions(${PROJECT_NAME} PUBLIC _CRT_SECURE_NO_WARNINGS)
 
-
 add_compile_definitions(_CRT_SECURE_NO_WARNINGS)
 if (MSVC) # Good luck if you're on MSVC
     add_compile_options(/W4 /WX)
@@ -39,28 +38,15 @@ elseif(UNIX)
 endif()
 target_compile_options(${PROJECT_NAME} PUBLIC ${COMPILE_OPTIONS})
 
+# CLI
 if (PROJECT_IS_TOP_LEVEL)
-    # CLI
     set(CLI_TARGET solus_cli)
-    set(CLI_SOURCES src/cli/cli.c)
-    if (WIN32 OR UNIX) # ncurses/pdcurses required
-        list(APPEND CLI_SOURCES src/cli/dbg.c)
-    endif()
-    add_executable(${CLI_TARGET} ${CLI_SOURCES})
+    add_executable(${CLI_TARGET} src/cli/cli.c)
     set_target_properties(${CLI_TARGET} PROPERTIES OUTPUT_NAME "solus")
     target_compile_definitions(${CLI_TARGET} PUBLIC _CRT_SECURE_NO_WARNINGS)
-    if(WIN32)
-        find_package(unofficial-pdcurses CONFIG REQUIRED)
-        target_link_libraries(${CLI_TARGET} PRIVATE ${PROJECT_NAME} unofficial::pdcurses::pdcurses)
-    elseif(UNIX)
-        find_package(Curses REQUIRED)
-        target_link_libraries(${CLI_TARGET} PRIVATE ${PROJECT_NAME} ${CURSES_LIBRARIES})
-    else()
-        target_link_libraries(${CLI_TARGET} PRIVATE ${PROJECT_NAME})
-    endif()
+    target_link_libraries(${CLI_TARGET} PRIVATE ${PROJECT_NAME})
     target_compile_options(${CLI_TARGET} PUBLIC ${COMPILE_OPTIONS})
 endif()
-
 
 # Sanitizer
 option(ENABLE_SANITIZERS "Enable sanitizers" OFF)
@@ -97,25 +83,3 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(sf-std)
 target_link_libraries(${PROJECT_NAME} PUBLIC sf-std)
-
-# CTest
-if (PROJECT_IS_TOP_LEVEL)
-    enable_testing()
-    file(GLOB TEST_SRCS tests/*.c)
-    foreach(TEST_SRC ${TEST_SRCS})
-        get_filename_component(TEST_NAME ${TEST_SRC} NAME_WE)
-        add_executable(${TEST_NAME} ${TEST_SRC})
-        target_link_libraries(${TEST_NAME} PRIVATE ${PROJECT_NAME})
-        target_compile_options(${TEST_NAME} PUBLIC ${COMPILE_OPTIONS})
-        if (ENABLE_SANITIZERS AND NOT MSVC)
-            target_compile_options(${TEST_NAME} PUBLIC ${SANITIZER_COMPILE_FLAGS})
-            target_link_options(${TEST_NAME} PUBLIC ${SANITIZER_COMPILE_FLAGS})
-            target_compile_definitions(${TEST_NAME} PUBLIC ${SANITIZER_DEFINE})
-        endif()
-        set_target_properties(${TEST_NAME} PROPERTIES
-            RUNTIME_OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/tests
-        )
-        add_test(NAME ${TEST_NAME} COMMAND ${TEST_NAME})
-        set_tests_properties(${TEST_NAME} PROPERTIES WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} LABELS "Test;Fucker")
-    endforeach()
-endif()
