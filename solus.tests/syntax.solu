@@ -11,6 +11,7 @@ val v = do {
     t * 3
 };
 assert(v == 36);
+tortire.1[23][]123.s$$
 
 val a = true and "yes" or "no";
 assert(a == "yes");

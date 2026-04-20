@@ -4,7 +4,7 @@ X(V, BREAK, "Breakpoint") \
 X(V, OOB_ACCESS, "OOB Access") \
 X(V, TYPE_MISMATCH, "Type Mismatch") \
 X(V, MEMBER_NOT_FOUND, "Member Not Found") \
-X(V, PANIC, "Runtime Panic") \
+X(V, PANIC, "Panic") \
 \
 X(P, UNEXPECTED_TOKEN, "Unexpected token") \
 X(P, UNTERMINATED_STR, "Unterminated string") \
@@ -16,10 +16,13 @@ X(P, EXPECTED_EXPRESSION, "Expected expression") \
 X(P, EXPECTED_IDENTIFIER, "Expected identifier") \
 X(P, EXPECTED_STR, "Expected string") \
 X(P, EXPECTED_LITERAL, "Expected str literal") \
+X(P, EXPECTED_INDEX_LITERAL, "Expected i64 or str literal") \
 X(P, EXPECTED_LPAREN, "Expected '('") \
 X(P, EXPECTED_RPAREN, "Expected ')'") \
 X(P, EXPECTED_RBRACKET, "Expected ']'") \
 X(P, EXPECTED_EQUAL, "Expected '='") \
+X(P, EXPECTED_LIST_TERM, "Expected '=', ',', or ';'") \
+X(P, MAX_NAMES, "Exceeded max names (>255)") \
 X(P, EXPECTED_COMMA, "Expected ','") \
 X(P, EXPECTED_COLON, "Expected ':'") \
 X(P, EXPECTED_SEMICOLON, "Expected ';'") \

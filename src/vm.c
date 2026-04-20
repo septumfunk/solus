@@ -1022,6 +1022,8 @@ solu_call_ex solu_call_bc(solu_state *s, solu_fproto *proto, const solu_val *arg
             if (!solu_isdtype(fun, SOLU_DFUN)) {
                 if (solu_isdtype(fun, SOLU_DERR))
                     return solu_callerr(SOLU_ERRV_TYPE_MISMATCH, "Attempted to call type %s: %s", solu_typename(fun).c_str, fun.dyn);
+                if (solu_isdtype(key, SOLU_DSTR))
+                    return solu_callerr(SOLU_ERRV_PANIC, "Member function '%s' not found", key.dyn);
                 return solu_callerr(SOLU_ERRV_PANIC, "Member function not found", NULL);
             }
 

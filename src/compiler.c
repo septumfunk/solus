@@ -234,11 +234,18 @@ static solu_cnode_ex solu_cmembers(solu_compiler *c, solu_node *node, uint32_t t
             if (!right.is_ok) return right;
             solu_cemit(c, solu_ins_ab(SOLU_OP_PUSH, t_reg, it));
         } else {
-            if (!solu_kfind(c, nd->n_binary.left->n_identifier, &key_i))
-                key_i = solu_kadd(c, nd->n_binary.left->n_identifier);
+            bool isk = nd->n_binary.left->tt == SOLU_ND_IDENTIFIER || nd->n_binary.left->tt == SOLU_ND_LITERAL;
+            if (isk && !solu_kfind(c, nd->n_binary.left->n_identifier, &key_i))
+                key_i = solu_const(solu_kadd(c, nd->n_binary.left->n_identifier));
+            else {
+                key_i = solu_reg(solu_rtemp(c));
+                solu_cnode_ex ex = solu_cnode(c, nd->n_binary.left, key_i);
+                if (!ex.is_ok) return ex;
+            }
             right = solu_cnode(c, nd->n_binary.right, it);
             if (!right.is_ok) return right;
-            solu_cemit(c, solu_ins_abc(SOLU_OP_SET, t_reg, solu_const(key_i), solu_reg(it)));
+            solu_cemit(c, solu_ins_abc(SOLU_OP_SET, t_reg, key_i, solu_reg(it)));
+            if (!isk) solu_ctemps(c, 1);
         }
     }
     c->obj_r = obj_r;
@@ -265,14 +272,19 @@ solu_cnode_ex solu_cnode(solu_compiler *c, solu_node *node, uint32_t t_reg) {
     switch (node->tt) {
         // statements
         case SOLU_ND_LOCAL: {
-            solu_scope_ex exists = solu_scope_get(c->scopes.data + c->scopes.count - 1, sf_ref(node->n_local.name.dyn));
-            if (exists.is_ok)
-                return solu_cerr(SOLU_ERRC_REDEFINED_LOCAL);
-            uint32_t rhs = solu_rlocal(c);
-            solu_scope_set(c->scopes.data + c->scopes.count - 1, sf_str_cdup(node->n_local.name.dyn), (solu_local){
-                rhs, c->scopes.count - 1, false, node->n_local.mut, 0
-            });
-            return solu_cnode(c, node->n_local.value, rhs);
+            for (uint16_t i = 0; i < node->n_local.entry_c; ++i) {
+                struct solu_name n = node->n_local.entries[i];
+                solu_scope_ex exists = solu_scope_get(c->scopes.data + c->scopes.count - 1, sf_ref(n.name.dyn));
+                if (exists.is_ok)
+                    return solu_cerr(SOLU_ERRC_REDEFINED_LOCAL);
+                uint32_t rhs = solu_rlocal(c);
+                solu_scope_set(c->scopes.data + c->scopes.count - 1, sf_str_cdup(n.name.dyn), (solu_local){
+                    rhs, c->scopes.count - 1, false, node->n_local.mut, 0
+                });
+                solu_cnode_ex ex = solu_cnode(c, n.value, rhs);
+                if (!ex.is_ok) return ex;
+            }
+            return solu_cnode_ex_ok();
         }
         case SOLU_ND_IF: {
             uint32_t s = 0;
@@ -797,7 +809,10 @@ solu_cnode_ex solu_cnode(solu_compiler *c, solu_node *node, uint32_t t_reg) {
                     if (!ex.is_ok) return ex;
                 }
 
-                solu_cemit(c, solu_ins_abc(SOLU_OP_MCALL, t_reg == UINT32_MAX ? solu_rtemp(c) : t_reg, solu_reg(lhs), solu_reg(node->n_call.arg_c)));
+                solu_cemitraw(c,
+                    solu_ins_abc(SOLU_OP_MCALL, t_reg == UINT32_MAX ? solu_rtemp(c) : t_reg, solu_reg(lhs), solu_reg(node->n_call.arg_c)),
+                    node->n_call.identifier->n_postfix.postfix->line, node->n_call.identifier->n_postfix.postfix->column
+                );
                 solu_ctemps(c, node->n_call.arg_c + 2);
             } else {
                 uint32_t f_reg = solu_rtemp(c);

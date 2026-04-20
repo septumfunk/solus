@@ -18,7 +18,7 @@ typedef enum {
     TK_ASM, TK_OPCODE,
     // Identifier/Literals
     TK_IDENTIFIER, TK_STRING, TK_FSTRING, TK_NUMBER, TK_INTEGER,
-    TK_NIL, TK_NAN, TK_TRUE, TK_FALSE,
+    TK_NIL, TK_NAN, TK_INF, TK_TRUE, TK_FALSE,
     // Misc
     TK_LEFT_PAREN, TK_RIGHT_PAREN, TK_LEFT_BRACE, TK_RIGHT_BRACE,
     TK_LEFT_BRACKET, TK_RIGHT_BRACKET, TK_COMMA, TK_PERIOD,
@@ -87,8 +87,11 @@ typedef struct solu_node {
     uint16_t line, column;
     union {
         struct { // <let> n = v; // { n = v }
-            solu_val name;
-            struct solu_node *value;
+            struct solu_name {
+                solu_val name;
+                struct solu_node *value;
+            } *entries;
+            uint16_t entry_c;
             bool mut;
         } n_local;
         struct { // if c {t} else {e}

@@ -254,7 +254,12 @@ int cli_test(char *dirpath) {
             continue;
 
         char full[1024];
-        snprintf(full, sizeof(full), "%s/%s", dirpath, ent->d_name);
+        #ifdef _WIN32
+            const char *f = "%s/%s";
+        #else
+            const char *f = "%s%s";
+        #endif
+        snprintf(full, sizeof(full), f, dirpath, ent->d_name);
         if (printed_any++) printf("\n");
 
         sf_fsb_ex fsb = sf_file_buffer(sf_ref(full));
@@ -262,8 +267,8 @@ int cli_test(char *dirpath) {
             fprintf(stderr, TUI_ERR TUI_UL "Test %s failed to open!\n" TUI_CLR, full);
             continue;
         }
-        sf_buffer_autoins(&fsb.ok, "\0");
-        cli_tf(full, sf_ref((char *)fsb.ok.ptr));
+        sf_buffer_seek(&fsb.ok, SF_BUFFER_END, 0);
+        cli_tf(full, (sf_str){(char *)fsb.ok.ptr, fsb.ok.size - 1, SF_STR_NONE});
         sf_buffer_clear(&fsb.ok);
     }
 
