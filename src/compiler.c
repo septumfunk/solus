@@ -946,7 +946,10 @@ solu_cnode_ex solu_cnode(solu_compiler *c, solu_node *node, uint32_t t_reg) {
             if (upvals) free(upvals);
 
             if (!ex.is_ok) return solu_cnode_ex_err(ex.err);
+
+            ex.ok.variadic = node->n_fun.variadic;
             ex.ok.self = self;
+
             if (r_asm != 0) ex.ok.reg_c += r_asm;
             solu_dyn p = calloc(1, sizeof(solu_dalloc) + sizeof(solu_fproto));
             solu_dalloc *dh = p, *dd = c->alloc;

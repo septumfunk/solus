@@ -44,9 +44,11 @@ X(P, UNREACHABLE_CODE, "Early return causes unreachable code") \
 X(P, UNEXPECTED_IDENTIFIER, "Unexpected identifier. Missing ';'?") \
 X(P, MALFORMED_CALL, "Malformed function call") \
 X(P, UNTERMINATED_CAPTURES, "Unterminated capture list") \
+X(P, UNTERMINATED_ARGS, "Unterminated argument list") \
 X(P, DUPLICATE_CAPTURE, "Duplicate capture") \
 X(P, SELF_FIRST, "Keyword 'self' must appear as first capture") \
 X(P, DUPLICATE_SELF, "Keyword 'self' may not appear as an argument of a member function (duplicate name)") \
+X(P, VARIADIC_LAST, "Variadic arguments must appear last in the arguments list") \
 X(P, INCLUDE_NOT_FOUND, "Included module not found") \
 X(P, CIRCULAR_INCLUDE, "Module includes itself (circular inclusion)") \
 X(P, EXPECTED_SOURCE, "Expected source code, found solc") \

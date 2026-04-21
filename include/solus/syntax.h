@@ -13,7 +13,7 @@ typedef enum {
     TK_PLUS, TK_MINUS, TK_BANG, TK_NEG, TK_INCREMENT, TK_DECREMENT, TK_ASTERISK, TK_SLASH,
     TK_EQUAL, TK_PLUS_EQUAL, TK_MINUS_EQUAL, TK_STAR_EQUAL, TK_SLASH_EQUAL,
     TK_NOT_EQUAL, TK_DOUBLE_EQUAL, TK_GREATER, TK_GREATER_EQUAL,
-    TK_LESS, TK_LESS_EQUAL, TK_AND, TK_OR,
+    TK_LESS, TK_LESS_EQUAL, TK_AND, TK_OR, TK_ELIPSES,
     // Assembly
     TK_ASM, TK_OPCODE,
     // Identifier/Literals
@@ -154,7 +154,7 @@ typedef struct solu_node {
             solu_val *args;
             uint32_t arg_c;
             struct solu_node *stmt;
-            bool include;
+            bool include, variadic;
         } n_fun;
         struct {
             solu_i64 temps;

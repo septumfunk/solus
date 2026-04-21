@@ -358,6 +358,11 @@ solu_scan_ex solu_scan(sf_str src) {
             }
 
             case '.':
+                if (src.c_str[s.cc + 1] == '.' && src.c_str[s.cc + 1] == '.') {
+                    s.current.tt = TK_ELIPSES;
+                    s.cc += 2;
+                    break;
+                }
                 if (!solu_isnumber(src.c_str[s.cc + 1])) {
                     s.current.tt = TK_PERIOD;
                     break;
@@ -1208,7 +1213,13 @@ solu_parse_ex solu_pfun(solu_parser *p) {
         return solu_perr(SOLU_ERRP_EXPECTED_ARGS, p->tok);
     }
     ++p->tok;
-    while (p->tok->tt != TK_RIGHT_PAREN && p->tok->tt != TK_EOF) {
+
+    bool variadic = false;
+    while (p->tok->tt != TK_RIGHT_PAREN && p->tok->tt != TK_EOF && !variadic) {
+        if (p->tok->tt == TK_ELIPSES) {
+            ++p->tok;
+            variadic = true;
+        }
         if (p->tok->tt != TK_IDENTIFIER) {
             solu_node_free(n_fun);
             return solu_perr(SOLU_ERRP_EXPECTED_IDENTIFIER, p->tok);
@@ -1223,11 +1234,18 @@ solu_parse_ex solu_pfun(solu_parser *p) {
 
         if (p->tok->tt != TK_COMMA && p->tok->tt != TK_RIGHT_PAREN) {
             solu_node_free(n_fun);
-            return solu_perr(SOLU_ERRP_MALFORMED_CALL, p->tok);
+            return solu_perr(SOLU_ERRP_UNTERMINATED_ARGS, p->tok);
         }
-        if (p->tok->tt == TK_COMMA) ++p->tok;
+        if (p->tok->tt == TK_COMMA) {
+            if (variadic) {
+                solu_node_free(n_fun);
+                return solu_perr(SOLU_ERRP_VARIADIC_LAST, p->tok);
+            }
+            ++p->tok;
+        }
     }
     ++p->tok;
+    n_fun->n_fun.variadic = variadic;
 
     if (p->tok->tt == TK_LEFT_BRACE) {
         solu_parse_ex bex = solu_pblock(p);
