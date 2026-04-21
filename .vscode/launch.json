@@ -28,7 +28,7 @@
       "request": "launch",
       "cwd": "${workspaceFolder}",
       "args": ["${input:cliMode}", "solus.tests/${input:scriptName}"],
-      "type": "cppvsdbg",
+      "type": "lldb",
       "program": "${workspaceFolder}/build/sanitized/solus",
 
       "env": {

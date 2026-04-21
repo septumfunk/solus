@@ -1,19 +1,7 @@
-var cat = {
-    fur_color = 'orange' # silly default
-    age = 0
-    babies = 0
-    gender = 'male'
-
-    give_birth = [self]() {
-        if self.gender == 'male' or age < 1
-            err("You can't do that")
-        io.println($'MEOW MEOW KITTENS! {++self.babies}');
-    }
-
-    grow_old = [self]()
-        self.age += 1/365
+var variadic_print = [](...fart)
+    fart.foreach([](v) io.println(v));
+var wrapper = [variadic_print](...args) {
+    io.println(args.len());
+    variadic_print(...args);
 };
-
-var jessica = { age = 1, gender = 'female' }.usemeta({ _extend = cat });
-jessica.grow_old();
-jessica.give_birth();
+wrapper(nil, nan, inf);

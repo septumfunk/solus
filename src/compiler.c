@@ -182,7 +182,11 @@ static uint32_t solu_kadd(solu_compiler *c, solu_val con) {
 solu_cnode_ex solu_cnode(solu_compiler *c, solu_node *node, uint32_t t_reg);
 
 /// Compile a fun from a block and info
-solu_compile_ex solu_cfun(sf_str file_name, uint32_t frame, solu_dalloc *alloc, solu_node *ast, uint32_t arg_c, solu_val *args, uint32_t up_c, solu_upvalue *upvals) {
+solu_compile_ex solu_cfun(
+    sf_str file_name, uint32_t frame, solu_dalloc *alloc, solu_node *ast,
+    uint32_t arg_c, solu_val *args, bool variadic,
+    uint32_t up_c, solu_upvalue *upvals) {
+
     solu_compiler c = {
         .proto = solu_fproto_new(),
         .ast = ast,
@@ -195,7 +199,7 @@ solu_compile_ex solu_cfun(sf_str file_name, uint32_t frame, solu_dalloc *alloc, 
 
         .controls = solu_controls_new(),
     };
-    c.proto.arg_c = arg_c;
+    c.proto.arg_c = arg_c - variadic;
     c.proto.file_name = file_name;
     solu_scopes_push(&c.scopes, solu_scope_new());
     for (uint32_t i = 0; i < arg_c; ++i)
@@ -794,7 +798,13 @@ solu_cnode_ex solu_cnode(solu_compiler *c, solu_node *node, uint32_t t_reg) {
             if (node->n_call.identifier->tt == SOLU_ND_POSTFIX) {
                 solu_node *pf = node->n_call.identifier;
                 uint32_t lhs = solu_rtemp(c), rhs = solu_rtemp(c);
-                for (uint32_t i = 0; i < node->n_call.arg_c; ++i)
+                if (node->n_call.variadic) {
+                    solu_rtemp(c); // The real rhs is *after*
+                    solu_cnode_ex lex = solu_cnode(c, node->n_call.args[node->n_call.arg_c - 1], rhs); // identifier
+                    if (!lex.is_ok) return lex;
+                    rhs += 1;
+                }
+                for (uint32_t i = 0; i < node->n_call.arg_c - node->n_call.variadic; ++i)
                     solu_rtemp(c);
 
                 solu_cnode_ex lex = solu_cnode(c, pf->n_postfix.expr, lhs);
@@ -802,32 +812,40 @@ solu_cnode_ex solu_cnode(solu_compiler *c, solu_node *node, uint32_t t_reg) {
                 solu_cnode_ex rex = solu_cnode(c, pf->n_postfix.postfix, rhs);
                 if (!rex.is_ok) return rex;
 
-                for (uint32_t i = 0; i < node->n_call.arg_c; ++i) {
+                for (uint32_t i = 0; i < node->n_call.arg_c - node->n_call.variadic; ++i) {
                     uint32_t r = rhs + 1 + i;
                     solu_cnode_ex ex = solu_cnode(c, node->n_call.args[i], r);
                     if (!ex.is_ok) return ex;
                 }
 
+                lhs = node->n_call.variadic ? solu_const(lhs) : solu_reg(lhs);
                 solu_cemitraw(c,
-                    solu_ins_abc(SOLU_OP_MCALL, t_reg == UINT32_MAX ? solu_rtemp(c) : t_reg, solu_reg(lhs), solu_reg(node->n_call.arg_c)),
+                    solu_ins_abc(SOLU_OP_MCALL, t_reg == UINT32_MAX ? solu_rtemp(c) : t_reg, lhs, solu_reg(node->n_call.arg_c - node->n_call.variadic)),
                     node->n_call.identifier->n_postfix.postfix->line, node->n_call.identifier->n_postfix.postfix->column
                 );
-                solu_ctemps(c, node->n_call.arg_c + 2);
+                solu_ctemps(c, node->n_call.arg_c + 2 - node->n_call.variadic);
             } else {
                 uint32_t f_reg = solu_rtemp(c);
+                if (node->n_call.variadic) {
+                    solu_rtemp(c); // The real f_reg is *after*
+                    solu_cnode_ex lex = solu_cnode(c, node->n_call.args[node->n_call.arg_c - 1], f_reg); // identifier
+                    if (!lex.is_ok) return lex;
+                    f_reg += 1;
+                }
                 solu_cnode_ex lex = solu_cnode(c, node->n_call.identifier, f_reg);
                 if (!lex.is_ok) return lex;
 
-                for (uint32_t i = 0; i < node->n_call.arg_c; ++i)
+                for (uint32_t i = 0; i < node->n_call.arg_c - node->n_call.variadic; ++i)
                     solu_rtemp(c);
-                for (uint32_t i = 0; i < node->n_call.arg_c; ++i) {
+                for (uint32_t i = 0; i < node->n_call.arg_c - node->n_call.variadic; ++i) {
                     uint32_t r = f_reg + 1 + i;
                     solu_cnode_ex ex = solu_cnode(c, node->n_call.args[i], r);
                     if (!ex.is_ok) return ex;
                 }
 
-                solu_cemit(c, solu_ins_abc(SOLU_OP_CALL, t_reg == UINT32_MAX ? solu_rtemp(c) : t_reg, solu_reg(f_reg), solu_reg(node->n_call.arg_c)));
-                solu_ctemps(c, t_reg == UINT32_MAX ? node->n_call.arg_c + 2 : node->n_call.arg_c + 1);
+                f_reg = node->n_call.variadic ? solu_const(f_reg - 1) : solu_reg(f_reg);
+                solu_cemit(c, solu_ins_abc(SOLU_OP_CALL, t_reg == UINT32_MAX ? solu_rtemp(c) : t_reg, f_reg, solu_reg(node->n_call.arg_c - node->n_call.variadic)));
+                solu_ctemps(c, (t_reg == UINT32_MAX ? node->n_call.arg_c + 2 : node->n_call.arg_c + 1) - node->n_call.variadic);
             }
             return solu_cnode_ex_ok();
         }
@@ -940,7 +958,7 @@ solu_cnode_ex solu_cnode(solu_compiler *c, solu_node *node, uint32_t t_reg) {
                 c->frame + 1,
                 c->alloc,
                 node->n_fun.stmt,
-                node->n_fun.arg_c, node->n_fun.args,
+                node->n_fun.arg_c, node->n_fun.args, node->n_fun.variadic,
                 ofs + node->n_fun.cap_c, upvals
             );
             if (upvals) free(upvals);
@@ -1004,7 +1022,11 @@ solu_compile_ex solu_cproto(sf_str path, char *src, uint32_t arg_c, solu_val *ar
         });
     }
 
-    solu_compile_ex ex = solu_cfun(sf_str_dup(path), 0, scan_ex.ok.alloc, par_ex.ok, arg_c, args, up_c, upvals);
+    solu_compile_ex ex = solu_cfun(
+        sf_str_dup(path), 0, scan_ex.ok.alloc, par_ex.ok,
+        arg_c, args, true,
+        up_c, upvals
+    );
     solu_node_free(par_ex.ok);
 
     for (solu_dalloc *ac = scan_ex.ok.alloc; ac;) {

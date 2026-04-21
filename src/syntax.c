@@ -259,7 +259,7 @@ solu_scan_ex solu_scan(sf_str src) {
     solu_keywords_set(&s.keywords, sf_lit("or"), TK_OR);
     // literals
     solu_keywords_set(&s.keywords, sf_lit("nil"), TK_NIL);
-    solu_keywords_set(&s.keywords, sf_lit("NaN"), TK_NAN);
+    solu_keywords_set(&s.keywords, sf_lit("nan"), TK_NAN);
     solu_keywords_set(&s.keywords, sf_lit("inf"), TK_INF);
     solu_keywords_set(&s.keywords, sf_lit("true"), TK_TRUE);
     solu_keywords_set(&s.keywords, sf_lit("false"), TK_FALSE);
@@ -957,7 +957,7 @@ solu_parse_ex solu_plocal(solu_parser *p) {
             n.value = vex.ok;
             if (p->tok->tt != TK_SEMICOLON && p->tok->tt != TK_COMMA) {
                 if (names) free(names);
-                return solu_perr(SOLU_ERRP_EXPECTED_LIST_TERM, p->tok);
+                return solu_perr(SOLU_ERRP_EXPECTED_LIST_TERM, p->tok - 1);
             }
             names = realloc(names, ++name_c * sizeof(struct solu_name));
             names[name_c - 1] = n;
@@ -1016,10 +1016,33 @@ solu_parse_ex solu_ppostfix(solu_parser *p) {
                 };
                 ++p->tok;
 
+                bool variadic = false;
                 while (p->tok->tt != TK_RIGHT_PAREN && p->tok->tt != TK_EOF) {
+                    if (p->tok->tt == TK_ELIPSES) {
+                        solu_token *el = p->tok++;
+                        if (p->tok->tt != TK_IDENTIFIER) {
+                            solu_node_free(call);
+                            return solu_perr(SOLU_ERRP_EXPECTED_IDENTIFIER, p->tok);
+                        }
+                        variadic = true;
+                        solu_node *arg = malloc(sizeof(solu_node));
+                        *arg = (solu_node){
+                            SOLU_ND_IDENTIFIER,
+                            el->line, el->column,
+                            .n_identifier = p->tok->value,
+                        };
+                        ++p->tok;
+
+                        call->n_call.args = realloc(call->n_call.args, sizeof(solu_node*) * (++call->n_call.arg_c));
+                        call->n_call.args[call->n_call.arg_c - 1] = arg;
+                        if (p->tok->tt == TK_COMMA) {
+                            solu_node_free(call);
+                            return solu_perr(SOLU_ERRP_VARIADIC_LAST, p->tok);
+                        }
+                        break;
+                    }
                     solu_parse_ex arg = solu_pexpr(p, 0);
                     if (!arg.is_ok) {
-                        solu_node_free(node);
                         solu_node_free(call);
                         return arg;
                     }
@@ -1030,10 +1053,10 @@ solu_parse_ex solu_ppostfix(solu_parser *p) {
                     else break;
                 }
                 if (p->tok->tt != TK_RIGHT_PAREN) {
-                    solu_node_free(node);
                     solu_node_free(call);
                     return solu_perr(SOLU_ERRP_MALFORMED_CALL, p->tok);
                 }
+                call->n_call.variadic = variadic;
 
                 ++p->tok;
                 node = call;

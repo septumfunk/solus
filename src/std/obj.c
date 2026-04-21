@@ -95,11 +95,15 @@ static sf_str _stringify(solu_state *s, solu_dobj *obj, bool pretty, bool commas
     solu_valmap_foreach(&obj->map, _stringify_fe, &(_solu_stringify_args){s, &out, pretty, commas, id});
 
     if (obj->array.count) {
-        size_t size = sizeof(char) * id * 2;
-        char *idt = malloc(size + 1);
-        memset(idt, ' ', sizeof(char) * id * 2);
-        sf_str_append(&out, sf_ref(idt));
-        free(idt);
+        if (pretty) {
+            size_t size = sizeof(char) * id * 2;
+            char *idt = malloc(size + 1);
+            memset(idt, ' ', sizeof(char) * id * 2);
+            idt[size] = 0;
+
+            sf_str_append(&out, sf_ref(idt));
+            free(idt);
+        }
         for (uint32_t i = 0; i < obj->array.count; ++i) {
             solu_val val = obj->array.data[i];
             switch (val.tt) {
@@ -126,7 +130,9 @@ static sf_str _stringify(solu_state *s, solu_dobj *obj, bool pretty, bool commas
     if (pretty && id) {
         size_t s = sizeof(char) * (id-1) * 2;
         char *idt = malloc(s + 1);
-        memset(idt, ' ', sizeof(char) * (id-1) * 2);
+        memset(idt, ' ', s);
+        idt[s] = 0;
+
         sf_str_append(&out, sf_ref(idt));
         free(idt);
     }
@@ -138,7 +144,9 @@ static void _stringify_fe(void *u, sf_str key, solu_val val) {
     if (args->pretty && args->id) {
         size_t s = sizeof(char) * args->id * 2;
         char *id = malloc(s + 1);
-        memset(id, ' ', sizeof(char) * args->id * 2);
+        memset(id, ' ', s);
+        id[s] = 0;
+
         sf_str_append(args->out, sf_ref(id));
         free(id);
     }

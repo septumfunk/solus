@@ -906,6 +906,12 @@ solu_call_ex solu_call_bc(solu_state *s, solu_fproto *proto, const solu_val *arg
         solu_pushframe(s, proto->reg_c);
         for (uint32_t i = 0; i < proto->arg_c && args && i < arg_c; ++i)
             solu_set(s, i, args[i]);
+        if (proto->variadic) {
+            solu_val extra = solu_dnew(s, SOLU_DOBJ);
+            solu_set(s, proto->arg_c, extra);
+            for (uint32_t i = proto->arg_c; i < arg_c; ++i)
+                solu_valvec_push(&((solu_dobj *)extra.dyn)->array, args[i]);
+        }
     }
     proto->dbg_res = 0;
     solu_val return_val = SOLU_NIL;
@@ -935,7 +941,17 @@ solu_call_ex solu_call_bc(solu_state *s, solu_fproto *proto, const solu_val *arg
             DISPATCH();
         }
         CASE(SOLU_OP_CALL) {
+            uint32_t var_r = UINT32_MAX;
             uint32_t fun_r = solu_iabc_bx(ins);
+            solu_val var = SOLU_NIL;
+            if (solu_iabc_bk(ins)) {
+                var_r = fun_r;
+                fun_r += 1;
+                var = solu_get(s, var_r);
+                if (!solu_isdtype(var, SOLU_DOBJ))
+                    return solu_callerr(SOLU_ERRV_TYPE_MISMATCH, "Unfold operator expected obj, found %s", solu_typename(var).c_str);
+            }
+
             solu_val of, fun = solu_get(s, fun_r);
             bool can_self = false;
             if (fun.tt == SOLU_TDYN) {
@@ -965,13 +981,19 @@ solu_call_ex solu_call_bc(solu_state *s, solu_fproto *proto, const solu_val *arg
             }
 
             uint32_t argc = solu_iabc_cx(ins);
+
             solu_call_ex fex;
-            if (argc > 0) {
+            uint32_t extra = var_r != UINT32_MAX ? ((solu_dobj *)var.dyn)->array.count : 0;
+            uint32_t passed = argc + extra;
+            if (passed > 0) {
                 solu_val local_argv[8];
-                solu_val *argv = argc <= 8 ? local_argv : malloc(sizeof(solu_val) * argc);
+                solu_val *argv = passed <= 8 ? local_argv : malloc(sizeof(solu_val) * passed);
                 for (uint32_t i = 0; i < argc; ++i)
                     argv[i] = solu_get(s, fun_r + 1 + i);
-                fex = solu_call(s, f, argv, argc);
+                for (uint32_t i = argc; i < passed; ++i)
+                    argv[i] = ((solu_dobj *)var.dyn)->array.data[i - argc];
+
+                fex = solu_call(s, f, argv, passed);
                 if (argv != local_argv)
                     free(argv);
             } else fex = solu_call(s, f, NULL, 0);
@@ -987,9 +1009,21 @@ solu_call_ex solu_call_bc(solu_state *s, solu_fproto *proto, const solu_val *arg
             DISPATCH();
         }
         CASE(SOLU_OP_MCALL) {
-            uint32_t obj_r = solu_iabc_bx(ins);
+            uint32_t var_r = UINT32_MAX;
+            uint32_t obj_r = solu_iabc_bx(ins), arg_r = obj_r + 2;
+            solu_val var = SOLU_NIL;
+
+
             solu_val obj = solu_get(s, obj_r);
             solu_val key = solu_get(s, obj_r + 1);
+            if (solu_iabc_bk(ins)) {
+                var_r = obj_r + 1;
+                var = key;
+                arg_r = var_r + 2;
+                key = solu_get(s, var_r + 1);
+                if (!solu_isdtype(var, SOLU_DOBJ))
+                    return solu_callerr(SOLU_ERRV_TYPE_MISMATCH, "Unfold operator expected obj, found %s", solu_typename(var).c_str);
+            }
 
             solu_val get = SOLU_NIL;
             solu_val fun = SOLU_NIL;
@@ -1039,13 +1073,20 @@ solu_call_ex solu_call_bc(solu_state *s, solu_fproto *proto, const solu_val *arg
 
             solu_call_ex fex;
             uint32_t argc = solu_iabc_cx(ins) + prim;
-            if (argc > 0) {
+            uint32_t extra = var_r != UINT32_MAX ? ((solu_dobj *)var.dyn)->array.count : 0;
+            uint32_t passed = argc + extra;
+
+            if (passed > 0) {
                 solu_val local_argv[8];
-                solu_val *argv = argc <= 8 ? local_argv : malloc(sizeof(solu_val) * argc);
+                solu_val *argv = passed <= 8 ? local_argv : malloc(sizeof(solu_val) * passed);
                 if (prim) argv[0] = obj;
+
                 for (uint32_t j = prim; j < argc; ++j)
-                    argv[j] = solu_get(s, obj_r + (j - prim) + 2);
-                fex = solu_call(s, f, argv, argc);
+                    argv[j] = solu_get(s, arg_r + (j - prim));
+                for (uint32_t j = argc; j < passed; ++j)
+                    argv[j] = ((solu_dobj *)var.dyn)->array.data[j - argc];
+
+                fex = solu_call(s, f, argv, passed);
                 if (argv != local_argv) free(argv);
             } else fex = solu_call(s, f, NULL, 0);
 

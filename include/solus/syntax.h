@@ -136,6 +136,7 @@ typedef struct solu_node {
             struct solu_node *identifier;
             struct solu_node **args;
             uint32_t arg_c;
+            bool variadic;
         } n_call;
 
         solu_val n_identifier, n_literal;
