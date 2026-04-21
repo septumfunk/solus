@@ -8,11 +8,9 @@ assert(inst.meows == 2);
 assert(inst.paws == 4);
 
 assert(type(123) == "i64");
-assert(type(NaN) == "f64");
+assert(type(nan) == "f64");
 assert(type("hi") == "str");
 assert(type(true) == "bool");
-
-val NaN = 2;
 
 val a = i64(3.9);
 assert(a == 3);
