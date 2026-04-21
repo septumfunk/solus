@@ -829,7 +829,7 @@ static inline bool solu_truthy(solu_val val) {
     switch (val.tt) {
         case SOLU_TBOOL: return val.boolean;
         case SOLU_TI64: return val.i64 != 0;
-        case SOLU_TF64: return val.f64 != NAN;
+        case SOLU_TF64: return !isnan(val.f64);
         case SOLU_TDYN: return val.dyn;
         default: return false;
     }
@@ -1282,9 +1282,9 @@ solu_call_ex solu_call_bc(solu_state *s, solu_fproto *proto, const solu_val *arg
                 case SOLU_TF64: in.f64 = -in.f64; break;
                 case SOLU_TBOOL: in.boolean = !in.boolean; break;
                 case SOLU_TDYN: {
-                    solu_dalloc *da = in.dyn;
-                    if (da->metadata[SOLU_META_DIV].tt != SOLU_TNIL) {
-                        solu_call_ex ex = solu_call(s, da->metadata[SOLU_META_DIV].dyn, &in, 1);
+                    solu_dalloc *da = solu_dheader(in);
+                    if (da->metadata[SOLU_META_NEG].tt != SOLU_TNIL) {
+                        solu_call_ex ex = solu_call(s, da->metadata[SOLU_META_NEG].dyn, &in, 1);
                         if (!ex.is_ok) return ex;
                         if (!solu_isdtype(ex.ok, SOLU_DERR))
                         solu_usemeta(ex.ok, da->meta.dyn);
