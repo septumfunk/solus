@@ -3,11 +3,22 @@
 #include "solus/val.h"
 #include "solus/compiler.h"
 #include "solus/vm.h"
-#include "cli/cli.h"
 #include <sf/str.h>
 #include <sf/fs.h>
 #include <stdio.h>
 #include <string.h>
+
+#ifndef _WIN32
+#define TUI_UL  "\x1b[4m"
+#define TUI_BLD "\x1b[1m"
+#define TUI_ERR "\x1b[1;31m"
+#define TUI_CLR "\x1b[0m"
+#else
+#define TUI_UL  ""
+#define TUI_BLD ""
+#define TUI_ERR ""
+#define TUI_CLR ""
+#endif
 
 #ifdef _WIN32
 //TODO: pdcurses
@@ -17,29 +28,39 @@
 
 typedef enum {
     CLI_RUN,
-    CLI_DBG,
     CLI_TEST,
     CLI_COMPILE,
 } cli_mode;
 
-void cli_highlight_line(sf_str src, sf_str err, uint16_t line, uint16_t column) {
-    char *c = src.c_str;
-    uint16_t ln = 1;
-    while (true) {
-        if (*c == '\n')
-            ++ln;
-        if (ln == line + 1 || *c == '\0') {
-            *c = '\0';
-            while ((c == src.c_str || *(c-1) != '\n') && c != src.c_str)
-                --c;
-            break;
-        } else ++c;
-    }
+static void cli_print_line(sf_str src, uint16_t line) {
+    if (!src.c_str || src.len == 0 || line == 0)
+        return;
 
+    const char *line_start = src.c_str;
+    uint16_t ln = 1;
+    for (const char *p = src.c_str; p < src.c_str + src.len && ln < line; ++p) {
+        if (*p == '\n') {
+            ++ln;
+            line_start = p + 1;
+        }
+    }
+    if (ln != line || line_start >= src.c_str + src.len) return;
+
+    const char *line_end = line_start;
+    while (line_end < src.c_str + src.len && *line_end != '\n' && *line_end != '\0')
+        ++line_end;
+    if (line_end > line_start && line_end[-1] == '\r')
+        --line_end;
+    fprintf(stderr, "%4u | %.*s\n", line, (int)(line_end - line_start), line_start);
+}
+
+void cli_highlight_line(sf_str src, sf_str err, uint16_t line, uint16_t column, uint8_t lookback, uint8_t lookahead) {
+    for (uint16_t i = line <= lookback ? 1 : line - lookback + 1; i < line + 1; ++i)
+        cli_print_line(src, i);
     if (err.c_str == solu_err_string(SOLU_ERRP_EXPECTED_SEMICOLON))
         ++column;
 
-    int prefix = snprintf(NULL, 0, "%u | ", line);
+    int prefix = snprintf(NULL, 0, "%4u | ", line);
     int caret = prefix + column - 1;
 
     char *pointer = malloc((size_t)caret + 2);
@@ -47,8 +68,10 @@ void cli_highlight_line(sf_str src, sf_str err, uint16_t line, uint16_t column) 
     pointer[caret] = '^';
     pointer[caret + 1] = '\0';
 
-    fprintf(stderr, "%u | %s\n", line, c);
     fprintf(stderr, TUI_ERR "%s %s\n" TUI_CLR, pointer, err.c_str);
+    for (uint16_t i = line + 1; i < line + lookahead + 1; ++i)
+        cli_print_line(src, i);
+
     free(pointer);
 }
 
@@ -99,7 +122,7 @@ int cli_run(char *path, sf_str src) {
         if (!comp_ex.is_ok) {
             if (comp_ex.err.line) {
                 fprintf(stderr, TUI_ERR "error: %s:%u:%u\n" TUI_CLR, path, comp_ex.err.line, comp_ex.err.column);
-                cli_highlight_line(src, sf_ref(solu_err_string(comp_ex.err.tt)), comp_ex.err.line, comp_ex.err.column);
+                cli_highlight_line(src, sf_ref(solu_err_string(comp_ex.err.tt)), comp_ex.err.line, comp_ex.err.column, 2, 2);
             } else fprintf(stderr, TUI_ERR "error: %s\n" TUI_CLR, solu_err_string(comp_ex.err.tt));            solu_state_free(s);
             return -1;
         }
@@ -109,16 +132,26 @@ int cli_run(char *path, sf_str src) {
 
     solu_call_ex call_ex = solu_call(s, &fb, NULL, 0);
     if (!call_ex.is_ok) {
-        uint16_t line = SOLU_DBG_LINE(fb.dbg[call_ex.err.pc]), col = SOLU_DBG_COL(fb.dbg[call_ex.err.pc]);
-        fprintf(stderr, TUI_ERR "error: %s:%u:%u\n" TUI_CLR, path, line, col);
+        uint16_t line = 0, col = 0;
+        if (fb.dbg) {
+            line = SOLU_DBG_LINE(fb.dbg[call_ex.err.pc]);
+            col = SOLU_DBG_COL(fb.dbg[call_ex.err.pc]);
+            fprintf(stderr, TUI_ERR "error: %s:%u:%u\n" TUI_CLR, path, line, col);
+        } else fprintf(stderr, TUI_ERR "error: %s\n" TUI_CLR, path);
+
 
         if (call_ex.err.panic) {
             sf_str full = sf_str_fmt("%s: %s", solu_err_string(call_ex.err.tt), call_ex.err.panic);
-            if (line) cli_highlight_line(src, full, line, col);
+            if (line)
+                cli_highlight_line(src, full, line, col, 2, 2);
+            else
+                fprintf(stderr, TUI_ERR TUI_BLD "%s\n" TUI_CLR, full.c_str);
             free(call_ex.err.panic);
             sf_str_free(full);
-        } else
-            cli_highlight_line(src, sf_ref(solu_err_string(call_ex.err.tt)), line, col);
+        } else if (line)
+            cli_highlight_line(src, sf_ref(solu_err_string(call_ex.err.tt)), line, col, 2, 2);
+        else
+            fprintf(stderr, TUI_ERR TUI_BLD "%s\n" TUI_CLR, solu_err_string(call_ex.err.tt));
         return -1;
     }
 
@@ -139,7 +172,7 @@ int cli_compile(char *path, sf_str src) {
     if (!comp_ex.is_ok) {
         if (comp_ex.err.line) {
             fprintf(stderr, TUI_ERR "error: %s:%u:%u\n" TUI_CLR, path, comp_ex.err.line, comp_ex.err.column);
-            cli_highlight_line(src, sf_ref(solu_err_string(comp_ex.err.tt)), comp_ex.err.line, comp_ex.err.column);
+            cli_highlight_line(src, sf_ref(solu_err_string(comp_ex.err.tt)), comp_ex.err.line, comp_ex.err.column, 2, 2);
         } else fprintf(stderr, TUI_ERR "error: %s\n" TUI_CLR, solu_err_string(comp_ex.err.tt));
         solu_state_free(s);
         return -1;
@@ -184,8 +217,15 @@ static int has_suffix_solu(const char *s) {
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 int cli_test(char *dirpath) {
+    size_t len = strlen(dirpath);
+    while (dirpath[len - 1] == '\\' || dirpath[len - 1] == '/') {
+        dirpath[len - 1] = '\0';
+        len -= 1;
+    }
+
     char pattern[MAX_PATH];
     snprintf(pattern, sizeof(pattern), "%s\\*", dirpath);
+
     WIN32_FIND_DATAA fd;
     HANDLE h = FindFirstFileA(pattern, &fd);
     if (h == INVALID_HANDLE_VALUE) {
@@ -200,7 +240,7 @@ int cli_test(char *dirpath) {
         if (!has_suffix_solu(fd.cFileName))
             continue;
         char full[MAX_PATH];
-        snprintf(full, sizeof(full), "%s\\%s", dirpath, fd.cFileName);
+        snprintf(full, sizeof(full), "%s/%s", dirpath, fd.cFileName);
         if (printed_any++) printf("\n");
 
         sf_fsb_ex fsb = sf_file_buffer(sf_ref(full));
@@ -208,7 +248,7 @@ int cli_test(char *dirpath) {
             fprintf(stderr, TUI_ERR TUI_UL "Test %s failed to open!\n" TUI_CLR, full);
             continue;
         }
-        cli_tf(full, sf_ref((char *)fsb.ok.ptr));
+        cli_tf(full, (sf_str){(char *)fsb.ok.ptr, fsb.ok.size - 1, SF_STR_NONE});
         sf_buffer_clear(&fsb.ok);
 
     } while (FindNextFileA(h, &fd));
@@ -219,7 +259,20 @@ int cli_test(char *dirpath) {
 #else
 #include <dirent.h>
 int cli_test(char *dirpath) {
-    DIR *dir = opendir(dirpath);
+    size_t len = strlen(dirpath);
+    while (dirpath[len - 1] == '\\' || dirpath[len - 1] == '/') {
+        dirpath[len - 1] = '\0';
+        len -= 1;
+    }
+
+    char *rp = solu_realpath(dirpath);
+    if (!rp) {
+        perror("realpath");
+        return 1;
+    }
+
+    DIR *dir = opendir(rp);
+    free(rp);
     if (!dir) {
         perror("opendir");
         return 1;
@@ -242,7 +295,8 @@ int cli_test(char *dirpath) {
             fprintf(stderr, TUI_ERR TUI_UL "Test %s failed to open!\n" TUI_CLR, full);
             continue;
         }
-        cli_tf(full, sf_ref((char *)fsb.ok.ptr));
+        sf_buffer_seek(&fsb.ok, SF_BUFFER_END, 0);
+        cli_tf(full, (sf_str){(char *)fsb.ok.ptr, fsb.ok.size - 1, SF_STR_NONE});
         sf_buffer_clear(&fsb.ok);
     }
 
@@ -253,16 +307,25 @@ int cli_test(char *dirpath) {
 
 int main(int argc, char **argv) {
     if (argc == 1) {
-        char *fp = strcat(solu_realdir(argv[0]), "/bundle.solc");
+        char *rp = solu_realpath(argv[0]);
+        if (!rp) goto usage;
+        char *rd = solu_realdir(rp);
+        free(rp);
+        if (!rd) goto usage;
+
+        char *fp = sf_str_join(sf_ref(rd), sf_lit("/bundle.solc")).c_str;
+        printf("%s\n", fp);
+        free(rd);
         if (sf_file_exists(sf_ref(fp))) {
             sf_str src = cli_load_file(fp);
+            if (sf_isempty(src) || src.len == 0) { free(fp); goto usage; }
+            int r = cli_run(fp, src);
             free(fp);
-            if (sf_isempty(src) || src.len == 0)
-                return 1;
-            return cli_run("bundle.solc", src);
+            return r;
         }
         free(fp);
-        printf("Usage: %s [run|compile|dbg|test] <file>\n", argv[0]);
+        usage:
+        printf("Usage: %s [run|compile|test] <file>\n", argv[0]);
         return 1;
     }
 
@@ -273,12 +336,6 @@ int main(int argc, char **argv) {
             return 1;
         }
         mode = CLI_RUN;
-    } else if (!strcmp(argv[1], "dbg")) {
-        if (argc == 2) {
-            printf("Usage: %s dbg <file>\n", argv[0]);
-            return 1;
-        }
-        mode = CLI_DBG;
     } else if (!strcmp(argv[1], "test")) {
         if (argc == 2) {
             printf("Usage: %s test <dir>\n", argv[0]);
@@ -292,7 +349,7 @@ int main(int argc, char **argv) {
         }
         mode = CLI_COMPILE;
     } else {
-        printf("Unknown option '%s'.\nUsage: %s [run|dbg|test] <file|dir>\n", argv[1], argv[0]);
+        printf("Unknown option '%s'.\nUsage: %s [run|test] <file|dir>\n", argv[1], argv[0]);
         return 1;
     }
 
@@ -306,7 +363,6 @@ int main(int argc, char **argv) {
     int ret = 0;
     switch (mode) {
         case CLI_RUN: ret = cli_run(argv[2], src); break;
-        case CLI_DBG: ret = solu_cli_cbg(argv[2], src); break;
         case CLI_COMPILE: ret = cli_compile(argv[2], src); break;
         default: ret = -1; break;
     }

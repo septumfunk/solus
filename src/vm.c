@@ -1,3 +1,5 @@
+#include <math.h>
+#include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdlib.h>
@@ -5,6 +7,7 @@
 #include "solus/vm.h"
 #include "sf/containers/buffer.h"
 #include "sf/fs.h"
+#include "solus/bytecode.h"
 #include "solus/val.h"
 #include "solus/compiler.h"
 #include "sf/str.h"
@@ -14,18 +17,19 @@
 
 solu_state *solu_state_new(void) {
     solu_dyn p = calloc(1, sizeof(solu_dalloc) + sizeof(solu_dobj));
-    *(solu_dalloc *)p = (solu_dalloc){NULL, sizeof(solu_dobj), 1, SOLU_DOBJ, SOLU_DYN_GREEN};
+    *(solu_dalloc *)p = (solu_dalloc){NULL, sizeof(solu_dobj), 1, SOLU_DOBJ, SOLU_DYN_WHITE, true, SOLU_NIL, {SOLU_NIL}};
     p = (char *)p + sizeof(solu_dalloc);
     *(solu_dobj *)p = solu_dobj_new();
 
     solu_state *s = malloc(sizeof(solu_state));
     *s = (solu_state){
         .stack = solu_valvec_new(),
-        .files = solu_filenames_new(),
         .strcache = solu_strcache_new(),
+        .frames = solu_frames_new(),
         .global = {SOLU_TDYN, .dyn = p},
         .lb = 1<<20, .cb = 0, .nb = 0,
         .call_stack = 0,
+        .ccall = NULL,
 
         .collect = false,
         .alloc = NULL,
@@ -35,7 +39,7 @@ solu_state *solu_state_new(void) {
 
 void solu_state_free(solu_state *state) {
     solu_valvec_free(&state->stack);
-    solu_filenames_free(&state->files);
+    solu_frames_free(&state->frames);
     solu_strcache_free(&state->strcache);
     solu_dclean(state->global);
     free(state);
@@ -47,17 +51,22 @@ void solu_usestd(solu_state *s) {
     solu_dobj_strset(solus.dyn, "git", solu_dnstr(s, SOLU_GIT));
     solu_dobj_strset(s->global.dyn, "solus", solus);
 
+    s->meta.string = solu_mod_string(s, true);
+    s->meta.obj = solu_mod_obj(s, true);
+    solu_dhold(s->meta.string);
+    solu_dhold(s->meta.obj);
+
     solu_mod_builtin(s);
+    solu_mod_string(s, false);
+    solu_mod_obj(s, false);
     solu_mod_io(s);
-    solu_mod_string(s);
-    solu_mod_obj(s);
     solu_mod_math(s);
     solu_mod_gc(s);
 }
 
 solu_compile_ex solu_csrc(solu_state *state, char *src) {
     solu_compile_ex ex = solu_cproto(SF_STR_EMPTY, src, 0, NULL, 1, (solu_upvalue[]){
-        (solu_upvalue){sf_lit("_g"), SOLU_UP_VAL, .value = state->global, .mut = false}
+        (solu_upvalue){sf_lit("global"), SOLU_UP_VAL, .value = state->global, .mut = false}
     });
     ex.ok.line_c = 1;
     for (char *c = src; *c != '\0'; ++c)
@@ -82,18 +91,23 @@ solu_compile_ex solu_cfile(solu_state *state, char *path) {
     sf_buffer_seek(&fsb.ok, SF_BUFFER_START, 0);
 
     char *realpath = solu_realpath(path);
-    if (!path) return solu_compile_ex_err((solu_compile_err){SOLU_ERRC_FILE_NOT_FOUND, 0, 0});
+    if (!realpath) {
+        sf_buffer_clear(&fsb.ok);
+        return solu_compile_ex_err((solu_compile_err){SOLU_ERRC_FILE_NOT_FOUND, 0, 0});
+    }
 
     solu_compile_ex ex = solu_cproto(sf_ref(realpath), (char *)fsb.ok.ptr, 0, NULL, 1, (solu_upvalue[]){
-        (solu_upvalue){sf_lit("_g"), SOLU_UP_VAL, .value = state->global, .mut = false}
+        (solu_upvalue){sf_lit("global"), SOLU_UP_VAL, .value = state->global, .mut = false}
     });
-    if (!ex.is_ok) return ex;
     free(realpath);
+    if (!ex.is_ok) {
+        sf_buffer_clear(&fsb.ok);
+        return ex;
+    }
     ex.ok.line_c = 1;
     for (char *c = (char *)fsb.ok.ptr; *c != '\0'; ++c)
         if (*c == '\n') ++ex.ok.line_c;
     sf_buffer_clear(&fsb.ok);
-    ex.ok.file_name = sf_str_cdup(path);
     return ex;
 }
 
@@ -131,13 +145,18 @@ solu_val solu_dnew(solu_state *s, solu_dtype tt) {
         .thread = 1,
         .tt = tt,
         .mark = SOLU_DYN_WHITE,
+        .metadata = {[SOLU_META_EXTEND] = s->meta.base}
     };
     p = (char *)p + sizeof(solu_dalloc);
 
     switch (tt) {
         case SOLU_DSTR:
         case SOLU_DERR: break;
-        case SOLU_DOBJ: *(solu_dobj *)p = solu_dobj_new(); break;
+        case SOLU_DOBJ:
+            *(solu_dobj *)p = solu_dobj_new();
+            if (s->meta.obj.tt != SOLU_TNIL)
+                dh->metadata[SOLU_META_EXTEND] = s->meta.obj;
+            break;
         case SOLU_DFUN: *(solu_fproto *)p = solu_fproto_new(); break;
         case SOLU_DREF: *(solu_val *)p = SOLU_NIL; break;
 
@@ -153,7 +172,7 @@ solu_val solu_dnew(solu_state *s, solu_dtype tt) {
 }
 
 solu_val solu_dnusr(solu_state *s, size_t size, const char *name, void *value,
-    solu_usrdel del, solu_usrtostring tostring, solu_usrmark mark) {
+    solu_usrdel del, solu_usrmark mark) {
     solu_dyn p = calloc(1, sizeof(solu_dalloc) + size + sizeof(solu_usrwrap));
     solu_dalloc *dh = p;
     *dh = (solu_dalloc){
@@ -168,7 +187,6 @@ solu_val solu_dnusr(solu_state *s, size_t size, const char *name, void *value,
     *(solu_usrwrap *)((char *)p + size) = (solu_usrwrap){
         .name = sf_str_cdup(name),
         .del = del,
-        .tostring = tostring,
         .mark = mark,
     };
 
@@ -192,12 +210,13 @@ solu_val solu_dnstr(solu_state *s, const char *str) {
         .thread = 1,
         .tt = SOLU_DSTR,
         .mark = SOLU_DYN_WHITE,
+        .metadata = {[SOLU_META_EXTEND] = s->meta.string}
     };
     p = (char *)p + sizeof(solu_dalloc);
     memcpy(p, str, size);
     solu_dpush(s, dh);
     if (size > 1 && size <= SOLU_STRCACHE_MAX - 1)
-        solu_strcache_set(&s->strcache, sf_ref(p), dh);
+        solu_strcache_set(&s->strcache, sf_str_cdup(p), dh);
     return (solu_val){ .tt = SOLU_TDYN, .dyn = p };
 }
 
@@ -211,6 +230,7 @@ solu_val solu_dnerr(solu_state *s, const char *str) {
         .thread = 1,
         .tt = SOLU_DERR,
         .mark = SOLU_DYN_WHITE,
+        .metadata = {[SOLU_META_EXTEND] = s->meta.base}
     };
     p = (char *)p + sizeof(solu_dalloc);
     memcpy(p, str, size);
@@ -225,25 +245,20 @@ char *solu_tostr(solu_state *s, solu_val val) {
         case SOLU_TI64: return sf_str_fmt("%lld", val.i64).c_str;
         case SOLU_TBOOL: return _strdup(val.boolean ? "true" : "false");
         case SOLU_TDYN: {
+            solu_val f = solu_dheader(val)->metadata[SOLU_META_STR];
+            if (f.tt != SOLU_TNIL) {
+                solu_call_ex ex = solu_call(s, f.dyn, &val, 1);
+                if (ex.is_ok && solu_isdtype(ex.ok, SOLU_DSTR))
+                    return _strdup(ex.ok.dyn);
+            }
             switch (solu_dheader(val)->tt) {
                 case SOLU_DSTR:
                 case SOLU_DERR:
                 return _strdup(val.dyn); break;
-                case SOLU_DOBJ: {
-                    solu_val f = ((solu_dobj *)val.dyn)->metafuns[SOLU_META_STR];
-                    if (solu_isdtype(f, SOLU_DFUN)) {
-                        solu_call_ex ex = solu_call(s, f.dyn, NULL, 0);
-                        if (ex.is_ok && solu_isdtype(ex.ok, SOLU_DSTR))
-                            return _strdup(ex.ok.dyn);
-                    }
-                }
+                case SOLU_DOBJ:
+                case SOLU_DUSR:
                 case SOLU_DFUN: return sf_str_fmt("%p", val.dyn).c_str;
                 case SOLU_DREF: return solu_tostr(s, *(solu_val *)val.dyn);
-
-                case SOLU_DUSR: {
-                    solu_usrwrap *w = solu_uheader(val);
-                    return w->tostring ? w->tostring(val.dyn) : sf_str_fmt("%p", val.dyn).c_str;
-                }
                 case SOLU_DCOUNT: return NULL;
             }
         }
@@ -259,25 +274,18 @@ solu_val solu_dobj_get(solu_state *s, solu_dobj *obj, solu_val key) {
         return solu_valvec_get(&obj->array, nkey);
     }
     char *nkey = solu_isdtype(key, SOLU_DSTR) ? key.dyn : solu_tostr(s, key);
-    solu_valmap_ex ex = solu_valmap_get(&obj->map, sf_ref(nkey));
+    solu_val ex = solu_dobj_strget(obj, nkey);
     if (!solu_isdtype(key, SOLU_DSTR))
         free(nkey);
-    return ex.is_ok ? ex.ok : SOLU_NIL;
+    return ex;
 }
 
 void solu_dobj_set(solu_state *s, solu_dobj *obj, solu_val key, solu_val val) {
     if (solu_isdtype(val, SOLU_DFUN)) {
         solu_fproto *fp = val.dyn;
-        uint32_t self = UINT32_MAX;
-        for (uint32_t i = 0; i < fp->up_c; ++i) {
-            if (sf_str_eq(fp->upvals[i].name, sf_lit("self"))) {
-                self = i;
-                break;
-            }
-        }
-        if (self != UINT32_MAX) {
-            solu_upvalue op = fp->upvals[self];
-            fp->upvals[self] = (solu_upvalue){ op.name, SOLU_UP_VAL, .value = (solu_val){SOLU_TDYN, .dyn = obj} };
+        if (fp->self) {
+            solu_upvalue op = fp->upvals[1];
+            fp->upvals[1] = (solu_upvalue){ op.name, SOLU_UP_VAL, .value = (solu_val){SOLU_TDYN, .dyn = obj} };
         }
     }
     if ((key.tt == SOLU_TI64 && key.i64 >= 0) || (key.tt == SOLU_TF64 && key.f64 >= 0)) {
@@ -304,7 +312,6 @@ solu_val solu_djoin(solu_state *s, solu_val obj1, solu_val obj2) {
     if (!solu_isdtype(obj1, SOLU_DOBJ))
         return SOLU_NIL;
     solu_val nobj = solu_dnew(s, SOLU_DOBJ);
-    *(solu_dobj *)nobj.dyn = solu_dobj_new();
     solu_dappend(nobj, obj1);
     if (solu_isdtype(obj2, SOLU_DOBJ))
         solu_dappend(nobj, obj2);
@@ -324,21 +331,18 @@ solu_val solu_dscopy(solu_state *state, solu_val val, bool kconst) {
     if (val.tt != SOLU_TDYN)
         return val; // This function only needs to copy dynamic constants
 
-    solu_dalloc *ov = solu_dheader(val); (void)ov;
     solu_dalloc *ac = malloc(sizeof(solu_dalloc) + solu_dheader(val)->size);
     *ac = *(solu_dheader(val));
     ac->size = solu_dheader(val)->size;
     ac->mark = SOLU_DYN_WHITE;
+    ac->held = false;
     ac->next = NULL;
     solu_val nv = (solu_val){SOLU_TDYN, .dyn=(char*)ac + sizeof(solu_dalloc)};
 
     switch (solu_dheader(nv)->tt) {
-        case SOLU_DOBJ:
-            *(solu_dobj *)nv.dyn = solu_dobj_new();
-            solu_dappend(nv, val);
-            break;
         case SOLU_DSTR:
             memcpy(nv.dyn, val.dyn, ac->size);
+            ac->metadata[SOLU_META_EXTEND] = state->meta.string;
             break;
         case SOLU_DFUN: {
             solu_fproto *fp = val.dyn, *nfp = nv.dyn;
@@ -346,7 +350,9 @@ solu_val solu_dscopy(solu_state *state, solu_val val, bool kconst) {
             nfp->file_name = sf_str_dup(fp->file_name);
             nfp->constants = solu_valvec_new();
             nfp->code = malloc(sizeof(solu_instruction) * fp->code_c);
-            nfp->dbg = malloc(sizeof(solu_dbg) * fp->code_c);
+            nfp->dbg = fp->dbg ? malloc(sizeof(solu_dbg) * fp->code_c) : NULL;
+            nfp->self = fp->self;
+            ac->metadata[SOLU_META_EXTEND] = state->meta.base;
 
             // Deref Upvals
             nfp->upvals = malloc(sizeof(solu_upvalue) * nfp->up_c);
@@ -358,13 +364,14 @@ solu_val solu_dscopy(solu_state *state, solu_val val, bool kconst) {
                 } else {
                     solu_val nv;
                     if (upv.tt == SOLU_UP_REF) {
-                        uint32_t frame = state->rcmp ? state->frames.count - 1 - upv.frame : upv.frame;
-                        solu_val cv = solu_valvec_get(&state->stack, state->frames.data[frame].bottom_o + upv.ref);
+                        solu_val cv = solu_valvec_get(&state->stack, state->frames.data[state->frames.count - 1].bottom_o + upv.ref);
                         if (cv.tt != SOLU_TDYN) {
                             nv = solu_dnew(state, SOLU_DREF);
-                            solu_rawset(state, upv.ref, nv, frame);
+                            solu_rawset(state, upv.ref, nv, state->frames.count - 1);
                             *(solu_val *)nv.dyn = cv;
                         } else nv = cv;
+                    } else if (upv.tt == SOLU_UP_UPV) {
+                        nv = state->ccall->upvals[upv.ref].value;
                     } else nv = upv.value;
 
                     nfp->upvals[i] = (solu_upvalue){
@@ -377,7 +384,8 @@ solu_val solu_dscopy(solu_state *state, solu_val val, bool kconst) {
             }
 
             memcpy(nfp->code, fp->code, sizeof(solu_instruction) * fp->code_c);
-            memcpy(nfp->dbg, fp->dbg, sizeof(solu_dbg) * fp->code_c);
+            if (fp->dbg)
+                memcpy(nfp->dbg, fp->dbg, sizeof(solu_dbg) * fp->code_c);
             for (solu_val *v = fp->constants.data; v < fp->constants.data + fp->constants.count; ++v)
                 solu_valvec_push(&nfp->constants, solu_dscopy(state, *v, true));
             break;
@@ -389,7 +397,23 @@ solu_val solu_dscopy(solu_state *state, solu_val val, bool kconst) {
 
 solu_val solu_dcopy(solu_state *state, solu_val val) {
     if (val.tt == SOLU_TDYN) {
+        solu_dalloc *dh = solu_dheader(val);
+        bool cache = false;
+
+        if (dh->tt == SOLU_DSTR) {
+            if (dh->size <= SOLU_STRCACHE_MAX - 1) {
+                cache = true;
+                solu_strcache_ex sex = solu_strcache_get(&state->strcache, sf_ref(val.dyn));
+                if (sex.is_ok)
+                    return (solu_val){ .tt = SOLU_TDYN, .dyn = sex.ok + 1 };
+            }
+        }
+
         val = solu_dscopy(state, val, false);
+        if (cache) {
+            dh = solu_dheader(val);
+            solu_strcache_set(&state->strcache, sf_str_cdup(val.dyn), dh);
+        }
         solu_dpush(state, solu_dheader(val));
     }
     return val;
@@ -398,7 +422,7 @@ solu_val solu_dcopy(solu_state *state, solu_val val) {
 void solu_dmarkfun(solu_fproto *fp) {
     for (solu_upvalue *v = fp->upvals; v && v < fp->upvals + fp->up_c; ++v) {
         if (v->tt == SOLU_UP_VAL && v->value.tt == SOLU_TDYN)
-            solu_dheader(v->value)->mark = SOLU_DYN_BLACK;
+            solu_dmark(v->value);
     }
 }
 static void solu_dmarkmember(void *ud, sf_str _k, solu_val member) {
@@ -409,22 +433,20 @@ void solu_dmarkobj(solu_val obj) {
     solu_dobj *dobj = (solu_dobj *)obj.dyn;
     for (uint32_t i = 0; i < dobj->array.count; ++i)
         solu_dmark(dobj->array.data[i]);
-    solu_valmap_foreach(obj.dyn, solu_dmarkmember, NULL);
-    if (dobj->meta.tt == SOLU_TDYN)
-        solu_dheader(dobj->meta)->mark = SOLU_DYN_BLACK;
+    solu_valmap_foreach(&dobj->map, solu_dmarkmember, NULL);
 }
 void solu_dmarkref(solu_val r) {
     solu_val inner = solu_dval(r);
     while (inner.tt == SOLU_TDYN) {
-        if (solu_dheader(inner)->mark == SOLU_DYN_BLACK)
-            return;
-        solu_dheader(inner)->mark = SOLU_DYN_BLACK;
+        solu_dalloc *dc = solu_dheader(inner);
+        if (dc->mark == SOLU_DYN_BLACK) return;
         switch (solu_dtypeof(inner)) {
             case SOLU_DREF:
                 inner = solu_dval(inner);
                 break;
             default: solu_dmark(inner);
         }
+        dc->mark = SOLU_DYN_BLACK;
     }
 }
 void solu_dmark(solu_val val) {
@@ -432,16 +454,24 @@ void solu_dmark(solu_val val) {
     solu_dalloc *ac = solu_dheader(val);
     if (ac->mark == SOLU_DYN_BLACK) return;
     ac->mark = SOLU_DYN_BLACK;
-    if (ac->tt == SOLU_DUSR) {
-        solu_usrmark mark = solu_uheader(val)->mark;
-        if (mark) mark(val.dyn);
+
+    for (int i = 0; i < SOLU_META_COUNT; ++i)
+        if (ac->metadata[i].tt == SOLU_TDYN)
+            solu_dmark(ac->metadata[i]);
+    if (ac->meta.tt == SOLU_TDYN)
+        solu_dmark(ac->meta);
+
+    switch (ac->tt) {
+        case SOLU_DUSR: {
+            solu_usrwrap *uh = solu_uheader(val);
+            if (uh->mark) uh->mark(val.dyn);
+            break;
+        }
+        case SOLU_DOBJ: solu_dmarkobj(val); break;
+        case SOLU_DFUN: solu_dmarkfun((solu_fproto *)((char *)ac + sizeof(solu_dalloc))); break;
+        case SOLU_DREF: solu_dmarkref(val); break;
+        default: break;
     }
-    if (ac->tt == SOLU_DOBJ)
-        solu_dmarkobj(val);
-    if (ac->tt == SOLU_DFUN)
-        solu_dmarkfun((solu_fproto *)((char *)ac + sizeof(solu_dalloc)));
-    if (ac->tt == SOLU_DREF)
-        solu_dmarkref(val);
 }
 
 void solu_dcollect(solu_state *s) {
@@ -450,10 +480,16 @@ void solu_dcollect(solu_state *s) {
         solu_dmark(*r);
     solu_dmarkobj(s->global);
 
+    // Mark Greens
+    for (solu_dalloc *a = s->alloc; a; a = a->next) {
+        if (a->held)
+            solu_dmark((solu_val){ SOLU_TDYN, .dyn = (a + 1) });
+    }
+
     solu_dalloc **ac = &s->alloc;
     solu_dalloc *last = NULL;
     while (*ac) {
-        if ((*ac)->mark == SOLU_DYN_WHITE) {
+        if ((*ac)->mark == SOLU_DYN_WHITE && !(*ac)->held) {
             solu_dalloc *dead = *ac;
             *ac = dead->next;
             if (dead->tt == SOLU_DSTR && dead->size < SOLU_STRCACHE_MAX)
@@ -489,7 +525,7 @@ solu_val solu_getk(solu_state *s, solu_fproto *proto, uint32_t index) {
         if (pc >= proto->code_c) goto ret; /* EOF */\
         ins = proto->code[pc]; /* Read next instruction */\
         \
-        if (bps && SOLU_DBG_LINE(proto->dbg[pc]) > proto->dbg_ll) { /* Debugger */\
+        if (bps && proto->dbg && SOLU_DBG_LINE(proto->dbg[pc]) > proto->dbg_ll) { /* Debugger */\
             proto->dbg_ll = SOLU_DBG_LINE(proto->dbg[pc]); \
             if (bps[proto->dbg_ll - 1]) { /* If breakpoints, check if we should break */\
                 proto->dbg_res = pc; \
@@ -497,7 +533,8 @@ solu_val solu_getk(solu_state *s, solu_fproto *proto, uint32_t index) {
                 return solu_call_ex_err((solu_call_err){SOLU_ERRV_BREAK, NULL, pc}); \
             } \
         } \
-        proto->dbg_ll = SOLU_DBG_LINE(proto->dbg[pc]); \
+        if (proto->dbg) \
+            proto->dbg_ll = SOLU_DBG_LINE(proto->dbg[pc]); \
         ++pc; \
         \
         if (s->collect) { \
@@ -515,12 +552,11 @@ solu_val solu_getk(solu_state *s, solu_fproto *proto, uint32_t index) {
 
 #define solu_callerr(en, fmt, ...) (solu_call_ex_err((solu_call_err){.tt=(en),.panic=sf_str_fmt((fmt), __VA_ARGS__).c_str, .pc=pc-1}))
 
-solu_val solu_wrapcfun(solu_state *state, solu_cfunction fptr, uint32_t arg_c, uint32_t temp_c) {
+solu_val solu_wrapcfun(solu_state *state, solu_cfunction fptr, uint32_t arg_c, solu_val *captures, uint32_t cap_c) {
     solu_val fun = solu_dnew(state, SOLU_DFUN);
-    *(solu_fproto *)fun.dyn = solu_fproto_c(fptr, arg_c, temp_c);
+    *(solu_fproto *)fun.dyn = solu_fproto_c(fptr, arg_c, captures, cap_c);
     return fun;
 }
-
 
 #if defined(_WIN32)
 #include <winsock2.h>
@@ -537,6 +573,8 @@ sf_buffer solu_fproto_serialize(solu_fproto *proto) {
     sf_buffer_insert(&buf, proto->file_name.c_str, proto->file_name.len);
     sf_buffer_autoins(&buf, &(uint16_t){htons(proto->code_c)});
     sf_buffer_autoins(&buf, &(uint16_t){htons(proto->line_c)});
+    sf_buffer_autoins(&buf, &(uint8_t){proto->self});
+    sf_buffer_autoins(&buf, &(uint8_t){proto->variadic});
 
     sf_buffer_autoins(&buf, &(uint32_t){htonl(proto->constants.count)});
     for (solu_val *k = proto->constants.data; k < proto->constants.data + proto->constants.count; ++k) {
@@ -551,14 +589,14 @@ sf_buffer solu_fproto_serialize(solu_fproto *proto) {
         switch (k->tt) {
             case SOLU_TI64:
             case SOLU_TF64:
-                sf_buffer_autoins(&buf, &(uint64_t){htonll((uint32_t)k->i64)});
+                sf_buffer_autoins(&buf, &(uint64_t){htonll((uint64_t)k->i64)});
                 break;
             case SOLU_TBOOL:
                 sf_buffer_autoins(&buf, &k->boolean);
                 break;
             case SOLU_TDYN: { // str
-                size_t s = solu_dheader(*k)->size - 1;
-                if (s == 0) break;
+                size_t s = solu_dheader(*k)->size;
+                if (s > 0) s = s - 1;
                 sf_buffer_autoins(&buf, &(uint64_t){htonll(s)});
                 sf_buffer_insert(&buf, k->dyn, s);
                 break;
@@ -570,7 +608,7 @@ sf_buffer solu_fproto_serialize(solu_fproto *proto) {
     sf_buffer_autoins(&buf, &(uint32_t){htonl(proto->reg_c)});
     sf_buffer_autoins(&buf, &(uint32_t){htonl(proto->arg_c)});
     uint32_t upc = proto->up_c;
-    if (upc > 0 && sf_str_eq(proto->upvals[0].name, sf_lit("_g")))
+    if (upc > 0 && sf_str_eq(proto->upvals[0].name, sf_lit("global")))
         --upc;
     sf_buffer_autoins(&buf, &(uint32_t){htonl(upc)});
     for (solu_upvalue *u = proto->upvals + (proto->up_c - upc); u < proto->upvals + proto->up_c; ++u) {
@@ -583,8 +621,6 @@ sf_buffer solu_fproto_serialize(solu_fproto *proto) {
 
     for (uint16_t i = 0; i < proto->code_c; ++i)
         sf_buffer_autoins(&buf, &(uint32_t){htonl(proto->code[i])});
-    for (uint16_t i = 0; i < proto->code_c; ++i)
-        sf_buffer_autoins(&buf, &(uint32_t){htonl(proto->dbg[i])});
 
     return buf;
 }
@@ -594,8 +630,12 @@ void solu_savefun(solu_fproto *proto, char *path) {
         return;
     sf_buffer buf = solu_fproto_serialize(proto);
     FILE *f = fopen(path, "wb");
-    if (!f) return;
+    if (!f) {
+        sf_buffer_clear(&buf);
+        return;
+    }
     fwrite(buf.ptr, 1, buf.size, f);
+    sf_buffer_clear(&buf);
     fclose(f);
 }
 
@@ -630,6 +670,10 @@ solu_load_ex _solu_loadfun(solu_state *s, sf_buffer *buf) {
     ex = sf_buffer_autoread(buf, &proto.line_c);
     if (!ex.is_ok) goto corrupt;
     proto.line_c = ntohs(proto.line_c);
+    ex = sf_buffer_autoread(buf, &proto.self);
+    if (!ex.is_ok) goto corrupt;
+    ex = sf_buffer_autoread(buf, &proto.variadic);
+    if (!ex.is_ok) goto corrupt;
 
     uint32_t kcount;
     ex = sf_buffer_autoread(buf, &kcount);
@@ -653,7 +697,7 @@ solu_load_ex _solu_loadfun(solu_state *s, sf_buffer *buf) {
                 if (!temp) goto corrupt;
                 ex = sf_buffer_read(buf, temp, slen);
                 if (!ex.is_ok) { if (slen) free(temp); goto corrupt; }
-                temp[slen] = 0;
+                if (slen) temp[slen] = 0;
 
                 solu_dyn p = calloc(1, sizeof(solu_dalloc) + slen + 1);
                 solu_dalloc *dh = p;
@@ -662,7 +706,8 @@ solu_load_ex _solu_loadfun(solu_state *s, sf_buffer *buf) {
                     .size = slen + 1,
                     .thread = 1,
                     .tt = SOLU_DSTR,
-                    .mark = SOLU_DYN_GREEN,
+                    .mark = SOLU_DYN_WHITE,
+                    .held = true,
                 };
                 p = (char *)p + sizeof(solu_dalloc);
                 memcpy(p, temp, slen + 1);
@@ -674,7 +719,7 @@ solu_load_ex _solu_loadfun(solu_state *s, sf_buffer *buf) {
             case SOLU_TF64:
                 ex = sf_buffer_autoread(buf, &val.i64);
                 if (!ex.is_ok) goto corrupt;
-                val.i64 = (int64_t)ntohll((uint32_t)val.i64);
+                val.i64 = (int64_t)ntohll((uint64_t)val.i64);
                 break;
             case SOLU_TBOOL:
                 ex = sf_buffer_autoread(buf, &val.boolean);
@@ -696,7 +741,8 @@ solu_load_ex _solu_loadfun(solu_state *s, sf_buffer *buf) {
                     .size = sizeof(solu_fproto),
                     .thread = 1,
                     .tt = SOLU_DFUN,
-                    .mark = SOLU_DYN_GREEN,
+                    .mark = SOLU_DYN_WHITE,
+                    .held = true,
                 };
                 p = (char *)p + sizeof(solu_dalloc);
                 val = (solu_val){SOLU_TDYN, .dyn = p};
@@ -718,7 +764,7 @@ solu_load_ex _solu_loadfun(solu_state *s, sf_buffer *buf) {
     if (!ex.is_ok) goto corrupt;
     proto.up_c = ntohl(proto.up_c) + 1;
     upvals = calloc(proto.up_c, sizeof(solu_upvalue));
-    upvals[0] = (solu_upvalue){sf_lit("_g"), SOLU_UP_VAL, .value = s->global, .mut = false};
+    upvals[0] = (solu_upvalue){sf_lit("global"), SOLU_UP_VAL, .value = s->global, .mut = false};
     for (uint32_t u = 1; u < proto.up_c; ++u) {
         uint64_t slen;
         ex = sf_buffer_autoread(buf, &slen);
@@ -746,16 +792,11 @@ solu_load_ex _solu_loadfun(solu_state *s, sf_buffer *buf) {
     }
 
     proto.code = malloc(sizeof(uint32_t) * proto.code_c);
-    proto.dbg = malloc(sizeof(uint32_t) * proto.code_c);
+    proto.dbg = NULL; // No debug info for compiled
 
     for (uint16_t i = 0; i < proto.code_c; ++i) {
         ex = sf_buffer_autoread(buf, proto.code + i);
         proto.code[i] = ntohl(proto.code[i]);
-        if (!ex.is_ok) goto corrupt;
-    }
-    for (uint16_t i = 0; i < proto.code_c; ++i) {
-        ex = sf_buffer_autoread(buf, proto.dbg + i);
-        proto.dbg[i] = ntohl(proto.dbg[i]);
         if (!ex.is_ok) goto corrupt;
     }
 
@@ -782,7 +823,19 @@ corrupt:
 solu_load_ex solu_loadfun(solu_state *state, char *path) {
     sf_fsb_ex fsb = sf_file_buffer(sf_ref(path));
     if (!fsb.is_ok) return solu_load_ex_err(SOLU_ERRC_FILE_NOT_FOUND);
-    return _solu_loadfun(state, &fsb.ok);
+    solu_load_ex ex = _solu_loadfun(state, &fsb.ok);
+    sf_buffer_clear(&fsb.ok);
+    return ex;
+}
+
+static inline bool solu_truthy(solu_val val) {
+    switch (val.tt) {
+        case SOLU_TBOOL: return val.boolean;
+        case SOLU_TI64: return val.i64 != 0;
+        case SOLU_TF64: return !isnan(val.f64);
+        case SOLU_TDYN: return val.dyn;
+        default: return false;
+    }
 }
 
 static sf_str solu_dirname(sf_str path) {
@@ -815,8 +868,6 @@ solu_call_ex solu_call_cfun(solu_state *state, solu_fproto *proto, const solu_va
 }
 
 solu_call_ex solu_call_bc(solu_state *s, solu_fproto *proto, const solu_val *args, uint32_t arg_c, bool *bps) {
-    if (proto->tt == SOLU_FPROTO_BC && !sf_isempty(proto->file_name))
-        solu_filenames_push(&s->files, sf_own(solu_realdir(proto->file_name.c_str)));
     #ifdef COMPUTE_GOTOS
     void *computed[] = {
         LABEL(SOLU_OP_LOAD),
@@ -824,6 +875,7 @@ solu_call_ex solu_call_bc(solu_state *s, solu_fproto *proto, const solu_val *arg
         LABEL(SOLU_OP_RET),
         LABEL(SOLU_OP_JMP),
         LABEL(SOLU_OP_CALL),
+        LABEL(SOLU_OP_MCALL),
 
         LABEL(SOLU_OP_ADD),
         LABEL(SOLU_OP_SUB),
@@ -857,6 +909,12 @@ solu_call_ex solu_call_bc(solu_state *s, solu_fproto *proto, const solu_val *arg
         solu_pushframe(s, proto->reg_c);
         for (uint32_t i = 0; i < proto->arg_c && args && i < arg_c; ++i)
             solu_set(s, i, args[i]);
+        if (proto->variadic) {
+            solu_val extra = solu_dnew(s, SOLU_DOBJ);
+            solu_set(s, proto->arg_c, extra);
+            for (uint32_t i = proto->arg_c; i < arg_c; ++i)
+                solu_valvec_push(&((solu_dobj *)extra.dyn)->array, args[i]);
+        }
     }
     proto->dbg_res = 0;
     solu_val return_val = SOLU_NIL;
@@ -886,12 +944,26 @@ solu_call_ex solu_call_bc(solu_state *s, solu_fproto *proto, const solu_val *arg
             DISPATCH();
         }
         CASE(SOLU_OP_CALL) {
+            uint32_t var_r = UINT32_MAX;
             uint32_t fun_r = solu_iabc_bx(ins);
-            solu_val fun = solu_get(s, fun_r);
-            if (solu_isdtype(fun, SOLU_DOBJ)) {
-                solu_val call = ((solu_dobj *)fun.dyn)->metafuns[SOLU_META_CALL];
-                if (solu_isdtype(call, SOLU_DFUN))
+            solu_val var = SOLU_NIL;
+            if (solu_iabc_bk(ins)) {
+                var_r = fun_r;
+                fun_r += 1;
+                var = solu_get(s, var_r);
+                if (!solu_isdtype(var, SOLU_DOBJ))
+                    return solu_callerr(SOLU_ERRV_TYPE_MISMATCH, "Unfold operator expected obj, found %s", solu_typename(var).c_str);
+            }
+
+            solu_val of, fun = solu_get(s, fun_r);
+            bool can_self = false;
+            if (fun.tt == SOLU_TDYN) {
+                solu_val call = solu_dheader(fun)->metadata[SOLU_META_CALL];
+                if (call.tt != SOLU_TNIL) {
+                    of = fun;
                     fun = call;
+                    can_self = ((solu_fproto *)fun.dyn)->self;
+                }
             }
             if (!solu_isdtype(fun, SOLU_DFUN)) {
                 if (solu_isdtype(fun, SOLU_DERR))
@@ -900,18 +972,134 @@ solu_call_ex solu_call_bc(solu_state *s, solu_fproto *proto, const solu_val *arg
             }
 
             solu_fproto *f = fun.dyn;
-            solu_call_ex fex;
+            int i = -1;
+            solu_val ov = SOLU_NIL;
+            if (f->self)
+                i = f->tt == SOLU_FPROTO_C ? 0 : 1;
+            if (i >= 0) {
+                if (can_self) {
+                    ov = f->upvals[i].value;
+                    f->upvals[i].value = of;
+                } else f->upvals[i].value = SOLU_NIL;
+            }
+
             uint32_t argc = solu_iabc_cx(ins);
-            if (argc > 0) {
-                solu_val *argv = calloc(argc, sizeof(solu_val));
-                for (uint32_t i = 0; i < argc && i < s->frames.data[s->frames.count - 1].size; ++i)
-                    argv[i] = solu_get(s, fun_r + i + 1);
-                fex = solu_call(s, f, argv, argc);
-                free(argv);
+
+            solu_call_ex fex;
+            uint32_t extra = var_r != UINT32_MAX ? ((solu_dobj *)var.dyn)->array.count : 0;
+            uint32_t passed = argc + extra;
+            if (passed > 0) {
+                solu_val local_argv[8];
+                solu_val *argv = passed <= 8 ? local_argv : malloc(sizeof(solu_val) * passed);
+                for (uint32_t i = 0; i < argc; ++i)
+                    argv[i] = solu_get(s, fun_r + 1 + i);
+                for (uint32_t i = argc; i < passed; ++i)
+                    argv[i] = ((solu_dobj *)var.dyn)->array.data[i - argc];
+
+                fex = solu_call(s, f, argv, passed);
+                if (argv != local_argv)
+                    free(argv);
             } else fex = solu_call(s, f, NULL, 0);
 
+            if (i >= 0)
+                f->upvals[i].value = ov;
+
             if (!fex.is_ok) {
-                fex.err.pc = pc - 1;
+                if (f->tt == SOLU_FPROTO_C)
+                    fex.err.pc = pc - 1;
+                s->ecall = f;
+                return fex;
+            }
+            solu_set(s, solu_iabc_a(ins), fex.ok);
+            DISPATCH();
+        }
+        CASE(SOLU_OP_MCALL) {
+            uint32_t var_r = UINT32_MAX;
+            uint32_t obj_r = solu_iabc_bx(ins), arg_r = obj_r + 2;
+            solu_val var = SOLU_NIL;
+
+
+            solu_val obj = solu_get(s, obj_r);
+            solu_val key = solu_get(s, obj_r + 1);
+            if (solu_iabc_bk(ins)) {
+                var_r = obj_r + 1;
+                var = key;
+                arg_r = var_r + 2;
+                key = solu_get(s, var_r + 1);
+                if (!solu_isdtype(var, SOLU_DOBJ))
+                    return solu_callerr(SOLU_ERRV_TYPE_MISMATCH, "Unfold operator expected obj, found %s", solu_typename(var).c_str);
+            }
+
+            solu_val get = SOLU_NIL;
+            solu_val fun = SOLU_NIL;
+            solu_dtype dt = solu_dtypeof(obj);
+            solu_dalloc *da = solu_dheader(obj);
+            bool extend = false;
+            bool prim = dt == SOLU_DCOUNT;
+            if (!prim) {
+                extend = da->metadata[SOLU_META_EXTEND].tt != SOLU_TNIL;
+                get = da->metadata[SOLU_META_GET];
+                if (get.tt != SOLU_TNIL) {
+                    solu_call_ex ex = solu_call(s, get.dyn, (solu_val[]){key}, 1);
+                    if (!ex.is_ok) return ex;
+                    fun = ex.ok;
+                }
+                solu_dalloc *fh = solu_dheader(fun);
+                if (dt == SOLU_DOBJ && !(fh && (fh->tt == SOLU_DFUN || fh->metadata[SOLU_META_CALL].tt != SOLU_TNIL))) {
+                    fun = solu_dobj_get(s, obj.dyn, key);
+                    fh = solu_dheader(fun);
+                }
+                if (extend && !(fh && (fh->tt == SOLU_DFUN || fh->metadata[SOLU_META_CALL].tt != SOLU_TNIL))) {
+                    fun = solu_dobj_get(s, da->metadata[SOLU_META_EXTEND].dyn, key);
+                    fh = solu_dheader(fun);
+                }
+                if (fun.tt == SOLU_TDYN && fh->metadata[SOLU_META_CALL].tt != SOLU_TNIL)
+                    fun = fh->metadata[SOLU_META_CALL];
+            } else
+                fun = solu_dobj_get(s, s->meta.prim.dyn, key);
+
+            if (!solu_isdtype(fun, SOLU_DFUN)) {
+                if (solu_isdtype(fun, SOLU_DERR))
+                    return solu_callerr(SOLU_ERRV_TYPE_MISMATCH, "Attempted to call type %s: %s", solu_typename(fun).c_str, fun.dyn);
+                if (solu_isdtype(key, SOLU_DSTR))
+                    return solu_callerr(SOLU_ERRV_PANIC, "Member function '%s' not found", key.dyn);
+                return solu_callerr(SOLU_ERRV_PANIC, "Member function not found", NULL);
+            }
+
+            solu_fproto *f = fun.dyn;
+            int i = -1;
+            solu_val ov = SOLU_NIL;
+            if (f->self)
+                i = f->tt == SOLU_FPROTO_C ? 0 : 1;
+            if (i >= 0) {
+                ov = f->upvals[i].value;
+                f->upvals[i].value = obj;
+            }
+
+            solu_call_ex fex;
+            uint32_t argc = solu_iabc_cx(ins) + prim;
+            uint32_t extra = var_r != UINT32_MAX ? ((solu_dobj *)var.dyn)->array.count : 0;
+            uint32_t passed = argc + extra;
+
+            if (passed > 0) {
+                solu_val local_argv[8];
+                solu_val *argv = passed <= 8 ? local_argv : malloc(sizeof(solu_val) * passed);
+                if (prim) argv[0] = obj;
+
+                for (uint32_t j = prim; j < argc; ++j)
+                    argv[j] = solu_get(s, arg_r + (j - prim));
+                for (uint32_t j = argc; j < passed; ++j)
+                    argv[j] = ((solu_dobj *)var.dyn)->array.data[j - argc];
+
+                fex = solu_call(s, f, argv, passed);
+                if (argv != local_argv) free(argv);
+            } else fex = solu_call(s, f, NULL, 0);
+
+            if (i >= 0)
+                f->upvals[i].value = ov;
+
+            if (!fex.is_ok) {
+                s->ecall = f;
                 return fex;
             }
             solu_set(s, solu_iabc_a(ins), fex.ok);
@@ -919,26 +1107,51 @@ solu_call_ex solu_call_bc(solu_state *s, solu_fproto *proto, const solu_val *arg
         }
 
         CASE(SOLU_OP_ADD) {
+            bool pleq = solu_iabc_bx(ins) == solu_iabc_a(ins);
             solu_val lhs = solu_iabc_bk(ins) ? solu_getk(s, proto, solu_iabc_bx(ins)) : solu_get(s, solu_iabc_bx(ins));
             solu_val rhs = solu_iabc_ck(ins) ? solu_getk(s, proto, solu_iabc_cx(ins)) : solu_get(s, solu_iabc_cx(ins));
-            if (solu_isdtype(lhs, SOLU_DERR))
-                return solu_callerr(SOLU_ERRV_PANIC, "%s", lhs.dyn);
-            if (solu_isdtype(rhs, SOLU_DERR))
-                return solu_callerr(SOLU_ERRV_PANIC, "%s", rhs.dyn);
 
-            if (solu_isdtype(lhs, SOLU_DOBJ) && !solu_isdtype(rhs, SOLU_DOBJ)) {
-                solu_valvec_push(&((solu_dobj *)lhs.dyn)->array, rhs);
-                DISPATCH();
+            if (lhs.tt == SOLU_TDYN) {
+                solu_dalloc *da = solu_dheader(lhs);
+                if (da->metadata[SOLU_META_ADD].tt != SOLU_TNIL) {
+                    solu_call_ex ex = solu_call(s, da->metadata[SOLU_META_ADD].dyn,
+                        (solu_val[]){lhs, rhs},
+                    2);
+                    if (!ex.is_ok) return ex;
+                    if (!solu_isdtype(ex.ok, SOLU_DERR))
+                        solu_usemeta(ex.ok, da->meta.dyn);
+                    solu_set(s, solu_iabc_a(ins), ex.ok);
+                    DISPATCH();
+                }
+                goto skip_add;
             }
-            if (lhs.tt != rhs.tt && (lhs.tt == SOLU_TDYN || rhs.tt == SOLU_TDYN))
-                return solu_callerr(SOLU_ERRV_TYPE_MISMATCH, "Implicit conversion %s into %s", solu_typename(rhs).c_str, solu_typename(lhs).c_str);
-            if (lhs.tt != rhs.tt) {
+            if (rhs.tt == SOLU_TDYN) {
+                skip_add:
+                if (solu_isdtype(lhs, SOLU_DERR))
+                    return solu_callerr(SOLU_ERRV_PANIC, "%s", lhs.dyn);
+                if (solu_isdtype(rhs, SOLU_DERR))
+                    return solu_callerr(SOLU_ERRV_PANIC, "%s", rhs.dyn);
+                if (lhs.tt != rhs.tt) {
+                    if (solu_isdtype(lhs, SOLU_DOBJ)) {
+                        solu_valvec_push(&((solu_dobj *)lhs.dyn)->array, rhs);
+                        DISPATCH();
+                    }
+                    if (solu_isdtype(lhs, SOLU_DSTR) && !solu_isdtype(rhs, SOLU_DSTR)) {
+                        rhs = (solu_val){SOLU_TCOUNT, .dyn = solu_tostr(s, rhs)};
+                        goto strcat;
+                    } else if (solu_isdtype(rhs, SOLU_DSTR) && !solu_isdtype(lhs, SOLU_DSTR)) {
+                        lhs = (solu_val){SOLU_TCOUNT, .dyn = solu_tostr(s, lhs)};
+                        goto strcat;
+                    } else return solu_callerr(SOLU_ERRV_TYPE_MISMATCH, "Implicit conversion %s into %s", solu_typename(rhs).c_str, solu_typename(lhs).c_str);
+                }
+            } else if (lhs.tt != rhs.tt) {
                 switch (lhs.tt) {
                     case SOLU_TI64: rhs = (solu_val){.tt = SOLU_TI64, .i64 = (solu_i64)rhs.f64}; break;
                     case SOLU_TF64: rhs = (solu_val){.tt = SOLU_TF64, .f64 = (solu_f64)rhs.i64}; break;
                     default: return solu_callerr(SOLU_ERRV_TYPE_MISMATCH, "Implicit conversion %s into %s", solu_typename(rhs).c_str, solu_typename(lhs).c_str);
                 }
             }
+
             switch (lhs.tt) {
                 case SOLU_TF64:
                     solu_set(s, solu_iabc_a(ins), (solu_val){.tt = SOLU_TF64, .f64 = lhs.f64 + rhs.f64});
@@ -947,16 +1160,32 @@ solu_call_ex solu_call_bc(solu_state *s, solu_fproto *proto, const solu_val *arg
                     solu_set(s, solu_iabc_a(ins), (solu_val){.tt = SOLU_TI64, .i64 = lhs.i64 + rhs.i64});
                     break;
                 case SOLU_TDYN: {
-                    switch (solu_dtypeof(lhs)) {
-                        case SOLU_DSTR: {
-                            sf_str l =  sf_str_join(sf_ref(lhs.dyn), sf_ref(rhs.dyn));
-                            solu_set(s, solu_iabc_a(ins), solu_dnstr(s, l.c_str));
-                            sf_str_free(l);
+                    solu_dalloc *dh = solu_dheader(lhs);
+                    switch (dh->tt) {
+                        case SOLU_DSTR:
+                        strcat: {
+                            size_t lsize = lhs.tt == SOLU_TCOUNT ? strlen(lhs.dyn) : solu_dheader(lhs)->size - 1;
+                            size_t rsize = rhs.tt == SOLU_TCOUNT ? strlen(rhs.dyn) : solu_dheader(rhs)->size - 1;
+                            solu_dalloc *ac = malloc(sizeof(solu_dalloc) + lsize + rsize + 1);
+                            *ac = (solu_dalloc) {
+                                NULL, lsize+rsize+1,
+                                1, SOLU_DSTR,
+                                SOLU_DYN_WHITE,
+                                false,
+                                SOLU_NIL,
+                                {[SOLU_META_EXTEND] = s->meta.string}
+                            };
+                            memcpy(ac + 1, lhs.dyn, lsize);
+                            memcpy(((char *)(ac + 1)) + lsize, rhs.dyn, rsize);
+                            ((char *)(ac+1))[lsize+rsize] = 0;
+                            solu_dpush(s, ac);
+                            if (rhs.tt == SOLU_TCOUNT) free(rhs.dyn);
+                            if (lhs.tt == SOLU_TCOUNT) free(lhs.dyn);
+                            solu_set(s, solu_iabc_a(ins), (solu_val){SOLU_TDYN, .dyn=ac+1});
                             break;
                         }
                         case SOLU_DOBJ: {
-                            if (solu_iabc_a(ins) == solu_iabc_bx(ins))
-                                solu_dappend(lhs, rhs);
+                            if (pleq) solu_dappend(lhs, rhs);
                             else solu_set(s, solu_iabc_a(ins), solu_djoin(s, lhs, rhs));
                             break;
                         }
@@ -973,97 +1202,122 @@ solu_call_ex solu_call_bc(solu_state *s, solu_fproto *proto, const solu_val *arg
         CASE(SOLU_OP_SUB) {
             solu_val lhs = solu_iabc_bk(ins) ? solu_getk(s, proto, solu_iabc_bx(ins)) : solu_get(s, solu_iabc_bx(ins));
             solu_val rhs = solu_iabc_ck(ins) ? solu_getk(s, proto, solu_iabc_cx(ins)) : solu_get(s, solu_iabc_cx(ins));
-            if (solu_isdtype(lhs, SOLU_DERR))
-                return solu_callerr(SOLU_ERRV_PANIC, "%s", lhs.dyn);
-            if (solu_isdtype(rhs, SOLU_DERR))
-                return solu_callerr(SOLU_ERRV_PANIC, "%s", rhs.dyn);
 
-            if (solu_isdtype(lhs, SOLU_DOBJ) && solu_isdtype(rhs, SOLU_DSTR) &&
-                solu_iabc_a(ins) == solu_iabc_bx(ins)) {
-                solu_valmap_delete(&((solu_dobj *)lhs.dyn)->map, sf_ref(rhs.dyn));
-                DISPATCH();
+            if (lhs.tt == SOLU_TDYN) {
+                solu_dalloc *da = solu_dheader(lhs);
+                if (da->metadata[SOLU_META_SUB].tt != SOLU_TNIL) {
+                    solu_call_ex ex = solu_call(s, da->metadata[SOLU_META_SUB].dyn,
+                        (solu_val[]){lhs, rhs},
+                    2);
+                    if (!ex.is_ok) return ex;
+                    if (!solu_isdtype(ex.ok, SOLU_DERR))
+                        solu_usemeta(ex.ok, da->meta.dyn);
+                    solu_set(s, solu_iabc_a(ins), ex.ok);
+                    DISPATCH();
+                }
+                goto skip_sub;
+            }
+            if (rhs.tt == SOLU_TDYN) {
+                skip_sub:
+                if (solu_isdtype(lhs, SOLU_DERR))
+                    return solu_callerr(SOLU_ERRV_PANIC, "%s", lhs.dyn);
+                if (solu_isdtype(rhs, SOLU_DERR))
+                    return solu_callerr(SOLU_ERRV_PANIC, "%s", rhs.dyn);
+                if (solu_isdtype(lhs, SOLU_DOBJ) && solu_isdtype(rhs, SOLU_DSTR) &&
+                    solu_iabc_a(ins) == solu_iabc_bx(ins)) {
+                    solu_valmap_delete(&((solu_dobj *)lhs.dyn)->map, sf_ref(rhs.dyn));
+                    DISPATCH();
+                }
             }
 
             if (lhs.tt != SOLU_TI64 && lhs.tt != SOLU_TF64)
                 return solu_callerr(SOLU_ERRV_TYPE_MISMATCH, "Type %s does not support operator '-'", solu_typename(lhs).c_str);
             if (rhs.tt != SOLU_TI64 && rhs.tt != SOLU_TF64)
                 return solu_callerr(SOLU_ERRV_TYPE_MISMATCH, "Type %s does not support operator '-'", solu_typename(rhs).c_str);
-            if (lhs.tt != rhs.tt) {
-                switch (lhs.tt) {
-                    case SOLU_TI64: rhs = (solu_val){.tt = SOLU_TI64, .i64 = (solu_i64)rhs.f64}; break;
-                    case SOLU_TF64: rhs = (solu_val){.tt = SOLU_TF64, .f64 = (solu_f64)rhs.i64}; break;
-                    default: return solu_callerr(SOLU_ERRV_TYPE_MISMATCH, "Type %s does not support operator '-'", solu_typename(lhs).c_str);
-                }
-            }
-            switch (lhs.tt) {
-                case SOLU_TF64:
-                    solu_set(s, solu_iabc_a(ins), (solu_val){.tt = SOLU_TF64, .f64 = lhs.f64 - rhs.f64});
-                    break;
-                case SOLU_TI64:
-                    solu_set(s, solu_iabc_a(ins), (solu_val){.tt = SOLU_TI64, .i64 = lhs.i64 - rhs.i64});
-                    break;
-                default: return solu_callerr(SOLU_ERRV_TYPE_MISMATCH, "Type %s does not support operator '-'", solu_typename(lhs).c_str); break;
-            }
+            if (lhs.tt != rhs.tt)
+                rhs = lhs.tt == SOLU_TI64 ?
+                    (solu_val){.tt = SOLU_TI64, .i64 = (solu_i64)rhs.f64} :
+                    (solu_val){.tt = SOLU_TF64, .f64 = (solu_f64)rhs.i64};
+            solu_set(s, solu_iabc_a(ins), lhs.tt == SOLU_TI64 ?
+                (solu_val){.tt = SOLU_TI64, .i64 = lhs.i64 - rhs.i64} :
+                (solu_val){.tt = SOLU_TF64, .f64 = lhs.f64 - rhs.f64}
+            );
             DISPATCH();
         }
         CASE(SOLU_OP_MUL) {
             solu_val lhs = solu_iabc_bk(ins) ? solu_getk(s, proto, solu_iabc_bx(ins)) : solu_get(s, solu_iabc_bx(ins));
             solu_val rhs = solu_iabc_ck(ins) ? solu_getk(s, proto, solu_iabc_cx(ins)) : solu_get(s, solu_iabc_cx(ins));
-            if (solu_isdtype(lhs, SOLU_DERR))
-                return solu_callerr(SOLU_ERRV_PANIC, "%s", lhs.dyn);
-            if (solu_isdtype(rhs, SOLU_DERR))
-                return solu_callerr(SOLU_ERRV_PANIC, "%s", rhs.dyn);
+            if (lhs.tt == SOLU_TDYN) {
+                solu_dalloc *da = solu_dheader(lhs);
+                if (da->metadata[SOLU_META_MUL].tt != SOLU_TNIL) {
+                    solu_call_ex ex = solu_call(s, da->metadata[SOLU_META_MUL].dyn,
+                        (solu_val[]){lhs, rhs},
+                    2);
+                    if (!ex.is_ok) return ex;
+                    if (!solu_isdtype(ex.ok, SOLU_DERR))
+                        solu_usemeta(ex.ok, da->meta.dyn);
+                    solu_set(s, solu_iabc_a(ins), ex.ok);
+                    DISPATCH();
+                }
+            }
+            if (rhs.tt == SOLU_TDYN) {
+                if (solu_isdtype(lhs, SOLU_DERR))
+                    return solu_callerr(SOLU_ERRV_PANIC, "%s", lhs.dyn);
+                if (solu_isdtype(rhs, SOLU_DERR))
+                    return solu_callerr(SOLU_ERRV_PANIC, "%s", rhs.dyn);
+                return solu_callerr(SOLU_ERRV_TYPE_MISMATCH, "Type %s does not support operator '*'", solu_typename(rhs).c_str);
+            }
 
             if (lhs.tt != SOLU_TI64 && lhs.tt != SOLU_TF64)
                 return solu_callerr(SOLU_ERRV_TYPE_MISMATCH, "Type %s does not support operator '*'", solu_typename(lhs).c_str);
             if (rhs.tt != SOLU_TI64 && rhs.tt != SOLU_TF64)
                 return solu_callerr(SOLU_ERRV_TYPE_MISMATCH, "Type %s does not support operator '*'", solu_typename(rhs).c_str);
-            if (lhs.tt != rhs.tt) {
-                switch (lhs.tt) {
-                    case SOLU_TI64: rhs = (solu_val){.tt = SOLU_TI64, .i64 = (solu_i64)rhs.f64}; break;
-                    case SOLU_TF64: rhs = (solu_val){.tt = SOLU_TF64, .f64 = (solu_f64)rhs.i64}; break;
-                    default: return solu_callerr(SOLU_ERRV_TYPE_MISMATCH, "Type %s does not support operator '*'", solu_typename(lhs).c_str);
-                }
-            }
-            switch (lhs.tt) {
-                case SOLU_TF64:
-                    solu_set(s, solu_iabc_a(ins), (solu_val){.tt = SOLU_TF64, .f64 = lhs.f64 * rhs.f64});
-                    break;
-                case SOLU_TI64:
-                    solu_set(s, solu_iabc_a(ins), (solu_val){.tt = SOLU_TI64, .i64 = lhs.i64 * rhs.i64});
-                    break;
-                default: return solu_callerr(SOLU_ERRV_TYPE_MISMATCH, "Type %s does not support operator '*'", NULL); break;
-            }
+            if (lhs.tt != rhs.tt)
+                rhs = lhs.tt == SOLU_TI64 ?
+                    (solu_val){.tt = SOLU_TI64, .i64 = (solu_i64)rhs.f64} :
+                    (solu_val){.tt = SOLU_TF64, .f64 = (solu_f64)rhs.i64};
+            solu_set(s, solu_iabc_a(ins), lhs.tt == SOLU_TI64 ?
+                (solu_val){.tt = SOLU_TI64, .i64 = lhs.i64 * rhs.i64} :
+                (solu_val){.tt = SOLU_TF64, .f64 = lhs.f64 * rhs.f64}
+            );
             DISPATCH();
         }
         CASE(SOLU_OP_DIV) {
             solu_val lhs = solu_iabc_bk(ins) ? solu_getk(s, proto, solu_iabc_bx(ins)) : solu_get(s, solu_iabc_bx(ins));
             solu_val rhs = solu_iabc_ck(ins) ? solu_getk(s, proto, solu_iabc_cx(ins)) : solu_get(s, solu_iabc_cx(ins));
-            if (solu_isdtype(lhs, SOLU_DERR))
-                return solu_callerr(SOLU_ERRV_PANIC, "%s", lhs.dyn);
-            if (solu_isdtype(rhs, SOLU_DERR))
-                return solu_callerr(SOLU_ERRV_PANIC, "%s", rhs.dyn);
+            if (lhs.tt == SOLU_TDYN) {
+                solu_dalloc *da = solu_dheader(lhs);
+                if (da->metadata[SOLU_META_DIV].tt != SOLU_TNIL) {
+                    solu_call_ex ex = solu_call(s, da->metadata[SOLU_META_DIV].dyn,
+                        (solu_val[]){lhs, rhs},
+                    2);
+                    if (!ex.is_ok) return ex;
+                    if (!solu_isdtype(ex.ok, SOLU_DERR))
+                        solu_usemeta(ex.ok, da->meta.dyn);
+                    solu_set(s, solu_iabc_a(ins), ex.ok);
+                    DISPATCH();
+                }
+            }
+            if (rhs.tt == SOLU_TDYN) {
+                if (solu_isdtype(lhs, SOLU_DERR))
+                    return solu_callerr(SOLU_ERRV_PANIC, "%s", lhs.dyn);
+                if (solu_isdtype(rhs, SOLU_DERR))
+                    return solu_callerr(SOLU_ERRV_PANIC, "%s", rhs.dyn);
+                return solu_callerr(SOLU_ERRV_TYPE_MISMATCH, "Type %s does not support operator '/'", solu_typename(lhs).c_str);
+            }
 
             if (lhs.tt != SOLU_TI64 && lhs.tt != SOLU_TF64)
                 return solu_callerr(SOLU_ERRV_TYPE_MISMATCH, "Type %s does not support operator '/'", solu_typename(lhs).c_str);
             if (rhs.tt != SOLU_TI64 && rhs.tt != SOLU_TF64)
                 return solu_callerr(SOLU_ERRV_TYPE_MISMATCH, "Type %s does not support operator '/'", solu_typename(rhs).c_str);
-            if (lhs.tt != rhs.tt) {
-                switch (lhs.tt) {
-                    case SOLU_TI64: rhs = (solu_val){.tt = SOLU_TI64, .i64 = (solu_i64)rhs.f64}; break;
-                    case SOLU_TF64: rhs = (solu_val){.tt = SOLU_TF64, .f64 = (solu_f64)rhs.i64}; break;
-                    default: return solu_callerr(SOLU_ERRV_TYPE_MISMATCH, "Type %s does not support operator '/'", solu_typename(lhs).c_str);
-                }
-            }
-            switch (lhs.tt) {
-                case SOLU_TF64:
-                    solu_set(s, solu_iabc_a(ins), (solu_val){.tt = SOLU_TF64, .f64 = lhs.f64 / rhs.f64});
-                    break;
-                case SOLU_TI64:
-                    solu_set(s, solu_iabc_a(ins), (solu_val){.tt = SOLU_TI64, .i64 = lhs.i64 / rhs.i64});
-                    break;
-                default: return solu_callerr(SOLU_ERRV_TYPE_MISMATCH, "Type %s does not support operator '/'", solu_typename(lhs).c_str);
-            }
+            if (lhs.tt != rhs.tt)
+                rhs = lhs.tt == SOLU_TI64 ?
+                    (solu_val){.tt = SOLU_TI64, .i64 = (solu_i64)rhs.f64} :
+                    (solu_val){.tt = SOLU_TF64, .f64 = (solu_f64)rhs.i64};
+            solu_set(s, solu_iabc_a(ins), lhs.tt == SOLU_TI64 ?
+                (solu_val){.tt = SOLU_TI64, .i64 = lhs.i64 / rhs.i64} :
+                (solu_val){.tt = SOLU_TF64, .f64 = lhs.f64 / rhs.f64}
+            );
             DISPATCH();
         }
 
@@ -1073,7 +1327,18 @@ solu_call_ex solu_call_bc(solu_state *s, solu_fproto *proto, const solu_val *arg
                 case SOLU_TI64: in.i64 = -in.i64; break;
                 case SOLU_TF64: in.f64 = -in.f64; break;
                 case SOLU_TBOOL: in.boolean = !in.boolean; break;
-                default: return solu_callerr(SOLU_ERRV_TYPE_MISMATCH, "Type %s does not support prefix operator '-'", solu_typename(in).c_str);
+                case SOLU_TDYN: {
+                    solu_dalloc *da = solu_dheader(in);
+                    if (da->metadata[SOLU_META_NEG].tt != SOLU_TNIL) {
+                        solu_call_ex ex = solu_call(s, da->metadata[SOLU_META_NEG].dyn, &in, 1);
+                        if (!ex.is_ok) return ex;
+                        if (!solu_isdtype(ex.ok, SOLU_DERR))
+                        solu_usemeta(ex.ok, da->meta.dyn);
+                        solu_set(s, solu_iabc_a(ins), ex.ok);
+                        DISPATCH();
+                    }
+                }
+                default: return solu_callerr(SOLU_ERRV_TYPE_MISMATCH, "Type %s does not support prefix operator '-/!'", solu_typename(in).c_str);
             }
             solu_set(s, solu_iab_a(ins), in);
             DISPATCH();
@@ -1082,6 +1347,19 @@ solu_call_ex solu_call_bc(solu_state *s, solu_fproto *proto, const solu_val *arg
             bool inv = solu_iabc_a(ins) != 0;
             solu_val lhs = solu_iabc_bk(ins) ? solu_getk(s, proto, solu_iabc_bx(ins)) : solu_get(s, solu_iabc_bx(ins));
             solu_val rhs = solu_iabc_ck(ins) ? solu_getk(s, proto, solu_iabc_cx(ins)) : solu_get(s, solu_iabc_cx(ins));
+            if (lhs.tt == SOLU_TDYN) {
+                solu_dalloc *da = solu_dheader(lhs);
+                if (da->metadata[SOLU_META_EQ].tt != SOLU_TNIL) {
+                    solu_call_ex ex = solu_call(s, da->metadata[SOLU_META_EQ].dyn,
+                        (solu_val[]){lhs, rhs},
+                    2);
+                    if (!ex.is_ok) return ex;
+                    bool e = solu_truthy(ex.ok);
+                    if (inv ? !e : e) pc++;
+                    DISPATCH();
+                }
+            }
+
             if ((lhs.tt == SOLU_TNIL && rhs.tt == SOLU_TNIL)) {
                 if (!inv) pc++;
                 DISPATCH();
@@ -1103,7 +1381,7 @@ solu_call_ex solu_call_bc(solu_state *s, solu_fproto *proto, const solu_val *arg
                 switch (lhs.tt) {
                     case SOLU_TI64: rhs = (solu_val){.tt = SOLU_TI64, .i64 = rhs.tt == SOLU_TBOOL ? (rhs.boolean ? 1 : 0) : (solu_i64)rhs.f64}; break;
                     case SOLU_TF64: rhs = (solu_val){.tt = SOLU_TF64, .f64 = rhs.tt == SOLU_TBOOL ? (rhs.boolean ? 1 : 0) : (solu_f64)rhs.i64}; break;
-                    case SOLU_TBOOL: rhs = (solu_val){.tt = SOLU_TBOOL, .boolean = rhs.tt == SOLU_TI64 ? rhs.i64 != 0 : rhs.f64 != 0};
+                    case SOLU_TBOOL: rhs = (solu_val){.tt = SOLU_TBOOL, .boolean = rhs.tt == SOLU_TI64 ? rhs.i64 != 0 : rhs.f64 != 0}; break;
                     default: return solu_callerr(SOLU_ERRV_TYPE_MISMATCH, "Unknown Type", NULL);
                 }
             }
@@ -1235,27 +1513,70 @@ solu_call_ex solu_call_bc(solu_state *s, solu_fproto *proto, const solu_val *arg
         }
         CASE(SOLU_OP_SET) {
             solu_val obj = solu_get(s, solu_iabc_a(ins));
+            if (obj.tt != SOLU_TDYN)
+                return solu_callerr(SOLU_ERRV_TYPE_MISMATCH, "Attempted to index type %s", solu_typename(obj).c_str);
             solu_val key = solu_iabc_bk(ins) ? solu_getk(s, proto, solu_iabc_bx(ins)) : solu_get(s, solu_iabc_bx(ins));
             solu_val val = solu_iabc_ck(ins) ? solu_getk(s, proto, solu_iabc_cx(ins)) : solu_get(s, solu_iabc_cx(ins));
-            if (!solu_isdtype(obj, SOLU_DOBJ))
-                return solu_callerr(SOLU_ERRV_TYPE_MISMATCH, "Attempted to index type %s", solu_typename(obj).c_str);
-            solu_val set = ((solu_dobj *)obj.dyn)->metafuns[SOLU_META_SET];
+
+            solu_dalloc *da = solu_dheader(obj);
+            solu_val set = da->metadata[SOLU_META_SET];
+            if (da->tt != SOLU_DOBJ && set.tt == SOLU_TNIL) {
+                solu_val ext = da->metadata[SOLU_META_EXTEND];
+                if (ext.tt != SOLU_TNIL) {
+                    obj = ext;
+                    da = solu_dheader(obj);
+                    if (set.tt == SOLU_TNIL)
+                        set = da->metadata[SOLU_META_SET];
+                }
+            }
             if (solu_isdtype(set, SOLU_DFUN)) {
-                solu_call_ex ex = solu_call(s, set.dyn, (solu_val[]){key, val}, 2);
+                solu_call_ex ex = solu_call(s, set.dyn, (solu_val[]){obj, key, val}, 3);
                 if (!ex.is_ok) return ex;
                 DISPATCH();
-            }
-            solu_dalloc *dh = solu_dheader(val); (void)dh;
+            } else if (da->tt != SOLU_DOBJ)
+                return solu_callerr(SOLU_ERRV_TYPE_MISMATCH, "Attempted to index type %s", solu_typename(obj).c_str);
+
             solu_dobj_set(s, obj.dyn, key, val);
             DISPATCH();
         }
         CASE(SOLU_OP_GET) {
             solu_val obj = solu_get(s, solu_iabc_bx(ins));
-            solu_val key = solu_iabc_ck(ins) ? solu_getk(s, proto, solu_iabc_cx(ins)) : solu_get(s, solu_iabc_cx(ins));
-            if (!solu_isdtype(obj, SOLU_DOBJ))
+            if (obj.tt != SOLU_TDYN)
                 return solu_callerr(SOLU_ERRV_TYPE_MISMATCH, "Attempted to index type %s", solu_typename(obj).c_str);
-            solu_val get = ((solu_dobj *)obj.dyn)->metafuns[SOLU_META_GET];
-            if (solu_isdtype(get, SOLU_DFUN)) {
+            solu_val key = solu_iabc_ck(ins) ? solu_getk(s, proto, solu_iabc_cx(ins)) : solu_get(s, solu_iabc_cx(ins));
+
+            solu_val get = SOLU_NIL;
+            solu_dalloc *da = solu_dheader(obj);
+            if (da->tt == SOLU_DSTR) {
+                solu_dalloc *da = solu_dheader(obj);
+                if (key.tt != SOLU_TI64)
+                    return solu_callerr(SOLU_ERRV_TYPE_MISMATCH, "Attempted to index string with type %s", solu_typename(key).c_str);
+                if (key.i64 < 0 || key.i64 > (solu_i64)da->size - 2)
+                    return solu_callerr(SOLU_ERRV_TYPE_MISMATCH, "Index %lld out of bounds (string length %llu)", key.i64, da->size - 1);
+                char str[2] = { ((char *)obj.dyn)[key.i64], '\0' };
+                solu_set(s, solu_iabc_a(ins), solu_dnstr(s, str));
+                DISPATCH();
+            } else {
+                get = da->metadata[SOLU_META_GET];
+                if (da->tt != SOLU_DOBJ) {
+                    if (get.tt != SOLU_TNIL) {
+                        solu_call_ex ex = solu_call(s, get.dyn, (solu_val[]){obj, key}, 2);
+                        if (!ex.is_ok) return ex;
+                        solu_set(s, solu_iabc_a(ins), ex.ok);
+                        DISPATCH();
+                    } else {
+                        solu_val ext = da->metadata[SOLU_META_EXTEND];
+                        if (ext.tt != SOLU_TNIL) {
+                            obj = ext;
+                            da = solu_dheader(obj);
+                            if (get.tt == SOLU_TNIL)
+                                get = da->metadata[SOLU_META_GET];
+                        } else
+                            return solu_callerr(SOLU_ERRV_TYPE_MISMATCH, "Attempted to index type %s", solu_typename(solu_get(s, solu_iabc_bx(ins))).c_str);
+                    }
+                }
+            }
+            if (get.tt != SOLU_TNIL) {
                 solu_call_ex ex = solu_call(s, get.dyn, (solu_val[]){key}, 1);
                 if (!ex.is_ok) return ex;
                 solu_set(s, solu_iabc_a(ins), ex.ok);
@@ -1273,25 +1594,17 @@ solu_call_ex solu_call_bc(solu_state *s, solu_fproto *proto, const solu_val *arg
         }
 
         CASE(SOLU_OP_SUPO) {
+            solu_val kkey = solu_valvec_get(&proto->constants, solu_iabc_bx(ins));
+            solu_val val = solu_iabc_ck(ins) ? solu_getk(s, proto, solu_iabc_cx(ins)) : solu_get(s, solu_iabc_cx(ins));
             solu_upvalue *upv = proto->upvals + solu_iabc_a(ins);
             solu_val upo = upv->tt == SOLU_UP_VAL ? upv->value : solu_rawget(s, upv->ref, upv->frame);
-            if (!solu_isdtype(upo, SOLU_DOBJ))
-                return solu_callerr(SOLU_ERRV_CORRUPT, "Corrupt bytecode", NULL);
-            solu_val kkey = solu_valvec_get(&proto->constants, solu_iabc_bx(ins));
-            if (!solu_isdtype(kkey, SOLU_DSTR))
-                return solu_callerr(SOLU_ERRV_CORRUPT, "Corrupt bytecode", NULL);
-            solu_val val = solu_iabc_ck(ins) ? solu_getk(s, proto, solu_iabc_cx(ins)) : solu_get(s, solu_iabc_cx(ins));
             solu_dobj_strset(upo.dyn, kkey.dyn, val);
             DISPATCH();
         }
         CASE(SOLU_OP_GUPO) {
+            solu_val kkey = solu_valvec_get(&proto->constants, solu_iabc_cx(ins));
             solu_upvalue *upv = proto->upvals + solu_iabc_bx(ins);
             solu_val upo = upv->tt == SOLU_UP_VAL ? upv->value : solu_rawget(s, upv->ref, upv->frame);
-            if (!solu_isdtype(upo, SOLU_DOBJ))
-                return solu_callerr(SOLU_ERRV_CORRUPT, "Corrupt bytecode", NULL);
-            solu_val kkey = solu_valvec_get(&proto->constants, solu_iabc_cx(ins));
-            if (!solu_isdtype(kkey, SOLU_DSTR))
-                return solu_callerr(SOLU_ERRV_CORRUPT, "Corrupt bytecode", NULL);
             solu_set(s, solu_iabc_a(ins), solu_dobj_strget(upo.dyn, kkey.dyn));
             DISPATCH();
         }
@@ -1306,27 +1619,38 @@ ret: {}
     proto->dbg_res = 0;
     proto->dbg_ll = 0;
     solu_popframe(s);
-    if (proto->tt == SOLU_FPROTO_BC && proto->file_name.len > 0)
-        sf_str_free(solu_filenames_pop(&s->files));
     return solu_call_ex_ok(return_val);
 }
 
 solu_call_ex solu_call(solu_state *state, solu_fproto *proto, const solu_val *args, uint32_t arg_c) {
     if (state->call_stack > CALL_STACK_MAX)
         return solu_panic("Stack Overflow");
+    sf_str od = proto->file_name;
+    if (proto->file_name.len)
+        state->cwd = proto->file_name;
 
+    state->ecall = NULL;
     ++state->call_stack;
+    solu_fproto *ocall = state->ccall;
+    state->ccall = proto;
     if (proto->tt == SOLU_FPROTO_BC) {
         solu_call_ex ex = solu_call_bc(state, proto, args, arg_c, NULL);
         if (!ex.is_ok) {
+            if (!state->ecall)
+                state->ecall = proto;
             solu_popframe(state);
-            sf_str_free(solu_filenames_pop(&state->files));
         }
         --state->call_stack;
+        state->ccall = ocall;
+        state->cwd = od;
         return ex;
     }
     solu_call_ex ex = solu_call_cfun(state, proto, args, arg_c);
+    if (!ex.is_ok && !state->ecall)
+        state->ecall = proto;
     --state->call_stack;
+    state->ccall = ocall;
+    state->cwd = od;
     return ex;
 }
 
@@ -1337,8 +1661,6 @@ solu_call_ex solu_dcall(solu_state *state, solu_fproto *proto, const solu_val *a
     ++state->call_stack;
     if (proto->tt == SOLU_FPROTO_BC) {
         solu_call_ex ex = solu_call_bc(state, proto, args, arg_c, bps);
-        if (!ex.is_ok)
-            sf_str_free(solu_filenames_pop(&state->files));
         --state->call_stack;
         return ex;
     }

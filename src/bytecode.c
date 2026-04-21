@@ -63,7 +63,8 @@ static sf_str solu_try_realpath(const char *_cwd, sf_str p) {
             #endif
         );
         sf_str_append(&cwd, p);
-        rp = sf_own(solu_realpath(cwd.c_str));
+        char *c = solu_realpath(cwd.c_str);
+        rp = sf_own(c);
         sf_str_free(cwd);
     }
 
@@ -82,6 +83,8 @@ char *solu_findfile(const char *cwd, const char *rel_path) {
 
     sf_str rp0 = solu_try_realpath(cwd, base);
     if (rp0.c_str) { sf_str_free(base); return rp0.c_str; }
+    sf_str_free(rp0);
+
     if (!has_ext) {
         sf_str p1 = sf_str_dup(base);
         sf_str_append(&p1, sf_lit(".solu"));
@@ -89,6 +92,7 @@ char *solu_findfile(const char *cwd, const char *rel_path) {
         sf_str rp1 = solu_try_realpath(cwd, p1);
         sf_str_free(p1);
         if (rp1.c_str) { sf_str_free(base); return rp1.c_str; }
+        sf_str_free(rp1);
 
         sf_str p2 = sf_str_dup(base);
         sf_str_append(&p2, sf_lit(".solus"));
@@ -96,6 +100,7 @@ char *solu_findfile(const char *cwd, const char *rel_path) {
         sf_str rp2 = solu_try_realpath(cwd, p2);
         sf_str_free(p2);
         if (rp2.c_str) { sf_str_free(base); return rp2.c_str; }
+        sf_str_free(rp2);
 
         sf_str p3 = sf_str_dup(base);
         sf_str_append(&p3, sf_lit(".solc"));
@@ -103,6 +108,7 @@ char *solu_findfile(const char *cwd, const char *rel_path) {
         sf_str rp3 = solu_try_realpath(cwd, p3);
         sf_str_free(p3);
         if (rp3.c_str) { sf_str_free(base); return rp3.c_str; }
+        sf_str_free(rp3);
     }
 
     sf_str_free(base);
@@ -149,6 +155,11 @@ const solu_inssig SOLU_OP_INFO[SOLU_OP_COUNT] = {
     [SOLU_OP_CALL] = {
         .opcode = SOLU_OP_CALL,
         .mnemonic = "CALL",
+        .type = SOLU_INS_ABC,
+    },
+    [SOLU_OP_MCALL] = {
+        .opcode = SOLU_OP_MCALL,
+        .mnemonic = "MCALL",
         .type = SOLU_INS_ABC,
     },
 
@@ -247,3 +258,50 @@ const solu_inssig SOLU_OP_INFO[SOLU_OP_COUNT] = {
         .mnemonic = "???",
     }
 };
+
+#if defined(_WIN32) || defined(_WIN64)
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+/// Complicated cross platform stuff to get time in seconds
+double solu_timesec(void) {
+    FILETIME ft;
+    ULARGE_INTEGER uli;
+    GetSystemTimeAsFileTime(&ft);
+    uli.LowPart  = ft.dwLowDateTime;
+    uli.HighPart = ft.dwHighDateTime;
+    return (double)(uli.QuadPart - 116444736000000000ULL) / 10000000.0;
+}
+#else
+#include <time.h>
+#include <sys/time.h>
+/// Complicated cross platform stuff to get time in seconds
+double solu_timesec(void) {
+#if defined(CLOCK_REALTIME)
+    struct timespec ts;
+    clock_gettime(CLOCK_REALTIME, &ts);
+    return (double)ts.tv_sec + (double)ts.tv_nsec / 1e9;
+#else
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+    return (double)tv.tv_sec + (double)tv.tv_usec / 1e6;
+#endif
+}
+#endif
+
+/// Canonize path
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+char *solu_realpath(const char *path) {
+    char buf[_MAX_PATH];
+    if (!_fullpath(buf, path, _MAX_PATH))
+        return NULL;
+    if (!sf_file_exists(sf_ref(path)))
+        return NULL;
+    return _strdup(buf);
+}
+#else
+char *solu_realpath(const char *path) {
+    return realpath(path, NULL);
+}
+#endif

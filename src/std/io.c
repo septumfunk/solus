@@ -1,3 +1,4 @@
+#include "sf/fs.h"
 #include "solus/vm.h"
 #include "std.h"
 
@@ -70,6 +71,23 @@ static solu_call_ex io_fwrite(solu_state *s) {
 
     return solu_ok(SOLU_NIL);
 }
+static solu_call_ex io_compile(solu_state *s) {
+    solu_val src = solu_get(s, 0);
+    expect_dtype(SOLU_DSTR, src);
+    solu_val path = solu_get(s, 1);
+    expect_dtype(SOLU_DSTR, path);
+
+    solu_compile_ex comp_ex = solu_csrc(s, src.dyn);
+    if (!comp_ex.is_ok)
+        return solu_call_ex_err((solu_call_err){
+            .tt = comp_ex.err.tt,
+        });
+    solu_savefun(&comp_ex.ok, path.dyn);
+    if (!sf_file_exists(sf_lit(path.dyn)))
+        return solu_err(s, "Failed to write compiled file.");
+
+    return solu_ok(SOLU_NIL);
+}
 
 #if defined(_WIN32) && !defined(HAVE_GETLINE)
 
@@ -131,19 +149,22 @@ static solu_call_ex io_input(solu_state *s) {
     if (n == -1)
         return solu_ok(solu_dnerr(s, "Failed to get input"));
 
+    line[n - 1] = 0;
     solu_val str = solu_dnstr(s, line);
     free(line);
 
     return solu_ok(str);
 }
 
-void solu_mod_io(solu_state *s) {
+solu_val solu_mod_io(solu_state *s) {
     solu_val io = solu_dnew(s, SOLU_DOBJ);
-    solu_dobj_strset(io.dyn, "print", solu_wrapcfun(s, io_print, 1, 0));
-    solu_dobj_strset(io.dyn, "println", solu_wrapcfun(s, io_println, 1, 0));
-    solu_dobj_strset(io.dyn, "time", solu_wrapcfun(s, io_time, 0, 0));
-    solu_dobj_strset(io.dyn, "fread", solu_wrapcfun(s, io_fread, 1, 0));
-    solu_dobj_strset(io.dyn, "fwrite", solu_wrapcfun(s, io_fwrite, 2, 0));
-    solu_dobj_strset(io.dyn, "input", solu_wrapcfun(s, io_input, 1, 0));
+    solu_dobj_strset(io.dyn, "print", solu_wrapcfun(s, io_print, 1, NULL, 0));
+    solu_dobj_strset(io.dyn, "println", solu_wrapcfun(s, io_println, 1, NULL, 0));
+    solu_dobj_strset(io.dyn, "time", solu_wrapcfun(s, io_time, 0, NULL, 0));
+    solu_dobj_strset(io.dyn, "fread", solu_wrapcfun(s, io_fread, 1, NULL, 0));
+    solu_dobj_strset(io.dyn, "fwrite", solu_wrapcfun(s, io_fwrite, 2, NULL, 0));
+    solu_dobj_strset(io.dyn, "compile", solu_wrapcfun(s, io_compile, 2, NULL, 0));
+    solu_dobj_strset(io.dyn, "input", solu_wrapcfun(s, io_input, 1, NULL, 0));
     solu_dobj_strset(s->global.dyn, "io", io);
+    return io;
 }

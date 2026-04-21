@@ -1,3 +1,5 @@
+#include "solus/val.h"
+#include "solus/vm.h"
 #include "std.h"
 #include <time.h>
 
@@ -80,15 +82,26 @@ static solu_call_ex math_randf(solu_state *s) {
 
     return solu_ok((solu_val){ .tt = SOLU_TF64, .f64 = val });
 }
+static solu_call_ex math_lerp(solu_state *s) {
+    solu_val a = solu_get(s, 0);
+    expect_type(SOLU_TF64, a);
+    solu_val b = solu_get(s, 1);
+    expect_type(SOLU_TF64, a);
+    solu_val t = solu_get(s, 2);
+    expect_type(SOLU_TF64, a);
+    return solu_ok((solu_val){SOLU_TF64, .f64=a.f64 + (b.f64 - a.f64) * t.f64});
+}
 
-void solu_mod_math(solu_state *s) {
+solu_val solu_mod_math(solu_state *s) {
     solu_val math = solu_dnew(s, SOLU_DOBJ);
-    solu_dobj_strset(math.dyn, "mini", solu_wrapcfun(s, math_mini, 2, 0));
-    solu_dobj_strset(math.dyn, "maxi", solu_wrapcfun(s, math_maxi, 2, 0));
-    solu_dobj_strset(math.dyn, "minf", solu_wrapcfun(s, math_minf, 2, 0));
-    solu_dobj_strset(math.dyn, "maxf", solu_wrapcfun(s, math_maxf, 2, 0));
-    solu_dobj_strset(math.dyn, "randi", solu_wrapcfun(s, math_randi, 2, 0));
-    solu_dobj_strset(math.dyn, "randf", solu_wrapcfun(s, math_randf, 2, 0));
+    solu_dobj_strset(math.dyn, "mini", solu_wrapcfun(s, math_mini, 2, NULL, 0));
+    solu_dobj_strset(math.dyn, "maxi", solu_wrapcfun(s, math_maxi, 2, NULL, 0));
+    solu_dobj_strset(math.dyn, "minf", solu_wrapcfun(s, math_minf, 2, NULL, 0));
+    solu_dobj_strset(math.dyn, "maxf", solu_wrapcfun(s, math_maxf, 2, NULL, 0));
+    solu_dobj_strset(math.dyn, "randi", solu_wrapcfun(s, math_randi, 2, NULL, 0));
+    solu_dobj_strset(math.dyn, "randf", solu_wrapcfun(s, math_randf, 2, NULL, 0));
+    solu_dobj_strset(math.dyn, "lerp", solu_wrapcfun(s, math_lerp, 3, NULL, 0));
     solu_dobj_strset(s->global.dyn, "math", math);
     srand((unsigned)time(NULL));
+    return math;
 }

@@ -1,6 +1,7 @@
 #ifndef VM_H
 #define VM_H
 
+#include "sf/str.h"
 #include "val.h"
 #include "compiler.h"
 #include <stdarg.h>
@@ -12,6 +13,7 @@
 typedef struct {
     uint32_t bottom_o;
     uint32_t size;
+    bool self;
 } solu_stackframe;
 /// Stack frame stack (i know that sounds confusing)
 #define VEC_NAME solu_frames
@@ -20,17 +22,19 @@ typedef struct {
 #define VSIZE_MAX UINT32_MAX
 #include <sf/containers/vec.h>
 /// File name stack
+typedef struct solu_filenames solu_filenames;
+void _solu_filenames_cleanup(solu_filenames *);
 #define VEC_NAME solu_filenames
 #define VEC_T sf_str
 #define VSIZE_T uint32_t
 #define VSIZE_MAX UINT32_MAX
+#define CLEANUP_FN _solu_filenames_cleanup
 #include <sf/containers/vec.h>
 
 /// The main global state for the VM, responsible for the stack and any globals/caching
 typedef struct solu_state {
     solu_valvec stack; // registers/stack
     solu_frames frames; // stack frames
-    solu_filenames files; // filename stack
     solu_val global; // _g
     uint32_t call_stack;
 
@@ -38,6 +42,15 @@ typedef struct solu_state {
     solu_dalloc *alloc, *alloc_tail; // gc allocations
     solu_strcache strcache; // short string cache
     size_t lb, cb, nb; // last bytes, current bytes, next bytes
+    solu_fproto *ccall, *ecall; // the proto being called currently
+    sf_str cwd;
+
+    struct {
+        solu_val prim;
+        solu_val base;
+        solu_val obj;
+        solu_val string;
+    } meta;
 
     bool rcmp; // Special flag for compiled files to reset the frame count
 } solu_state;
@@ -62,7 +75,7 @@ EXPORT solu_val solu_dnew(solu_state *state, solu_dtype type);
 /// Constructs a dynamic usertype object, a dynamic type with extra user info.
 /// User types are managed by the GC so make sure you use solu_dhold if you don't want them to be!
 EXPORT solu_val solu_dnusr(solu_state *state, size_t size, const char *name, void *value,
-    solu_usrdel del, solu_usrtostring tostring, solu_usrmark mark);
+    solu_usrdel del, solu_usrmark mark);
 /// Shorthand for using solu_dnew and assigning a string value.
 EXPORT solu_val solu_dnstr(solu_state *state, const char *str);
 /// Shorthand for using solu_dnew and assigning a string value.
@@ -94,18 +107,18 @@ void solu_dpush(solu_state *s, solu_dalloc *ac);
 /// This marks the object as green, meaning collection is skipped
 static inline void solu_dhold(solu_val val) {
     if (val.tt != SOLU_TDYN) return;
-    solu_dheader(val)->mark = SOLU_DYN_GREEN;
+    solu_dheader(val)->held = true;
 }
 /// Release a reference held to a dyn value in the C API
 static inline void solu_drelease(solu_val val) {
-    if (val.tt != SOLU_TDYN || solu_dheader(val)->mark != SOLU_DYN_GREEN) return;
-    solu_dheader(val)->mark = SOLU_DYN_WHITE;
+    if (val.tt != SOLU_TDYN) return;
+    solu_dheader(val)->held = false;
 }
 
 
 /// Get the value of a register from a specific stack frame
 static inline solu_val solu_rawget(solu_state *state, uint32_t index, uint32_t frame) {
-    solu_val val = solu_valvec_get(&state->stack, state->frames.data[frame].bottom_o + index);
+    solu_val val = solu_valvec_get(&state->stack, state->frames.data[frame].bottom_o + index - (state->frames.data[frame].self ? 1 : 0));
     if (solu_isdtype(val, SOLU_DREF))
         return *(solu_val *)val.dyn;
     return val;
@@ -118,12 +131,13 @@ EXPORT solu_val solu_getk(solu_state *state, solu_fproto *proto, uint32_t index)
 
 /// Set the value of a register in a specific stack frame
 static inline void solu_rawset(solu_state *state, uint32_t index, solu_val val, uint32_t frame) {
-    solu_val old = solu_valvec_get(&state->stack, state->frames.data[frame].bottom_o + index);
+    uint32_t i = state->frames.data[frame].bottom_o + index - (state->frames.data[frame].self ? 1 : 0);
+    solu_val old = solu_valvec_get(&state->stack, i);
     if (solu_isdtype(old, SOLU_DREF)) {
         *(solu_val *)old.dyn = val;
         return;
     }
-    solu_valvec_set(&state->stack, state->frames.data[frame].bottom_o + index, val);
+    solu_valvec_set(&state->stack, i, val);
 }
 /// Set the value of a register in the current stack frame
 static inline void solu_set(solu_state *state, uint32_t index, solu_val val) {
@@ -142,6 +156,7 @@ static inline uint32_t solu_pushframe(solu_state *state, uint32_t reg_c) {
     solu_frames_push(&state->frames, (solu_stackframe){
         state->frames.count == 0 ? 0 : state->frames.data[state->frames.count - 1].bottom_o + state->frames.data[state->frames.count - 1].size,
         reg_c,
+        false,
     });
     for (uint32_t i = 0; i < reg_c; ++i)
         solu_valvec_push(&state->stack, SOLU_NIL);
@@ -160,7 +175,33 @@ static inline void solu_popframe(solu_state *state) {
 #include <sf/containers/expected.h>
 
 /// Wrap a c function into a fun and insert it into a dynamic val
-EXPORT solu_val solu_wrapcfun(solu_state *state, solu_cfunction fptr, uint32_t arg_c, uint32_t temp_c);
+EXPORT solu_val solu_wrapcfun(solu_state *state, solu_cfunction fptr, uint32_t arg_c, solu_val *captures, uint32_t cap_c);
+static inline solu_val solu_capturec(solu_state *state, uint32_t index) {
+    if (!state->ccall || index > state->ccall->up_c - 1 || state->ccall->upvals[index].tt != SOLU_UP_VAL)
+        return SOLU_NIL;
+    return state->ccall->upvals[index].value;
+}
+static inline solu_val solu_selfc(solu_state *state) {
+    if (state->ccall->up_c && sf_str_eq(state->ccall->upvals[0].name, sf_lit("self"))) {
+        state->frames.data[state->frames.count - 1].self = true;
+        return solu_capturec(state, 0);
+    }
+    return solu_get(state, 0);
+}
+/// Wrap a c function into a member fun (has the 'self' upvalue)
+static inline solu_val solu_wrapmfun(solu_state *state, solu_cfunction fptr, uint32_t arg_c, solu_val *captures, uint32_t cap_c) {
+    solu_val fun = solu_wrapcfun(state, fptr, arg_c, captures, cap_c);
+    solu_fproto *f = fun.dyn;
+    f->self = true;
+    solu_upvalue *u = f->upvals;
+    f->upvals = malloc(sizeof(solu_upvalue) * ++f->up_c);
+    if (u) {
+        memcpy(f->upvals + 1, u, sizeof(solu_upvalue) * (f->up_c - 1));
+        free(u);
+    }
+    f->upvals[0] = (solu_upvalue){sf_lit("self"), SOLU_UP_VAL, .value = SOLU_NIL};
+    return fun;
+}
 EXPORT void solu_savefun(solu_fproto *proto, char *path);
 EXPORT solu_load_ex solu_loadfun(solu_state *state, char *path);
 

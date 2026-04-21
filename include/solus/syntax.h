@@ -7,16 +7,18 @@
 /// Token type, or character
 typedef enum {
     // Statements
-    TK_VAL, TK_VAR, TK_DO, TK_IF, TK_ELSE, TK_FOR, TK_WHILE, TK_RETURN, TK_INCLUDE,
-    TK_BREAK, TK_CONTINUE,
+    TK_VAL, TK_VAR, TK_DO, TK_IF, TK_ELSE, TK_FOR, TK_WHILE, TK_INCLUDE,
+    TK_BREAK, TK_CONTINUE, TK_RETURN,
     // Operators
-    TK_PLUS, TK_MINUS, TK_BANG, TK_INCREMENT, TK_DECREMENT, TK_ASTERISK, TK_SLASH, TK_EQUAL, TK_PLUS_EQUAL,
-    TK_NOT_EQUAL, TK_MINUS_EQUAL, TK_DOUBLE_EQUAL, TK_GREATER, TK_GREATER_EQUAL,
-    TK_LESS, TK_LESS_EQUAL, TK_AND, TK_OR,
+    TK_PLUS, TK_MINUS, TK_BANG, TK_NEG, TK_INCREMENT, TK_DECREMENT, TK_ASTERISK, TK_SLASH,
+    TK_EQUAL, TK_PLUS_EQUAL, TK_MINUS_EQUAL, TK_STAR_EQUAL, TK_SLASH_EQUAL,
+    TK_NOT_EQUAL, TK_DOUBLE_EQUAL, TK_GREATER, TK_GREATER_EQUAL,
+    TK_LESS, TK_LESS_EQUAL, TK_AND, TK_OR, TK_ELIPSES,
     // Assembly
     TK_ASM, TK_OPCODE,
     // Identifier/Literals
-    TK_IDENTIFIER, TK_STRING, TK_NUMBER, TK_INTEGER, TK_NIL, TK_TRUE, TK_FALSE,
+    TK_IDENTIFIER, TK_STRING, TK_FSTRING, TK_NUMBER, TK_INTEGER,
+    TK_NIL, TK_NAN, TK_INF, TK_TRUE, TK_FALSE,
     // Misc
     TK_LEFT_PAREN, TK_RIGHT_PAREN, TK_LEFT_BRACE, TK_RIGHT_BRACE,
     TK_LEFT_BRACKET, TK_RIGHT_BRACKET, TK_COMMA, TK_PERIOD,
@@ -40,6 +42,7 @@ struct solu_tokenvec;
 #define VEC_NAME solu_tokenvec
 #define VEC_T solu_token
 #define VSIZE_T uint32_t
+#define VSIZE_MAX UINT32_MAX
 #include <sf/containers/vec.h>
 
 /// Maps keyword strings to tokentype
@@ -84,8 +87,11 @@ typedef struct solu_node {
     uint16_t line, column;
     union {
         struct { // <let> n = v; // { n = v }
-            solu_val name;
-            struct solu_node *value;
+            struct solu_name {
+                solu_val name;
+                struct solu_node *value;
+            } *entries;
+            uint16_t entry_c;
             bool mut;
         } n_local;
         struct { // if c {t} else {e}
@@ -119,8 +125,10 @@ typedef struct solu_node {
             solu_tokentype op;
             struct solu_node *left;
             struct solu_node *right;
+            bool flip;
         } n_binary;
         struct { // e.p
+            solu_tokentype op;
             struct solu_node *expr;
             struct solu_node *postfix;
         } n_postfix;
@@ -128,6 +136,7 @@ typedef struct solu_node {
             struct solu_node *identifier;
             struct solu_node **args;
             uint32_t arg_c;
+            bool variadic;
         } n_call;
 
         solu_val n_identifier, n_literal;
@@ -146,7 +155,7 @@ typedef struct solu_node {
             solu_val *args;
             uint32_t arg_c;
             struct solu_node *stmt;
-            bool include;
+            bool include, variadic;
         } n_fun;
         struct {
             solu_i64 temps;

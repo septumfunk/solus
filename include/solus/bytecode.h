@@ -15,7 +15,7 @@
 #endif
 
 /// Bytecode version
-#define SOLU_VERSION "0.9.2"
+#define SOLU_VERSION "0.10"
 /// Git repository, hosted on GitHub for now
 #define SOLU_GIT "https://github.com/solus-lang/solus"
 
@@ -32,6 +32,7 @@ typedef enum {
     SOLU_OP_RET,
     SOLU_OP_JMP,
     SOLU_OP_CALL,
+    SOLU_OP_MCALL,
 
     SOLU_OP_ADD,
     SOLU_OP_SUB,
@@ -132,56 +133,12 @@ typedef struct {
 extern const solu_inssig SOLU_OP_INFO[SOLU_OP_COUNT];
 #define solu_op_info(op) (&(SOLU_OP_INFO[(op)]))
 
+EXPORT double solu_timesec(void);
+EXPORT char *solu_realpath(const char *path);
 
-#if defined(_WIN32) || defined(_WIN64)
-#define WIN32_LEAN_AND_MEAN
-#include <windows.h>
-/// Complicated cross platform stuff to get time in seconds
-static inline double solu_timesec(void) {
-    FILETIME ft;
-    ULARGE_INTEGER uli;
-    GetSystemTimeAsFileTime(&ft);
-    uli.LowPart  = ft.dwLowDateTime;
-    uli.HighPart = ft.dwHighDateTime;
-    return (double)(uli.QuadPart - 116444736000000000ULL) / 10000000.0;
-}
-#else
-#include <time.h>
-#include <sys/time.h>
-/// Complicated cross platform stuff to get time in seconds
-static inline double solu_timesec(void) {
-#if defined(CLOCK_REALTIME)
-    struct timespec ts;
-    clock_gettime(CLOCK_REALTIME, &ts);
-    return (double)ts.tv_sec + (double)ts.tv_nsec / 1e9;
-#else
-    struct timeval tv;
-    gettimeofday(&tv, NULL);
-    return (double)tv.tv_sec + (double)tv.tv_usec / 1e6;
-#endif
-}
-#endif
-
-/// Canonize path
-#ifdef _WIN32
-#define WIN32_LEAN_AND_MEAN
-#include <windows.h>
-static inline char *solu_realpath(const char *path) {
-    char buf[_MAX_PATH];
-    if (!_fullpath(buf, path, _MAX_PATH))
-        return NULL;
-    if (!sf_file_exists(sf_ref(path)))
-        return NULL;
-    return _strdup(buf);
-}
-#else
-static inline char *solu_realpath(const char *path) {
-    return realpath(path, NULL);
-}
-#endif
 /// Get dir of canonized path
-char *solu_realdir(const char *rp);
-char *solu_findfile(const char *cwd, const char *rel_path);
+EXPORT char *solu_realdir(const char *rp);
+EXPORT char *solu_findfile(const char *cwd, const char *rel_path);
 
 /// Disassemble instruction
 EXPORT sf_str solu_dasmi(solu_instruction ins);

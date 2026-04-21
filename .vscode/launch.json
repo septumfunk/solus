@@ -24,6 +24,26 @@
       }
     },
     {
+      "name": "Sanitize CLI",
+      "request": "launch",
+      "cwd": "${workspaceFolder}",
+      "args": ["${input:cliMode}", "solus.tests/${input:scriptName}"],
+      "type": "lldb",
+      "program": "${workspaceFolder}/build/sanitized/solus",
+
+      "env": {
+        "ASAN_OPTIONS": "detect_leaks=0:disable_coredump=0",
+        "LSAN_OPTIONS": "detect_leaks=0"
+      },
+
+      "windows": {
+        "type": "cppvsdbg",
+        "program": "${workspaceFolder}/build/sanitized/solus.exe",
+        "args": ["${input:cliMode}", "solus.tests/${input:scriptName}"],
+        "cwd": "${workspaceFolder}"
+      }
+    },
+    {
       "name": "Run Tests",
       "request": "launch",
       "program": "${workspaceRoot}/build/solus",

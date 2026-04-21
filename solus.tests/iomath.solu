@@ -1,5 +1,4 @@
 # iomath.solu
-
 val path = "solus_test_tmp.txt";
 unwrap(io.fwrite(path, "abc123"));
 val txt = unwrap(io.fread(path));
@@ -12,6 +11,7 @@ assert(math.maxf(2.5, 9.25) == 9.25);
 
 for var i = 0; i < 100; ++i {
     val r = math.randi(-3, 3);
+    io.println($"r: {r}, {r >= -3 and r <= 3}");
     assert(r >= -3 and r <= 3);
 
     val f = math.randf(-1.0, 1.0);

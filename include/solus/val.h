@@ -36,16 +36,7 @@ extern const char *SOLU_TYPE_NAMES[(size_t)SOLU_TCOUNT + (size_t)SOLU_DCOUNT];
 typedef enum {
     SOLU_DYN_WHITE, /// Not yet marked, will be swept if it's not
     SOLU_DYN_BLACK, /// Marked valid
-    SOLU_DYN_SHARED, /// Thread shared
-    SOLU_DYN_GREEN, /// Reference held by C
 } solu_dstate;
-/// GC header
-typedef struct solu_dalloc {
-    struct solu_dalloc *next;
-    size_t size, thread;
-    solu_dtype tt;
-    solu_dstate mark;
-} solu_dalloc;
 
 /// A primitive value, which may be a (dyn) reference to a GC/heap managed dynamic value
 typedef struct {
@@ -57,6 +48,32 @@ typedef struct {
         solu_dyn dyn;
     };
 } solu_val;
+/// GC header
+typedef enum {
+    SOLU_META_GET,
+    SOLU_META_SET,
+    SOLU_META_CALL,
+    SOLU_META_STR,
+    SOLU_META_EXTEND,
+
+    SOLU_META_ADD,
+    SOLU_META_SUB,
+    SOLU_META_MUL,
+    SOLU_META_DIV,
+    SOLU_META_EQ,
+    SOLU_META_NEG,
+
+    SOLU_META_COUNT,
+} solu_metafun;
+typedef struct solu_dalloc {
+    struct solu_dalloc *next;
+    size_t size, thread;
+    solu_dtype tt;
+    solu_dstate mark;
+    bool held;
+    solu_val meta;
+    solu_val metadata[SOLU_META_COUNT];
+} solu_dalloc;
 
 #define SOLU_NIL (solu_val){.tt = SOLU_TNIL}
 #define SOLU_TRUE (solu_val){.tt = SOLU_TBOOL, .boolean = true}
@@ -72,6 +89,7 @@ typedef struct {
     enum {
         SOLU_UP_VAL,
         SOLU_UP_REF,
+        SOLU_UP_UPV,
     } tt;
     union {
         solu_val value;
@@ -105,9 +123,10 @@ typedef struct {
     uint32_t reg_c, arg_c, up_c; // registers, args, upvals,
     solu_valvec constants;
     solu_upvalue *upvals;
+    bool self, variadic;
 } solu_fproto;
 EXPORT solu_fproto solu_fproto_new(void);
-EXPORT solu_fproto solu_fproto_c(solu_cfunction c_fun, uint32_t arg_c, uint32_t temp_c);
+EXPORT solu_fproto solu_fproto_c(solu_cfunction c_fun, uint32_t arg_c, solu_val *captures, uint32_t cap_c);
 EXPORT void solu_fproto_free(solu_fproto *proto);
 
 // dstr
@@ -125,26 +144,16 @@ void _solu_valmap_cleanup(struct solu_valmap *obj);
 #define KCLEANUP sf_str_free
 #include <sf/containers/map.h>
 
-typedef enum {
-    SOLU_META_GET,
-    SOLU_META_SET,
-    SOLU_META_CALL,
-    SOLU_META_STR,
-
-    SOLU_META_COUNT,
-} solu_metafun;
-
 typedef struct {
     solu_valmap map;
     solu_valvec array;
-    solu_val meta;
-    solu_val metafuns[SOLU_META_COUNT];
 } solu_dobj;
 EXPORT solu_dobj solu_dobj_new(void);
 EXPORT void solu_dobj_free(solu_dobj *obj);
 EXPORT solu_val solu_dobj_strget(solu_dobj *obj, char *key);
 /// You do NOT need to pass an owned string
 EXPORT void solu_dobj_strset(solu_dobj *obj, char *key, solu_val val);
+EXPORT void solu_usemeta(solu_val obj, solu_dobj *meta);
 // fun
 typedef solu_fproto *solu_dfun;
 
@@ -167,7 +176,6 @@ typedef void (*solu_usrmark)(void *);
 typedef struct {
     sf_str name;
     solu_usrdel del;
-    solu_usrtostring tostring;
     solu_usrmark mark;
 } solu_usrwrap;
 
@@ -191,9 +199,27 @@ static inline bool solu_isdtype(solu_val value, solu_dtype dtype) {
     return value.tt == SOLU_TDYN && solu_dheader(value)->tt == dtype;
 }
 
+/// Convenience function for checking arrays
+static inline bool solu_isarr(solu_val value, uint32_t minimum) {
+    return solu_isdtype(value, SOLU_DOBJ) && ((solu_dobj *)value.dyn)->array.count >= minimum;
+}
+static inline bool solu_arrptype(solu_val value, solu_ptype ptype, uint32_t minimum) {
+    if (!solu_isarr(value, minimum)) return false;
+    solu_dobj *arr = (solu_dobj *)value.dyn;
+    if (arr->array.count < minimum) return false;
+
+    bool t = true;
+    for (uint32_t i = 0; i < minimum; ++i)
+        if (arr->array.data[i].tt != ptype)
+            t = false;
+    return t;
+}
+
 /// Returns whether two dstrs equal
 static inline bool solu_streq(solu_val str1, solu_val str2) {
-    size_t s1 = solu_dheader(str1)->size - 1, s2 = solu_dheader(str2)->size - 1;
+    solu_dalloc *da1 = solu_dheader(str1), *da2 = solu_dheader(str2);
+    if (da1->tt != SOLU_DSTR || da2->tt != SOLU_DSTR) return false;
+    size_t s1 = da1->size - 1, s2 = da2->size - 1;
     if (s1 != s2) return false;
     return memcmp(str1.dyn, str2.dyn, s1) == 0;
 }
