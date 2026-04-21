@@ -14,6 +14,7 @@ X(P, NUMBER_FORMAT, "Ill-formatted number") \
 X(P, NO_TOKENS, "Parser expected to recieve tokens from scanner") \
 X(P, EXPECTED_EXPRESSION, "Expected expression") \
 X(P, EXPECTED_IDENTIFIER, "Expected identifier") \
+X(P, EXPECTED_NAME, "Reserved or invalid name") \
 X(P, EXPECTED_STR, "Expected string") \
 X(P, EXPECTED_LITERAL, "Expected str literal") \
 X(P, EXPECTED_INDEX_LITERAL, "Expected i64 or str literal") \

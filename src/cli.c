@@ -32,24 +32,34 @@ typedef enum {
     CLI_COMPILE,
 } cli_mode;
 
-void cli_highlight_line(sf_str src, sf_str err, uint16_t line, uint16_t column) {
-    char *c = src.c_str;
+static void cli_print_line(sf_str src, uint16_t line) {
+    char *c = src.c_str, *oc = c;
+    char cc = 0;
     uint16_t ln = 1;
     while (true) {
         if (*c == '\n')
             ++ln;
-        if (ln == line + 1 || *c == '\0') {
+        if (ln == line + 1) {
+            cc = *c;
+            oc = c;
             *c = '\0';
             while ((c == src.c_str || *(c-1) != '\n') && c != src.c_str)
                 --c;
             break;
         } else ++c;
+        if (*c == 0) return;
     }
+    fprintf(stderr, "%4u | %s\n", line, c);
+    *oc = cc;
+}
 
+void cli_highlight_line(sf_str src, sf_str err, uint16_t line, uint16_t column, uint8_t lookback, uint8_t lookahead) {
+    for (uint16_t i = line <= lookback ? 1 : line - lookback; i < line + 1; ++i)
+        cli_print_line(src, i);
     if (err.c_str == solu_err_string(SOLU_ERRP_EXPECTED_SEMICOLON))
         ++column;
 
-    int prefix = snprintf(NULL, 0, "%u | ", line);
+    int prefix = snprintf(NULL, 0, "%4u | ", line);
     int caret = prefix + column - 1;
 
     char *pointer = malloc((size_t)caret + 2);
@@ -57,8 +67,10 @@ void cli_highlight_line(sf_str src, sf_str err, uint16_t line, uint16_t column) 
     pointer[caret] = '^';
     pointer[caret + 1] = '\0';
 
-    fprintf(stderr, "%u | %s\n", line, c);
     fprintf(stderr, TUI_ERR "%s %s\n" TUI_CLR, pointer, err.c_str);
+    for (uint16_t i = line + 1; i < line + lookahead + 1; ++i)
+        cli_print_line(src, i);
+
     free(pointer);
 }
 
@@ -109,7 +121,7 @@ int cli_run(char *path, sf_str src) {
         if (!comp_ex.is_ok) {
             if (comp_ex.err.line) {
                 fprintf(stderr, TUI_ERR "error: %s:%u:%u\n" TUI_CLR, path, comp_ex.err.line, comp_ex.err.column);
-                cli_highlight_line(src, sf_ref(solu_err_string(comp_ex.err.tt)), comp_ex.err.line, comp_ex.err.column);
+                cli_highlight_line(src, sf_ref(solu_err_string(comp_ex.err.tt)), comp_ex.err.line, comp_ex.err.column, 2, 2);
             } else fprintf(stderr, TUI_ERR "error: %s\n" TUI_CLR, solu_err_string(comp_ex.err.tt));            solu_state_free(s);
             return -1;
         }
@@ -130,13 +142,13 @@ int cli_run(char *path, sf_str src) {
         if (call_ex.err.panic) {
             sf_str full = sf_str_fmt("%s: %s", solu_err_string(call_ex.err.tt), call_ex.err.panic);
             if (line)
-                cli_highlight_line(src, full, line, col);
+                cli_highlight_line(src, full, line, col, 2, 2);
             else
                 fprintf(stderr, TUI_ERR TUI_BLD "%s\n" TUI_CLR, full.c_str);
             free(call_ex.err.panic);
             sf_str_free(full);
         } else if (line)
-            cli_highlight_line(src, sf_ref(solu_err_string(call_ex.err.tt)), line, col);
+            cli_highlight_line(src, sf_ref(solu_err_string(call_ex.err.tt)), line, col, 2, 2);
         else
             fprintf(stderr, TUI_ERR TUI_BLD "%s\n" TUI_CLR, solu_err_string(call_ex.err.tt));
         return -1;
@@ -159,7 +171,7 @@ int cli_compile(char *path, sf_str src) {
     if (!comp_ex.is_ok) {
         if (comp_ex.err.line) {
             fprintf(stderr, TUI_ERR "error: %s:%u:%u\n" TUI_CLR, path, comp_ex.err.line, comp_ex.err.column);
-            cli_highlight_line(src, sf_ref(solu_err_string(comp_ex.err.tt)), comp_ex.err.line, comp_ex.err.column);
+            cli_highlight_line(src, sf_ref(solu_err_string(comp_ex.err.tt)), comp_ex.err.line, comp_ex.err.column, 2, 2);
         } else fprintf(stderr, TUI_ERR "error: %s\n" TUI_CLR, solu_err_string(comp_ex.err.tt));
         solu_state_free(s);
         return -1;

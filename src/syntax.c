@@ -969,7 +969,7 @@ solu_parse_ex solu_plocal(solu_parser *p) {
         if (p->tok->tt == TK_SEMICOLON) break;
         ++p->tok;
     }
-    if (!names) return solu_perr(SOLU_ERRP_EXPECTED_IDENTIFIER, p->tok);
+    if (!names) return solu_perr(SOLU_ERRP_EXPECTED_NAME, p->tok);
     if (p->tok->tt != TK_SEMICOLON) {
         free(names);
         return solu_perr(SOLU_ERRP_EXPECTED_SEMICOLON, p->tok);

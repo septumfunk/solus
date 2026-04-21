@@ -12,6 +12,8 @@ assert(type(NaN) == "f64");
 assert(type("hi") == "str");
 assert(type(true) == "bool");
 
+val NaN = 2;
+
 val a = i64(3.9);
 assert(a == 3);
 
