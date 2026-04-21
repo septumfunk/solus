@@ -574,6 +574,7 @@ sf_buffer solu_fproto_serialize(solu_fproto *proto) {
     sf_buffer_autoins(&buf, &(uint16_t){htons(proto->code_c)});
     sf_buffer_autoins(&buf, &(uint16_t){htons(proto->line_c)});
     sf_buffer_autoins(&buf, &(uint8_t){proto->self});
+    sf_buffer_autoins(&buf, &(uint8_t){proto->variadic});
 
     sf_buffer_autoins(&buf, &(uint32_t){htonl(proto->constants.count)});
     for (solu_val *k = proto->constants.data; k < proto->constants.data + proto->constants.count; ++k) {
@@ -670,6 +671,8 @@ solu_load_ex _solu_loadfun(solu_state *s, sf_buffer *buf) {
     if (!ex.is_ok) goto corrupt;
     proto.line_c = ntohs(proto.line_c);
     ex = sf_buffer_autoread(buf, &proto.self);
+    if (!ex.is_ok) goto corrupt;
+    ex = sf_buffer_autoread(buf, &proto.variadic);
     if (!ex.is_ok) goto corrupt;
 
     uint32_t kcount;
