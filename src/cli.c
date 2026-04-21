@@ -307,15 +307,24 @@ int cli_test(char *dirpath) {
 
 int main(int argc, char **argv) {
     if (argc == 1) {
-        char *fp = sf_str_join(sf_ref(solu_realdir(argv[0])), sf_lit("/bundle.solc")).c_str;
+        char *rp = solu_realpath(argv[0]);
+        if (!rp) goto usage;
+        char *rd = solu_realdir(rp);
+        free(rp);
+        if (!rd) goto usage;
+
+        char *fp = sf_str_join(sf_ref(rd), sf_lit("/bundle.solc")).c_str;
+        printf("%s\n", fp);
+        free(rd);
         if (sf_file_exists(sf_ref(fp))) {
             sf_str src = cli_load_file(fp);
+            if (sf_isempty(src) || src.len == 0) { free(fp); goto usage; }
+            int r = cli_run(fp, src);
             free(fp);
-            if (sf_isempty(src) || src.len == 0)
-                return 1;
-            return cli_run("bundle.solc", src);
+            return r;
         }
         free(fp);
+        usage:
         printf("Usage: %s [run|compile|test] <file>\n", argv[0]);
         return 1;
     }
