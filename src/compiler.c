@@ -111,7 +111,8 @@ static inline uint32_t solu_rtemp(solu_compiler *c) {
 #define solu_rlocal solu_rtemp
 /// Find whether a local exists, and output the local if it does
 static inline bool solu_lexists(solu_compiler *c, char *name, solu_local *loc) {
-    for (solu_scope *s = c->scopes.data + c->scopes.count - 1; s != c->scopes.data - 1; --s) {
+    for (uint32_t i = c->scopes.count; i > 0; --i) {
+        solu_scope *s = &c->scopes.data[i - 1];
         solu_scope_ex sc_ex = solu_scope_get(s, sf_ref(name));
         if (sc_ex.is_ok) {
             *loc = sc_ex.ok;
@@ -189,7 +190,7 @@ solu_compile_ex solu_cfun(sf_str file_name, uint32_t frame, solu_dalloc *alloc, 
         .temps = arg_c,
         .max_reg = arg_c,
         .alloc = alloc,
-        .obj_r = UINT_MAX,
+        .obj_r = UINT32_MAX,
         .frame = frame,
 
         .controls = solu_controls_new(),
@@ -506,7 +507,7 @@ solu_cnode_ex solu_cnode(solu_compiler *c, solu_node *node, uint32_t t_reg) {
             return solu_cnode_ex_ok();
         }
         case SOLU_ND_RETURN: {
-            if (node->n_return.implicit && t_reg != UINT_MAX) {
+            if (node->n_return.implicit && t_reg != UINT32_MAX) {
                 solu_cnode_ex ex = solu_cnode(c, node->n_return.expr, t_reg);
                 return ex;
             }
@@ -871,16 +872,16 @@ solu_cnode_ex solu_cnode(solu_compiler *c, solu_node *node, uint32_t t_reg) {
             for (size_t i = 0; i < node->n_block.count; ++i) {
                 solu_node *nd = node->n_block.stmts[i];
                 solu_cnode_ex ex;
-                if (nd->tt == SOLU_ND_RETURN && nd->n_return.implicit && t_reg != UINT_MAX) {
+                if (nd->tt == SOLU_ND_RETURN && nd->n_return.implicit && t_reg != UINT32_MAX) {
                     val = true;
                     ex = solu_cnode(c, nd->n_return.expr, t_reg);
-                } else if (nd->tt == SOLU_ND_IF && t_reg != UINT_MAX) {
+                } else if (nd->tt == SOLU_ND_IF && t_reg != UINT32_MAX) {
                     val = true;
                     ex = solu_cnode(c, nd, t_reg);
-                } else ex = solu_cnode(c, nd, UINT_MAX);
+                } else ex = solu_cnode(c, nd, UINT32_MAX);
                 if (!ex.is_ok) return ex;
             }
-            if (t_reg != UINT_MAX && !val) {
+            if (t_reg != UINT32_MAX && !val) {
                 uint32_t nil;
                 if (!solu_kfind(c, SOLU_NIL, &nil))
                     nil = solu_kadd(c, SOLU_NIL);
@@ -921,7 +922,7 @@ solu_cnode_ex solu_cnode(solu_compiler *c, solu_node *node, uint32_t t_reg) {
                 char *name = cap->dyn;
                 // Self capture (reserved name)
                 solu_local loc;
-                if (c->obj_r != UINT_MAX && strcmp(name, "self") == 0) {
+                if (c->obj_r != UINT32_MAX && strcmp(name, "self") == 0) {
                     self = true;
                     upvals[ofs + i] = (solu_upvalue){sf_lit("self"), .tt = SOLU_UP_REF, .ref = c->obj_r, .frame = c->frame, .mut = false};
                 } else {
