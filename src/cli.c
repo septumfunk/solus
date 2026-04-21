@@ -314,7 +314,6 @@ int main(int argc, char **argv) {
         if (!rd) goto usage;
 
         char *fp = sf_str_join(sf_ref(rd), sf_lit("/bundle.solc")).c_str;
-        printf("%s\n", fp);
         free(rd);
         if (sf_file_exists(sf_ref(fp))) {
             sf_str src = cli_load_file(fp);
