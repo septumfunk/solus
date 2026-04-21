@@ -1,7 +1,0 @@
-var variadic_print = [](...fart)
-    fart.foreach([](v) io.println(v));
-var wrapper = [variadic_print](...args) {
-    io.println(args.len());
-    variadic_print(...args);
-};
-wrapper(nil, nan, inf);
