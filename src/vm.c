@@ -1002,6 +1002,8 @@ solu_call_ex solu_call_bc(solu_state *s, solu_fproto *proto, const solu_val *arg
                 f->upvals[i].value = ov;
 
             if (!fex.is_ok) {
+                if (f->tt == SOLU_FPROTO_C)
+                    fex.err.pc = pc;
                 s->ecall = f;
                 return fex;
             }

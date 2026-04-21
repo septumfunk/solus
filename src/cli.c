@@ -259,7 +259,20 @@ int cli_test(char *dirpath) {
 #else
 #include <dirent.h>
 int cli_test(char *dirpath) {
-    DIR *dir = opendir(dirpath);
+    size_t len = strlen(dirpath);
+    while (dirpath[len - 1] == '\\' || dirpath[len - 1] == '/') {
+        dirpath[len - 1] = '\0';
+        len -= 1;
+    }
+
+    char *rp = solu_realpath(dirpath);
+    if (!rp) {
+        perror("realpath");
+        return 1;
+    }
+
+    DIR *dir = opendir(rp);
+    free(rp);
     if (!dir) {
         perror("opendir");
         return 1;
@@ -274,7 +287,7 @@ int cli_test(char *dirpath) {
             continue;
 
         char full[1024];
-        snprintf(full, sizeof(full), "%s%s", dirpath, ent->d_name);
+        snprintf(full, sizeof(full), "%s/%s", dirpath, ent->d_name);
         if (printed_any++) printf("\n");
 
         sf_fsb_ex fsb = sf_file_buffer(sf_ref(full));

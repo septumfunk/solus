@@ -131,7 +131,7 @@ solu_call_ex builtin_or_else(solu_state *s) {
 static solu_call_ex builtin_assert(solu_state *s) {
     solu_val con = solu_get(s, 0);
     expect_type(SOLU_TBOOL, con);
-    return con.boolean ? solu_ok(SOLU_NIL) : solu_panic("Assertion failed", 0);
+    return con.boolean ? solu_ok(SOLU_NIL) : solu_panic("Assertion failed");
 }
 
 solu_call_ex builtin_then(solu_state *s) {
