@@ -33,28 +33,29 @@ typedef enum {
 } cli_mode;
 
 static void cli_print_line(sf_str src, uint16_t line) {
-    char *c = src.c_str, *oc = c;
-    char cc = 0;
+    if (!src.c_str || src.len == 0 || line == 0)
+        return;
+
+    const char *line_start = src.c_str;
     uint16_t ln = 1;
-    while (true) {
-        if (*c == '\n')
+    for (const char *p = src.c_str; p < src.c_str + src.len && ln < line; ++p) {
+        if (*p == '\n') {
             ++ln;
-        if (ln == line + 1) {
-            cc = *c;
-            oc = c;
-            *c = '\0';
-            while ((c == src.c_str || *(c-1) != '\n') && c != src.c_str)
-                --c;
-            break;
-        } else ++c;
-        if (*c == 0) return;
+            line_start = p + 1;
+        }
     }
-    fprintf(stderr, "%4u | %s\n", line, c);
-    *oc = cc;
+    if (ln != line || line_start >= src.c_str + src.len) return;
+
+    const char *line_end = line_start;
+    while (line_end < src.c_str + src.len && *line_end != '\n' && *line_end != '\0')
+        ++line_end;
+    if (line_end > line_start && line_end[-1] == '\r')
+        --line_end;
+    fprintf(stderr, "%4u | %.*s\n", line, (int)(line_end - line_start), line_start);
 }
 
 void cli_highlight_line(sf_str src, sf_str err, uint16_t line, uint16_t column, uint8_t lookback, uint8_t lookahead) {
-    for (uint16_t i = line <= lookback ? 1 : line - lookback; i < line + 1; ++i)
+    for (uint16_t i = line <= lookback ? 1 : line - lookback + 1; i < line + 1; ++i)
         cli_print_line(src, i);
     if (err.c_str == solu_err_string(SOLU_ERRP_EXPECTED_SEMICOLON))
         ++column;
@@ -216,8 +217,15 @@ static int has_suffix_solu(const char *s) {
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 int cli_test(char *dirpath) {
+    size_t len = strlen(dirpath);
+    while (dirpath[len - 1] == '\\' || dirpath[len - 1] == '/') {
+        dirpath[len - 1] = '\0';
+        len -= 1;
+    }
+
     char pattern[MAX_PATH];
     snprintf(pattern, sizeof(pattern), "%s\\*", dirpath);
+
     WIN32_FIND_DATAA fd;
     HANDLE h = FindFirstFileA(pattern, &fd);
     if (h == INVALID_HANDLE_VALUE) {
@@ -232,7 +240,7 @@ int cli_test(char *dirpath) {
         if (!has_suffix_solu(fd.cFileName))
             continue;
         char full[MAX_PATH];
-        snprintf(full, sizeof(full), "%s\\%s", dirpath, fd.cFileName);
+        snprintf(full, sizeof(full), "%s/%s", dirpath, fd.cFileName);
         if (printed_any++) printf("\n");
 
         sf_fsb_ex fsb = sf_file_buffer(sf_ref(full));
@@ -240,7 +248,7 @@ int cli_test(char *dirpath) {
             fprintf(stderr, TUI_ERR TUI_UL "Test %s failed to open!\n" TUI_CLR, full);
             continue;
         }
-        cli_tf(full, sf_ref((char *)fsb.ok.ptr));
+        cli_tf(full, (sf_str){(char *)fsb.ok.ptr, fsb.ok.size - 1, SF_STR_NONE});
         sf_buffer_clear(&fsb.ok);
 
     } while (FindNextFileA(h, &fd));
@@ -266,12 +274,7 @@ int cli_test(char *dirpath) {
             continue;
 
         char full[1024];
-        #ifdef _WIN32
-            const char *f = "%s/%s";
-        #else
-            const char *f = "%s%s";
-        #endif
-        snprintf(full, sizeof(full), f, dirpath, ent->d_name);
+        snprintf(full, sizeof(full), "%s%s", dirpath, ent->d_name);
         if (printed_any++) printf("\n");
 
         sf_fsb_ex fsb = sf_file_buffer(sf_ref(full));

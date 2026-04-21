@@ -220,7 +220,7 @@ solu_compile_ex solu_cfun(sf_str file_name, uint32_t frame, solu_dalloc *alloc, 
 
 static solu_cnode_ex solu_cmembers(solu_compiler *c, solu_node *node, uint32_t t_reg) {
     uint32_t s_index = 0;
-    uint32_t it = solu_rtemp(c);
+    uint32_t it = solu_rtemp(c), kt = solu_rtemp(c);
     uint32_t obj_r = c->obj_r;
     c->obj_r = t_reg;
     for (uint32_t i = 0; i < node->n_obj.mem_c; ++i) {
@@ -239,18 +239,17 @@ static solu_cnode_ex solu_cmembers(solu_compiler *c, solu_node *node, uint32_t t
             if (isk && !solu_kfind(c, nd->n_binary.left->n_identifier, &key_i))
                 key_i = solu_const(solu_kadd(c, nd->n_binary.left->n_identifier));
             else {
-                key_i = solu_reg(solu_rtemp(c));
-                solu_cnode_ex ex = solu_cnode(c, nd->n_binary.left, key_i);
+                key_i = solu_reg(kt);
+                solu_cnode_ex ex = solu_cnode(c, nd->n_binary.left, kt);
                 if (!ex.is_ok) return ex;
             }
             right = solu_cnode(c, nd->n_binary.right, it);
             if (!right.is_ok) return right;
             solu_cemit(c, solu_ins_abc(SOLU_OP_SET, t_reg, key_i, solu_reg(it)));
-            if (!isk) solu_ctemps(c, 1);
         }
     }
     c->obj_r = obj_r;
-    solu_ctemps(c, 1);
+    solu_ctemps(c, 2);
     return solu_cnode_ex_ok();
 }
 
@@ -794,16 +793,15 @@ solu_cnode_ex solu_cnode(solu_compiler *c, solu_node *node, uint32_t t_reg) {
         case SOLU_ND_CALL: {
             if (node->n_call.identifier->tt == SOLU_ND_POSTFIX) {
                 solu_node *pf = node->n_call.identifier;
-                uint32_t lhs = solu_rtemp(c);
+                uint32_t lhs = solu_rtemp(c), rhs = solu_rtemp(c);
+                for (uint32_t i = 0; i < node->n_call.arg_c; ++i)
+                    solu_rtemp(c);
+
                 solu_cnode_ex lex = solu_cnode(c, pf->n_postfix.expr, lhs);
                 if (!lex.is_ok) return lex;
-
-                uint32_t rhs = solu_rtemp(c);
                 solu_cnode_ex rex = solu_cnode(c, pf->n_postfix.postfix, rhs);
                 if (!rex.is_ok) return rex;
 
-                for (uint32_t i = 0; i < node->n_call.arg_c; ++i)
-                    solu_rtemp(c);
                 for (uint32_t i = 0; i < node->n_call.arg_c; ++i) {
                     uint32_t r = rhs + 1 + i;
                     solu_cnode_ex ex = solu_cnode(c, node->n_call.args[i], r);
