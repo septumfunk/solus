@@ -200,6 +200,7 @@ typedef struct {
     solu_fproto *p;
     solu_call_ex ex;
     jmp_buf *b;
+    solu_val match;
 } _obj_fe_args;
 static void _obj_fe(void *u, sf_str key, solu_val val) {
     _obj_fe_args *args = u;
@@ -217,13 +218,68 @@ static solu_call_ex obj_pairs(solu_state *s) {
     expect_dtype(SOLU_DFUN, callback);
 
     jmp_buf ctx;
-    _obj_fe_args args = {s, callback.dyn, solu_ok(SOLU_NIL), &ctx};
+    _obj_fe_args args = {s, callback.dyn, solu_ok(SOLU_NIL), &ctx, SOLU_NIL};
     if (setjmp(ctx) == 0)
         solu_valmap_foreach(&((solu_dobj *)obj.dyn)->map, _obj_fe, &args);
     else return args.ex;
 
     return solu_ok(SOLU_NIL);
 }
+static solu_call_ex obj_members(solu_state *s) {
+    solu_val obj = solu_selfc(s);
+    expect_dtype(SOLU_DOBJ, obj);
+    return solu_ok((solu_val){SOLU_TI64, .i64 = (solu_i64)((solu_dobj *)obj.dyn)->map.pair_count});
+}
+static solu_call_ex obj_find(solu_state *s) {
+    solu_val obj = solu_selfc(s);
+    expect_dtype(SOLU_DOBJ, obj);
+    solu_val callback = solu_get(s, 1);
+    expect_dtype(SOLU_DFUN, callback);
+
+    jmp_buf ctx;
+    _obj_fe_args args = {s, callback.dyn, solu_ok(SOLU_NIL), &ctx, SOLU_NIL};
+    if (setjmp(ctx) == 0) {
+        solu_valmap_foreach(&((solu_dobj *)obj.dyn)->map, _obj_fe, &args);
+        if (solu_truthy(args.match))
+            return solu_ok(args.match);
+    } else return args.ex;
+
+    return solu_ok(SOLU_NIL);
+}
+static solu_call_ex obj_match(solu_state *s) {
+    solu_val obj = solu_selfc(s);
+    expect_dtype(SOLU_DOBJ, obj);
+    solu_val callback = solu_get(s, 1);
+    expect_dtype(SOLU_DFUN, callback);
+
+    solu_val out = solu_dnew(s, SOLU_DOBJ);
+    solu_dhold(out);
+
+    jmp_buf ctx;
+    _obj_fe_args args = {s, callback.dyn, solu_ok(SOLU_NIL), &ctx, SOLU_NIL};
+    if (setjmp(ctx) == 0) {
+        solu_valmap_foreach(&((solu_dobj *)obj.dyn)->map, _obj_fe, &args);
+        if (solu_truthy(args.match)) {
+            solu_valvec_push(&((solu_dobj *)out.dyn)->array, args.match);
+            args.match = SOLU_NIL;
+        }
+    } else return args.ex;
+
+    solu_drelease(out);
+    return solu_ok(SOLU_NIL);
+}
+static solu_call_ex obj_has(solu_state *s) {
+    solu_val obj = solu_selfc(s);
+    expect_dtype(SOLU_DOBJ, obj);
+    solu_val key = solu_get(s, 1);
+    expect_dtype(SOLU_DSTR, key);
+
+    return solu_ok((solu_val){
+        SOLU_TBOOL,
+        .boolean = solu_valmap_get(&((solu_dobj *)obj.dyn)->map, sf_ref(key.dyn)).is_ok
+    });
+}
+
 static solu_call_ex obj_foreach(solu_state *s) {
     solu_val array = solu_selfc(s);
     expect_dtype(SOLU_DOBJ, array);
@@ -238,6 +294,21 @@ static solu_call_ex obj_foreach(solu_state *s) {
         if (!ex.is_ok) return ex;
     }
     return solu_ok(SOLU_NIL);
+}
+static solu_call_ex obj_reverse(solu_state *s) {
+    solu_val array = solu_selfc(s);
+    expect_dtype(SOLU_DOBJ, array);
+
+    solu_val out = solu_dnew(s, SOLU_DOBJ);
+    solu_dobj *o = array.dyn, *o_out = out.dyn;
+    for (uint32_t i = 0; i < o->array.count; ++i)
+        solu_valvec_push(&o_out->array, o->array.data[o->array.count - 1 - i]);
+    return solu_ok(out);
+}
+static solu_call_ex obj_len(solu_state *s) {
+    solu_val obj = solu_selfc(s);
+    expect_dtype(SOLU_DOBJ, obj);
+    return solu_ok((solu_val){SOLU_TI64, .i64 = (solu_i64)((solu_dobj *)obj.dyn)->array.count});
 }
 static solu_call_ex obj_range(solu_state *s) {
     solu_val array = solu_selfc(s);
@@ -254,15 +325,55 @@ static solu_call_ex obj_range(solu_state *s) {
             solu_valvec_push(&((solu_dobj *)new.dyn)->array, o->array.data[i]);
     return solu_ok(SOLU_NIL);
 }
-static solu_call_ex obj_members(solu_state *s) {
-    solu_val obj = solu_selfc(s);
-    expect_dtype(SOLU_DOBJ, obj);
-    return solu_ok((solu_val){SOLU_TI64, .i64 = (solu_i64)((solu_dobj *)obj.dyn)->map.pair_count});
+static solu_call_ex obj_where(solu_state *s) {
+    solu_val array = solu_selfc(s);
+    expect_dtype(SOLU_DOBJ, array);
+    solu_val callback = solu_get(s, 1);
+    expect_dtype(SOLU_DFUN, callback);
+
+    solu_dobj *o = array.dyn;
+    for (uint32_t i = 0; i < o->array.count; ++i) {
+        solu_call_ex ex = solu_call(s, callback.dyn,
+            (solu_val[]){o->array.data[i], (solu_val){SOLU_TI64, .i64 = (solu_i64)i}},
+        2);
+        if (!ex.is_ok) return ex;
+        if (solu_truthy(ex.ok))
+            return solu_ok(ex.ok);
+    }
+    return solu_ok(SOLU_NIL);
 }
-static solu_call_ex obj_len(solu_state *s) {
-    solu_val obj = solu_selfc(s);
-    expect_dtype(SOLU_DOBJ, obj);
-    return solu_ok((solu_val){SOLU_TI64, .i64 = (solu_i64)((solu_dobj *)obj.dyn)->array.count});
+static solu_call_ex obj_all(solu_state *s) {
+    solu_val array = solu_selfc(s);
+    expect_dtype(SOLU_DOBJ, array);
+    solu_val callback = solu_get(s, 1);
+    expect_dtype(SOLU_DFUN, callback);
+
+    solu_val out = solu_dnew(s, SOLU_DOBJ);
+    solu_dhold(out);
+
+    solu_dobj *o = array.dyn;
+    for (uint32_t i = 0; i < o->array.count; ++i) {
+        solu_call_ex ex = solu_call(s, callback.dyn,
+            (solu_val[]){o->array.data[i], (solu_val){SOLU_TI64, .i64 = (solu_i64)i}},
+        2);
+        if (!ex.is_ok) return ex;
+        if (solu_truthy(ex.ok))
+            solu_valvec_push(&((solu_dobj *)out.dyn)->array, ex.ok);
+    }
+
+    solu_drelease(out);
+    return solu_ok(out);
+}
+static solu_call_ex obj_contains(solu_state *s) {
+    solu_val array = solu_selfc(s);
+    expect_dtype(SOLU_DOBJ, array);
+    solu_val match = solu_get(s, 1);
+
+    solu_dobj *o = array.dyn;
+    for (uint32_t i = 0; i < o->array.count; ++i)
+        if (solu_strict_eq(o->array.data[i], match))
+            return solu_ok(SOLU_TRUE);
+    return solu_ok(SOLU_FALSE);
 }
 
 typedef struct {
@@ -314,21 +425,31 @@ solu_val solu_mod_obj(solu_state *s, bool meta) {
     solu_dobj_strset(obj.dyn, "meta", fun(s, obj_meta, 1, NULL, 0));
     solu_dobj_strset(obj.dyn, "stringify", fun(s, obj_stringify, 3, NULL, 0));
     solu_dobj_strset(obj.dyn, "pairs", fun(s, obj_pairs, 2, NULL, 0));
-    solu_dobj_strset(obj.dyn, "foreach", fun(s, obj_foreach, 2, NULL, 0));
-    solu_dobj_strset(obj.dyn, "range", fun(s, obj_range, 3, NULL, 0));
-
     solu_dobj_strset(obj.dyn, "members", fun(s, obj_members, 1, NULL, 0));
+    solu_dobj_strset(obj.dyn, "find", fun(s, obj_find, 2, NULL, 0));
+    solu_dobj_strset(obj.dyn, "match", fun(s, obj_match, 2, NULL, 0));
+    solu_dobj_strset(obj.dyn, "has", fun(s, obj_has, 2, NULL, 0));
+
+    solu_dobj_strset(obj.dyn, "foreach", fun(s, obj_foreach, 2, NULL, 0));
+    solu_dobj_strset(obj.dyn, "reverse", fun(s, obj_reverse, 1, NULL, 0));
     solu_dobj_strset(obj.dyn, "len", fun(s, obj_len, 1, NULL, 0));
+    solu_dobj_strset(obj.dyn, "range", fun(s, obj_range, 3, NULL, 0));
+    solu_dobj_strset(obj.dyn, "where", fun(s, obj_where, 2, NULL, 0));
+    solu_dobj_strset(obj.dyn, "all", fun(s, obj_all, 2, NULL, 0));
+    solu_dobj_strset(obj.dyn, "contains", fun(s, obj_contains, 2, NULL, 0));
+
 
     solu_dobj_strset(obj.dyn, "template", fun(s, obj_template, 1, NULL, 0));
 
-    // Builtins that extend to obj
+    // Others that extend to obj
     if (meta) {
         solu_dobj_strset(obj.dyn, "then", fun(s, builtin_then, 2, NULL, 0));
         solu_dobj_strset(obj.dyn, "type", fun(s, builtin_type, 1, NULL, 0));
         solu_dobj_strset(obj.dyn, "str", fun(s, builtin_str, 1, NULL, 0));
         solu_dobj_strset(obj.dyn, "unwrap", fun(s, builtin_unwrap, 1, NULL, 0));
         solu_dobj_strset(obj.dyn, "or_else", fun(s, builtin_or_else, 1, NULL, 0));
+
+        solu_dobj_strset(obj.dyn, "join", fun(s, string_join, 1, NULL, 0));
     } else solu_dobj_strset(s->global.dyn, "obj", obj);
     return obj;
 }

@@ -828,7 +828,7 @@ solu_load_ex solu_loadfun(solu_state *state, char *path) {
     return ex;
 }
 
-static inline bool solu_truthy(solu_val val) {
+bool solu_truthy(solu_val val) {
     switch (val.tt) {
         case SOLU_TBOOL: return val.boolean;
         case SOLU_TI64: return val.i64 != 0;
@@ -836,6 +836,29 @@ static inline bool solu_truthy(solu_val val) {
         case SOLU_TDYN: return val.dyn;
         default: return false;
     }
+}
+bool solu_strict_eq(solu_val lhs, solu_val rhs) {
+    if (lhs.tt != rhs.tt) return false;
+    bool e = false;
+    switch (lhs.tt) {
+        case SOLU_TI64: e = lhs.i64 == rhs.i64; break;
+        case SOLU_TF64: e = lhs.f64 == rhs.f64; break;
+        case SOLU_TBOOL: e = lhs.boolean == rhs.boolean; break;
+        case SOLU_TDYN: {
+            solu_dalloc *h1 = solu_dheader(lhs);
+            solu_dalloc *h2 = solu_dheader(rhs);
+            if (h1->tt != h2->tt) {
+                e = false;
+                break;
+            }
+            switch (h1->tt) {
+                case SOLU_DSTR: e = lhs.dyn == rhs.dyn || strcmp(lhs.dyn, rhs.dyn) == 0; break;
+                default: e = lhs.dyn == rhs.dyn; break;
+            }
+        }
+        default: break;
+    }
+    return e;
 }
 
 static sf_str solu_dirname(sf_str path) {
@@ -1018,7 +1041,6 @@ solu_call_ex solu_call_bc(solu_state *s, solu_fproto *proto, const solu_val *arg
             uint32_t obj_r = solu_iabc_bx(ins), arg_r = obj_r + 2;
             solu_val var = SOLU_NIL;
 
-
             solu_val obj = solu_get(s, obj_r);
             solu_val key = solu_get(s, obj_r + 1);
             if (solu_iabc_bk(ins)) {
@@ -1099,6 +1121,8 @@ solu_call_ex solu_call_bc(solu_state *s, solu_fproto *proto, const solu_val *arg
                 f->upvals[i].value = ov;
 
             if (!fex.is_ok) {
+                if (f->tt == SOLU_FPROTO_C)
+                    fex.err.pc = pc - 1;
                 s->ecall = f;
                 return fex;
             }
@@ -1401,9 +1425,7 @@ solu_call_ex solu_call_bc(solu_state *s, solu_fproto *proto, const solu_val *arg
                     }
                     switch (h1->tt) {
                         case SOLU_DSTR: e = lhs.dyn == rhs.dyn || strcmp(lhs.dyn, rhs.dyn) == 0; break;
-                        case SOLU_DOBJ:
-                        case SOLU_DFUN: e = lhs.dyn == rhs.dyn; break;
-                        default: return solu_callerr(SOLU_ERRV_TYPE_MISMATCH, "Unknown Type", NULL);
+                        default: e = lhs.dyn == rhs.dyn; break;
                     }
                 }
                 default: break;

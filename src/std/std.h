@@ -19,6 +19,8 @@ solu_call_ex builtin_str(solu_state *s);
 solu_call_ex builtin_unwrap(solu_state *s);
 solu_call_ex builtin_or_else(solu_state *s);
 
+solu_call_ex string_join(solu_state *s);
+
 EXPORT void solu_mod_builtin(solu_state *s);
 EXPORT solu_val solu_mod_io(solu_state *s);
 EXPORT solu_val solu_mod_string(solu_state *s, bool meta);
