@@ -232,6 +232,11 @@ static inline solu_val solu_dval(solu_val val) {
     return val;
 }
 
+/// Returns the boolean value of any given type
+EXPORT bool solu_truthy(solu_val value);
+/// Returns whether values are equal without metadata calls or casting
+EXPORT bool solu_strict_eq(solu_val lhs, solu_val rhs);
+
 /// Gets the usrwrap header of a usrtype object
 static inline solu_usrwrap *solu_uheader(solu_val val) {
     if (!solu_isdtype(val, SOLU_DUSR))

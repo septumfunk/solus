@@ -1,4 +1,5 @@
 #include "solus/val.h"
+#include <math.h>
 #include <string.h>
 
 void _valmap_foreach(void *_u, sf_str k, solu_val _v) { (void)_u;(void)_v; sf_str_free(k); }
@@ -140,6 +141,40 @@ void solu_dclean(solu_val val) {
         default: break;
     }
     free(dh);
+}
+
+bool solu_truthy(solu_val val) {
+    switch (val.tt) {
+        case SOLU_TBOOL: return val.boolean;
+        case SOLU_TI64: return val.i64 != 0;
+        case SOLU_TF64: return !isnan(val.f64);
+        case SOLU_TDYN: return val.dyn;
+        default: return false;
+    }
+}
+
+bool solu_strict_eq(solu_val lhs, solu_val rhs) {
+    if (lhs.tt != rhs.tt) return false;
+    bool e = false;
+    switch (lhs.tt) {
+        case SOLU_TI64: e = lhs.i64 == rhs.i64; break;
+        case SOLU_TF64: e = lhs.f64 == rhs.f64; break;
+        case SOLU_TBOOL: e = lhs.boolean == rhs.boolean; break;
+        case SOLU_TDYN: {
+            solu_dalloc *h1 = solu_dheader(lhs);
+            solu_dalloc *h2 = solu_dheader(rhs);
+            if (h1->tt != h2->tt) {
+                e = false;
+                break;
+            }
+            switch (h1->tt) {
+                case SOLU_DSTR: e = lhs.dyn == rhs.dyn || strcmp(lhs.dyn, rhs.dyn) == 0; break;
+                default: e = lhs.dyn == rhs.dyn; break;
+            }
+        }
+        default: break;
+    }
+    return e;
 }
 
 sf_str solu_dasmf(solu_fproto *p) {
