@@ -210,6 +210,7 @@ static void _obj_fe(void *u, sf_str key, solu_val val) {
     }, 2);
     if (!args->ex.is_ok)
         longjmp(*args->b, 1);
+    else args->match = val;
 }
 static solu_call_ex obj_pairs(solu_state *s) {
     solu_val obj = solu_selfc(s);
