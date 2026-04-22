@@ -240,8 +240,11 @@ static solu_cnode_ex solu_cmembers(solu_compiler *c, solu_node *node, uint32_t t
             solu_cemit(c, solu_ins_ab(SOLU_OP_PUSH, t_reg, it));
         } else {
             bool isk = nd->n_binary.left->tt == SOLU_ND_IDENTIFIER || nd->n_binary.left->tt == SOLU_ND_LITERAL;
-            if (isk && !solu_kfind(c, nd->n_binary.left->n_identifier, &key_i))
-                key_i = solu_const(solu_kadd(c, nd->n_binary.left->n_identifier));
+            if (isk) {
+                if (!solu_kfind(c, nd->n_binary.left->n_identifier, &key_i))
+                    key_i = solu_kadd(c, nd->n_binary.left->n_identifier);
+                key_i = solu_const(key_i);
+            }
             else {
                 key_i = solu_reg(kt);
                 solu_cnode_ex ex = solu_cnode(c, nd->n_binary.left, kt);

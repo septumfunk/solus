@@ -1131,6 +1131,7 @@ solu_call_ex solu_call_bc(solu_state *s, solu_fproto *proto, const solu_val *arg
         }
 
         CASE(SOLU_OP_ADD) {
+            uint32_t a = solu_iabc_a(ins), b = solu_iabc_bx(ins); (void)a;(void)b;
             bool pleq = solu_iabc_bx(ins) == solu_iabc_a(ins);
             solu_val lhs = solu_iabc_bk(ins) ? solu_getk(s, proto, solu_iabc_bx(ins)) : solu_get(s, solu_iabc_bx(ins));
             solu_val rhs = solu_iabc_ck(ins) ? solu_getk(s, proto, solu_iabc_cx(ins)) : solu_get(s, solu_iabc_cx(ins));
@@ -1209,7 +1210,8 @@ solu_call_ex solu_call_bc(solu_state *s, solu_fproto *proto, const solu_val *arg
                             break;
                         }
                         case SOLU_DOBJ: {
-                            if (pleq) solu_dappend(lhs, rhs);
+                            if (pleq)
+                                solu_dappend(lhs, rhs);
                             else solu_set(s, solu_iabc_a(ins), solu_djoin(s, lhs, rhs));
                             break;
                         }
