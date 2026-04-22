@@ -81,6 +81,9 @@ EXPORT solu_val solu_dnstr(solu_state *state, const char *str);
 /// Shorthand for using solu_dnew and assigning a string value.
 EXPORT solu_val solu_dnerr(solu_state *state, const char *str);
 
+EXPORT bool solu_truthy(solu_val value);
+EXPORT bool solu_strict_eq(solu_val lhs, solu_val rhs);
+
 /// Converts a value to a string.
 /// You are responsible for freeing this string
 EXPORT char *solu_tostr(solu_state *state, solu_val value);

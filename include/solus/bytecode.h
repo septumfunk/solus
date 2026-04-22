@@ -15,7 +15,7 @@
 #endif
 
 /// Bytecode version
-#define SOLU_VERSION "0.10"
+#define SOLU_VERSION "0.10.1"
 /// Git repository, hosted on GitHub for now
 #define SOLU_GIT "https://github.com/solus-lang/solus"
 

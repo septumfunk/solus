@@ -69,7 +69,7 @@ static solu_call_ex string_repeat(solu_state *s) {
     solu_dpush(s, dh);
     return solu_ok((solu_val){SOLU_TDYN, .dyn = dh + 1});
 }
-static solu_call_ex string_join(solu_state *s) {
+solu_call_ex string_join(solu_state *s) {
     solu_val strings = solu_get(s, 0);
     expect_dtype(SOLU_DOBJ, strings);
     solu_dobj *dobj = strings.dyn;

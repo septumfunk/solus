@@ -8,7 +8,7 @@ assert(inst.meows == 2);
 assert(inst.paws == 4);
 
 assert(type(123) == "i64");
-assert(type(nan) == "f64");
+assert(type(3.14) == "f64");
 assert(type("hi") == "str");
 assert(type(true) == "bool");
 
@@ -17,4 +17,5 @@ assert(a == 3);
 
 val b = f64(7);
 assert(b == 7.0);
+
 assert(str(42) == "42");

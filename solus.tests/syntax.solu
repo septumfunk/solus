@@ -1,0 +1,30 @@
+# syntax.solu
+
+var x = 1 + 2 * 3;  # 7
+assert(x == 7);
+
+val con = 5;
+
+val v = do {
+    var t = 10;
+    t += 2;
+    t * 3
+};
+assert(v == 36);
+
+val a = true and "yes" or "no";
+assert(a == "yes");
+
+val b = false and "nope" or "ok";
+assert(b == "ok");
+
+var sum = 0;
+for var i = 1; i <= 10; ++i
+    sum += i;
+assert(sum == 55);
+
+var n = 0;
+while n < 5 {
+    n += 1;
+}
+assert(n == 5);
