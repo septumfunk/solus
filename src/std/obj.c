@@ -338,7 +338,7 @@ static solu_call_ex obj_where(solu_state *s) {
         2);
         if (!ex.is_ok) return ex;
         if (solu_truthy(ex.ok))
-            return solu_ok(ex.ok);
+            return solu_ok(o->array.data[i]);
     }
     return solu_ok(SOLU_NIL);
 }
@@ -358,7 +358,7 @@ static solu_call_ex obj_all(solu_state *s) {
         2);
         if (!ex.is_ok) return ex;
         if (solu_truthy(ex.ok))
-            solu_valvec_push(&((solu_dobj *)out.dyn)->array, ex.ok);
+            solu_valvec_push(&((solu_dobj *)out.dyn)->array, o->array.data[i]);
     }
 
     solu_drelease(out);
@@ -437,7 +437,6 @@ solu_val solu_mod_obj(solu_state *s, bool meta) {
     solu_dobj_strset(obj.dyn, "where", fun(s, obj_where, 2, NULL, 0));
     solu_dobj_strset(obj.dyn, "all", fun(s, obj_all, 2, NULL, 0));
     solu_dobj_strset(obj.dyn, "contains", fun(s, obj_contains, 2, NULL, 0));
-
 
     solu_dobj_strset(obj.dyn, "template", fun(s, obj_template, 1, NULL, 0));
 
