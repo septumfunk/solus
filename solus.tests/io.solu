@@ -6,7 +6,7 @@ io.println($'2+2={2+2}');
 io.println($'{io.time()}s');
 
 var f = io.fread('solus.tests/module.solu').unwrap();
-io.compile(f, 'out.solu').unwrap();
+io.compile(f, 'out.solc').unwrap();
 
 val o1 = io.input('#1> ').f64().unwrap();
 val o2 = io.input('#2> ').f64().unwrap();
