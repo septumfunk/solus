@@ -50,12 +50,12 @@ void solu_usestd(solu_state *s) {
     solu_dobj_strset(solus.dyn, "git", solu_dnstr(s, SOLU_GIT));
     solu_dobj_strset(s->global.dyn, "solus", solus);
 
+    solu_mod_builtin(s);
     s->meta.string = solu_mod_string(s, true);
     s->meta.obj = solu_mod_obj(s, true);
     solu_dhold(s->meta.string);
     solu_dhold(s->meta.obj);
 
-    solu_mod_builtin(s);
     solu_mod_string(s, false);
     solu_mod_obj(s, false);
     solu_mod_io(s);
@@ -240,7 +240,7 @@ solu_val solu_dnerr(solu_state *s, const char *str) {
 char *solu_tostr(solu_state *s, solu_val val) {
     switch (val.tt) {
         case SOLU_TNIL: return _strdup("nil");
-        case SOLU_TF64: return sf_str_fmt("%.10f", val.f64).c_str;
+        case SOLU_TF64: return sf_str_fmt("%g", val.f64).c_str;
         case SOLU_TI64: return sf_str_fmt("%lld", val.i64).c_str;
         case SOLU_TBOOL: return _strdup(val.boolean ? "true" : "false");
         case SOLU_TDYN: {
@@ -1028,7 +1028,7 @@ solu_call_ex solu_call_bc(solu_state *s, solu_fproto *proto, const solu_val *arg
                 extend = da->metadata[SOLU_META_EXTEND].tt != SOLU_TNIL;
                 get = da->metadata[SOLU_META_GET];
                 if (get.tt != SOLU_TNIL) {
-                    solu_call_ex ex = solu_call(s, get.dyn, (solu_val[]){key}, 1);
+                    solu_call_ex ex = solu_call(s, get.dyn, (solu_val[]){obj, key}, 2);
                     if (!ex.is_ok) return ex;
                     fun = ex.ok;
                 }
@@ -1564,7 +1564,7 @@ solu_call_ex solu_call_bc(solu_state *s, solu_fproto *proto, const solu_val *arg
                 }
             }
             if (get.tt != SOLU_TNIL) {
-                solu_call_ex ex = solu_call(s, get.dyn, (solu_val[]){key}, 1);
+                solu_call_ex ex = solu_call(s, get.dyn, (solu_val[]){obj, key}, 2);
                 if (!ex.is_ok) return ex;
                 solu_set(s, solu_iabc_a(ins), ex.ok);
                 DISPATCH();

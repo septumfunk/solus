@@ -1,4 +1,5 @@
 build*
+solus
 .cache/
 *.exe
 *.o
@@ -6,6 +7,5 @@ compile_commands.json
 *.ssu
 .DS_Store
 *.solc
-solus_test_tmp.txt
-*.dSYM/*
-die.dSYM
+*tmp.txt
+*.dSYM

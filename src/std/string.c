@@ -45,7 +45,7 @@ static solu_call_ex string_sub(solu_state *s) {
     if (end.i64 < start.i64)
         return solu_panic(s, _strdup("end cannot be before start"));
 
-    size_t slen = (size_t)(end.i64 - start.i64);
+    size_t slen = (size_t)(end.i64 - start.i64 + 1);
     char *buf = (char *)malloc(slen + 1);
     memcpy(buf, sstr + start.i64, slen);
     buf[slen] = '\0';
@@ -95,8 +95,8 @@ static solu_call_ex string_reverse(solu_state *s) {
 
     size_t size = solu_dheader(string)->size;
     char *n = malloc(size);
-    for (size_t i = 0; i < size - 1; ++i)
-        n[i] = ((char *)string.dyn)[size - 1 - i];
+    for (size_t i = 0; i < size; ++i)
+        n[i] = ((char *)string.dyn)[size - 2 - i];
     n[size - 1] = 0;
 
     solu_val out = solu_dnstr(s, n);
@@ -257,6 +257,7 @@ solu_val solu_mod_string(solu_state *s, bool meta) {
     solu_val string = solu_dnew(s, SOLU_DOBJ);
     solu_dobj_strset(string.dyn, "len", fun(s, string_len, 1, NULL, 0));
     solu_dobj_strset(string.dyn, "sub", fun(s, string_sub, 3, NULL, 0));
+    solu_dobj_strset(string.dyn, "reverse", fun(s, string_reverse, 1, NULL, 0));
     solu_dobj_strset(string.dyn, "repeat", fun(s, string_repeat, 2, NULL, 0));
     solu_dobj_strset(string.dyn, "split", fun(s, string_split, 2, NULL, 0));
     solu_dobj_strset(string.dyn, "ord", fun(s, string_ord, 1, NULL, 0));
@@ -271,7 +272,7 @@ solu_val solu_mod_string(solu_state *s, bool meta) {
         solu_dobj_strset(string.dyn, "unwrap", fun(s, builtin_unwrap, 0, NULL, 0));
         solu_dobj_strset(string.dyn, "or_else", fun(s, builtin_or_else, 1, NULL, 0));
     } else { // Some don't make sense as member functions
-        solu_dobj_strset(string.dyn, "join", fun(s, string_join, 1, NULL, 0));
+        solu_dobj_strset(string.dyn, "join", fun(s, string_join, 2, NULL, 0));
         solu_dobj_strset(s->global.dyn, "string", string);
     }
     return string;

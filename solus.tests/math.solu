@@ -1,0 +1,16 @@
+assert(math.mini(-300, 20) == -300);
+assert(math.maxi(-300, 20) == 20);
+assert(math.minf(-inf, inf) == -inf);
+assert(math.maxf(-inf, inf) == inf);
+assert(math.isnan(nan) and !math.isnan(2));
+
+val start = -100f;
+val end = 100f;
+val goal = 1f;
+
+var counter = 0f;
+var last_time = io.time();
+while (counter < goal) {
+    counter += io.time() - last_time;
+    last_time = io.time();
+}

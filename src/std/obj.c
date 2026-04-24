@@ -137,7 +137,7 @@ static void _stringify_fe(void *u, sf_str key, solu_val val) {
     if (args->pretty && args->commas)
         ec = sf_lit(",\n");
     else if (args->commas)
-        ec = sf_lit(",");
+        ec = sf_lit(", ");
     else if (args->pretty)
         ec = sf_lit("\n");
 
@@ -209,11 +209,30 @@ static solu_call_ex obj_template(solu_state *s) {
 // Map
 
 /*
- * obj.set(obj: object, key: str, val: any)
- * Sets the object’s member at the specified key. This bypasses the
- * metadata method `_set`
+ * obj.set(self: obj, key: str, val: any)
+ * Sets the object’s member at the specified key.
  */
 static solu_call_ex obj_set(solu_state *s) {
+    solu_val obj = solu_selfc(s);
+    solu_val key = solu_get(s, 1);
+    solu_val value = solu_get(s, 2);
+    solu_dalloc *dh = solu_dheader(obj);
+    if (dh && dh->metadata[SOLU_META_SET].tt != SOLU_TNIL) {
+        solu_call_ex ex = solu_call(s, dh->metadata[SOLU_META_SET].dyn,
+            (solu_val[]){obj, key, value}, 3);
+        if (!ex.is_ok) return ex;
+        return solu_ok(ex.ok);
+    }
+    expect_dtype(SOLU_DOBJ, obj);
+    solu_dobj_set(s, obj.dyn, key, value);
+    return solu_ok(SOLU_NIL);
+}
+
+/*
+ * obj.setr(self: obj, key: str, value: any)
+ * Sets the object’s "raw" member at the specified key, bypassing `_set` metadata
+ */
+static solu_call_ex obj_setr(solu_state *s) {
     solu_val obj = solu_selfc(s);
     expect_dtype(SOLU_DOBJ, obj);
     solu_dobj_set(s, obj.dyn, solu_get(s, 1), solu_get(s, 2));
@@ -221,11 +240,29 @@ static solu_call_ex obj_set(solu_state *s) {
 }
 
 /*
- * obj.get(obj: object, key: str) -> any
+ * obj.get(self: obj, key: str) -> any
  * Gets the object’s member at the specified key. Useful for non identifier
- * friendly member keys. This bypasses the metadata method `_get`
+ * friendly member keys.
  */
 static solu_call_ex obj_get(solu_state *s) {
+    solu_val obj = solu_selfc(s);
+    solu_val key = solu_get(s, 1);
+    solu_dalloc *dh = solu_dheader(obj);
+    if (dh && dh->metadata[SOLU_META_GET].tt != SOLU_TNIL) {
+        solu_call_ex ex = solu_call(s, dh->metadata[SOLU_META_GET].dyn,
+            (solu_val[]){obj, key}, 2);
+        if (!ex.is_ok) return ex;
+        return solu_ok(ex.ok);
+    }
+    expect_dtype(SOLU_DOBJ, obj);
+    return solu_ok(solu_dobj_get(s, obj.dyn, solu_get(s, 1)));
+}
+
+/*
+ * obj.getr(obj: object, key: str) -> any
+ * Gets the object’s "raw" member at the specified key, bypassing `_get` metadata
+ */
+static solu_call_ex obj_getr(solu_state *s) {
     solu_val obj = solu_selfc(s);
     expect_dtype(SOLU_DOBJ, obj);
     return solu_ok(solu_dobj_get(s, obj.dyn, solu_get(s, 1)));
@@ -326,7 +363,7 @@ static solu_call_ex obj_match(solu_state *s) {
     } else return args.ex; // Panic
 
     solu_drelease(out);
-    return solu_ok(SOLU_NIL);
+    return solu_ok(out);
 }
 
 /*
@@ -484,7 +521,7 @@ static solu_call_ex obj_range(solu_state *s) {
     for (solu_i64 i = 0; i < o->array.count; ++i)
         if (i >= start.i64 && i <= end.i64)
             solu_valvec_push(&((solu_dobj *)new.dyn)->array, o->array.data[i]);
-    return solu_ok(SOLU_NIL);
+    return solu_ok(new);
 }
 
 /*
@@ -594,7 +631,9 @@ solu_val solu_mod_obj(solu_state *s, bool meta) {
 
     // Map
     solu_dobj_strset(obj.dyn, "set", fun(s, obj_set, 3, NULL, 0));
+    solu_dobj_strset(obj.dyn, "setr", fun(s, obj_setr, 3, NULL, 0));
     solu_dobj_strset(obj.dyn, "get", fun(s, obj_get, 2, NULL, 0));
+    solu_dobj_strset(obj.dyn, "getr", fun(s, obj_getr, 2, NULL, 0));
     solu_dobj_strset(obj.dyn, "members", fun(s, obj_members, 1, NULL, 0));
     solu_dobj_strset(obj.dyn, "pairs", fun(s, obj_pairs, 2, NULL, 0));
     solu_dobj_strset(obj.dyn, "find", fun(s, obj_find, 2, NULL, 0));
@@ -624,7 +663,7 @@ solu_val solu_mod_obj(solu_state *s, bool meta) {
         solu_dobj_strset(obj.dyn, "unwrap", fun(s, builtin_unwrap, 1, NULL, 0));
         solu_dobj_strset(obj.dyn, "or_else", fun(s, builtin_or_else, 1, NULL, 0));
 
-        solu_dobj_strset(obj.dyn, "join", fun(s, string_join, 1, NULL, 0));
+        solu_dobj_strset(obj.dyn, "join", fun(s, string_join, 2, NULL, 0));
     } else solu_dobj_strset(s->global.dyn, "obj", obj);
     return obj;
 }

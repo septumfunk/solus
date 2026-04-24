@@ -272,7 +272,7 @@ static solu_call_ex builtin_f64(solu_state *s) {
                 return solu_panic(s, "'%s' expected i64|str|bool, found %s", solu_typename(conv).c_str);
             errno = 0;
             char *end;
-            solu_val out = {SOLU_TI64, .i64 = (solu_i64)strtof(conv.dyn, &end)};
+            solu_val out = {SOLU_TF64, .f64 = (solu_f64)strtof(conv.dyn, &end)};
             if (end == conv.dyn)
                 return solu_err(s, "no value found for conversion");
             if (errno == ERANGE)

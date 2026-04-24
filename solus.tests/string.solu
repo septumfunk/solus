@@ -1,19 +1,17 @@
-# string.solu
+assert('abc'.len() == 3);
 
-assert(string.len("hello") == 5);
+assert('banana'.sub(2, 4) == nan.str());
+assert('a'.repeat(5) == 'aaaaa');
 
-assert(string.sub("abcdef", 1, 4) == "bcd");  # typical slice semantics
-assert(string.sub("abc", -10, 2) == "ab");    # clamp start
-assert(string.sub("abc", 0, 999) == "abc");   # clamp end
+val a = 'tacocat';
+io.println(a.reverse());
+assert(a.reverse() == a);
 
-assert(string.repeat("ha", 3) == "hahaha");
+io.println({'solus', 'is', 'awesome'}.join(' '));
+io.println('hello'.split('').reverse().join());
 
-val parts = string.split("a,b,c", ",");
-assert(type(parts) == "obj");
-assert(obj.len(parts) == 3);
-assert(parts[0] == "a");
-assert(parts[1] == "b");
-assert(parts[2] == "c");
+assert('A'.ord() == 65);
 
-assert(string.join({ "x", "y", "z" }) == "xyz");
-assert("sol" + "us" == "solus");
+val low = "aaa";
+val up = "AAA";
+assert(low.upper() == up and up.lower() == low);
