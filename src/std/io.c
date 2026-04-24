@@ -144,7 +144,7 @@ static ssize_t getline(char **lineptr, size_t *n, FILE *stream) {
     size_t len = 0;
     for (;;) {
         int ch = fgetc(stream);
-        if (ch == '\n') break;
+        if (ch == '\r' || ch == '\n' ) break;
         if (ch == EOF) {
             if (ferror(stream)) {
                 return -1;
