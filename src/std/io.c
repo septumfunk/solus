@@ -184,7 +184,6 @@ static solu_call_ex io_input(solu_state *s) {
     if (n == -1)
         return solu_ok(solu_dnerr(s, "User canceled input"));
 
-    line[n - 1] = 0;
     solu_val str = solu_dnstr(s, line);
     free(line);
 
