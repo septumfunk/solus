@@ -30,6 +30,7 @@
       "args": ["${input:cliMode}", "solus.tests/${input:scriptName}"],
       "type": "lldb",
       "program": "${workspaceFolder}/build/sanitized/solus",
+      "terminal": "integrated",
 
       "env": {
         "ASAN_OPTIONS": "detect_leaks=0:disable_coredump=0",
