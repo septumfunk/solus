@@ -2,6 +2,10 @@
 #include "solus/vm.h"
 #include "std.h"
 
+/*
+ * io.print(val: any)
+ * Prints the str representation of any value to the console
+ */
 static solu_call_ex io_print(solu_state *s) {
     solu_val to_print = solu_get(s, 0);
     char *val = solu_tostr(s, to_print);
@@ -9,6 +13,12 @@ static solu_call_ex io_print(solu_state *s) {
     free(val);
     return solu_ok(SOLU_NIL);
 }
+
+/*
+ * io.println(val: any)
+ * Prints the str representation of any value to the console, followed by
+ * a newline character and flush
+ */
 static solu_call_ex io_println(solu_state *s) {
     solu_val to_print = solu_get(s, 0);
     char *val = solu_tostr(s, to_print);
@@ -16,10 +26,20 @@ static solu_call_ex io_println(solu_state *s) {
     free(val);
     return solu_ok(SOLU_NIL);
 }
+
+/*
+ * io.time() -> f64
+ * Returns the time in seconds since the UNIX epoch
+ */
 static solu_call_ex io_time(solu_state *s) {
     (void)s;
     return solu_ok((solu_val){.tt = SOLU_TF64, .f64 = solu_timesec()});
 }
+
+/*
+ * io.fread(path: str) -> str|err
+ * Attempts to read a file from the specified path
+ */
 static solu_call_ex io_fread(solu_state *s) {
     solu_val path = solu_get(s, 0);
     expect_dtype(SOLU_DSTR, path);
@@ -50,6 +70,11 @@ static solu_call_ex io_fread(solu_state *s) {
 
     return solu_ok(solu_dnstr(s, (char *)fsb.ok.ptr));
 }
+
+/*
+ * io.fwrite(path: str, content: str) -> nil|err
+ * Writes the provided string to a file at the specified path
+ */
 static solu_call_ex io_fwrite(solu_state *s) {
     solu_val path = solu_get(s, 0);
     expect_dtype(SOLU_DSTR, path);
@@ -71,6 +96,12 @@ static solu_call_ex io_fwrite(solu_state *s) {
 
     return solu_ok(SOLU_NIL);
 }
+
+/*
+ * io.compile(src: str, path: str) -> nil|err
+ * Attempts to compile provided source into a function and then save
+ * it to a file at the provided path
+ */
 static solu_call_ex io_compile(solu_state *s) {
     solu_val src = solu_get(s, 0);
     expect_dtype(SOLU_DSTR, src);
@@ -90,13 +121,13 @@ static solu_call_ex io_compile(solu_state *s) {
 }
 
 #if defined(_WIN32) && !defined(HAVE_GETLINE)
-
 #if defined(_MSC_VER)
   #include <BaseTsd.h>
   typedef SSIZE_T ssize_t;
 #else
   typedef long ssize_t;
 #endif
+/// Windows getline impl
 static ssize_t getline(char **lineptr, size_t *n, FILE *stream) {
     if (lineptr == NULL || n == NULL || stream == NULL) {
         errno = EINVAL;
@@ -110,10 +141,10 @@ static ssize_t getline(char **lineptr, size_t *n, FILE *stream) {
             return -1;
         }
     }
-
     size_t len = 0;
     for (;;) {
         int ch = fgetc(stream);
+        if (ch == '\r' || ch == '\n' ) break;
         if (ch == EOF) {
             if (ferror(stream)) {
                 return -1;
@@ -132,12 +163,16 @@ static ssize_t getline(char **lineptr, size_t *n, FILE *stream) {
             *n = newcap;
         }
         (*lineptr)[len++] = (char)ch;
-        if (ch == '\n') break;
     }
     (*lineptr)[len] = '\0';
     return (ssize_t)len;
 }
 #endif
+
+/*
+ * io.input(prefix: str) -> str
+ * Get input from the user in a command line, printing a prefix before hand
+ */
 static solu_call_ex io_input(solu_state *s) {
     solu_val prefix = solu_get(s, 0);
     expect_dtype(SOLU_DSTR, prefix);
@@ -147,9 +182,8 @@ static solu_call_ex io_input(solu_state *s) {
     printf("%s", (char *)prefix.dyn);
     ssize_t n = getline(&line, &cap, stdin);
     if (n == -1)
-        return solu_ok(solu_dnerr(s, "Failed to get input"));
+        return solu_ok(solu_dnerr(s, "User canceled input"));
 
-    line[n - 1] = 0;
     solu_val str = solu_dnstr(s, line);
     free(line);
 
@@ -158,6 +192,7 @@ static solu_call_ex io_input(solu_state *s) {
 
 solu_val solu_mod_io(solu_state *s) {
     solu_val io = solu_dnew(s, SOLU_DOBJ);
+
     solu_dobj_strset(io.dyn, "print", solu_wrapcfun(s, io_print, 1, NULL, 0));
     solu_dobj_strset(io.dyn, "println", solu_wrapcfun(s, io_println, 1, NULL, 0));
     solu_dobj_strset(io.dyn, "time", solu_wrapcfun(s, io_time, 0, NULL, 0));
@@ -165,6 +200,7 @@ solu_val solu_mod_io(solu_state *s) {
     solu_dobj_strset(io.dyn, "fwrite", solu_wrapcfun(s, io_fwrite, 2, NULL, 0));
     solu_dobj_strset(io.dyn, "compile", solu_wrapcfun(s, io_compile, 2, NULL, 0));
     solu_dobj_strset(io.dyn, "input", solu_wrapcfun(s, io_input, 1, NULL, 0));
+
     solu_dobj_strset(s->global.dyn, "io", io);
     return io;
 }

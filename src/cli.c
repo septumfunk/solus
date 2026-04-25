@@ -155,11 +155,13 @@ int cli_run(char *path, sf_str src) {
         return -1;
     }
 
+    if (call_ex.ok.tt != SOLU_TNIL) {
     char *ret = solu_tostr(s, call_ex.ok);
     printf(solu_isdtype(call_ex.ok, SOLU_DSTR) ? TUI_BLD "Returned: (%s) '%s'\n" : TUI_BLD "Returned: (%s) %s\n",
         solu_typename(call_ex.ok).c_str, ret);
+        free(ret);
+    }
 
-    free(ret);
     solu_fproto_free(&fb);
     solu_state_free(s);
     return 0;

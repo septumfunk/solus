@@ -6,11 +6,11 @@
 
 #define expect_type(T, val) do { \
     if (val.tt != T) \
-        return solu_panic("'%s' expected %s, found %s", #val, SOLU_TYPE_NAMES[T], solu_typename(val).c_str); \
+        return solu_panic(s, "'%s' expected %s, found %s", #val, SOLU_TYPE_NAMES[T], solu_typename(val).c_str); \
 } while (0);
 #define expect_dtype(T, val) do { \
     if (!solu_isdtype(val, T)) \
-        return solu_panic("'%s' expected %s, found %s", #val, SOLU_TYPE_NAMES[(int)SOLU_TDYN + 1 + T], solu_typename(val).c_str); \
+        return solu_panic(s, "'%s' expected %s, found %s", #val, SOLU_TYPE_NAMES[(int)SOLU_TDYN + 1 + T], solu_typename(val).c_str); \
 } while (0);
 
 solu_call_ex builtin_then(solu_state *s);

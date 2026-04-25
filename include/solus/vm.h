@@ -43,6 +43,7 @@ typedef struct solu_state {
     solu_strcache strcache; // short string cache
     size_t lb, cb, nb; // last bytes, current bytes, next bytes
     solu_fproto *ccall, *ecall; // the proto being called currently
+    uint32_t cpc; // current program counter at call
     sf_str cwd;
 
     struct {
@@ -80,9 +81,6 @@ EXPORT solu_val solu_dnusr(solu_state *state, size_t size, const char *name, voi
 EXPORT solu_val solu_dnstr(solu_state *state, const char *str);
 /// Shorthand for using solu_dnew and assigning a string value.
 EXPORT solu_val solu_dnerr(solu_state *state, const char *str);
-
-EXPORT bool solu_truthy(solu_val value);
-EXPORT bool solu_strict_eq(solu_val lhs, solu_val rhs);
 
 /// Converts a value to a string.
 /// You are responsible for freeing this string
@@ -233,7 +231,7 @@ static inline solu_call_ex solu_ok(solu_val return_val) {
 /// Convenience function for returning err in API functions
 EXPORT solu_call_ex solu_err(solu_state *state, char *fmt, ...);
 /// Convenience function for returning panic in API functions
-EXPORT solu_call_ex solu_panic(char *fmt, ...);
+EXPORT solu_call_ex solu_panic(solu_state *state, char *fmt, ...);
 /// Convenience function for cleaning up a panic
 static inline void solu_panic_cleanup(solu_call_ex panic) {
     if (panic.err.panic) free(panic.err.panic);

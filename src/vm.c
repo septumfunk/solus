@@ -1,4 +1,3 @@
-#include <math.h>
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -51,12 +50,12 @@ void solu_usestd(solu_state *s) {
     solu_dobj_strset(solus.dyn, "git", solu_dnstr(s, SOLU_GIT));
     solu_dobj_strset(s->global.dyn, "solus", solus);
 
+    solu_mod_builtin(s);
     s->meta.string = solu_mod_string(s, true);
     s->meta.obj = solu_mod_obj(s, true);
     solu_dhold(s->meta.string);
     solu_dhold(s->meta.obj);
 
-    solu_mod_builtin(s);
     solu_mod_string(s, false);
     solu_mod_obj(s, false);
     solu_mod_io(s);
@@ -241,7 +240,7 @@ solu_val solu_dnerr(solu_state *s, const char *str) {
 char *solu_tostr(solu_state *s, solu_val val) {
     switch (val.tt) {
         case SOLU_TNIL: return _strdup("nil");
-        case SOLU_TF64: return sf_str_fmt("%.10f", val.f64).c_str;
+        case SOLU_TF64: return sf_str_fmt("%g", val.f64).c_str;
         case SOLU_TI64: return sf_str_fmt("%lld", val.i64).c_str;
         case SOLU_TBOOL: return _strdup(val.boolean ? "true" : "false");
         case SOLU_TDYN: {
@@ -828,39 +827,6 @@ solu_load_ex solu_loadfun(solu_state *state, char *path) {
     return ex;
 }
 
-bool solu_truthy(solu_val val) {
-    switch (val.tt) {
-        case SOLU_TBOOL: return val.boolean;
-        case SOLU_TI64: return val.i64 != 0;
-        case SOLU_TF64: return !isnan(val.f64);
-        case SOLU_TDYN: return val.dyn;
-        default: return false;
-    }
-}
-bool solu_strict_eq(solu_val lhs, solu_val rhs) {
-    if (lhs.tt != rhs.tt) return false;
-    bool e = false;
-    switch (lhs.tt) {
-        case SOLU_TI64: e = lhs.i64 == rhs.i64; break;
-        case SOLU_TF64: e = lhs.f64 == rhs.f64; break;
-        case SOLU_TBOOL: e = lhs.boolean == rhs.boolean; break;
-        case SOLU_TDYN: {
-            solu_dalloc *h1 = solu_dheader(lhs);
-            solu_dalloc *h2 = solu_dheader(rhs);
-            if (h1->tt != h2->tt) {
-                e = false;
-                break;
-            }
-            switch (h1->tt) {
-                case SOLU_DSTR: e = lhs.dyn == rhs.dyn || strcmp(lhs.dyn, rhs.dyn) == 0; break;
-                default: e = lhs.dyn == rhs.dyn; break;
-            }
-        }
-        default: break;
-    }
-    return e;
-}
-
 static sf_str solu_dirname(sf_str path) {
     const char *slash = strrchr(path.c_str, '/');
 #ifdef _WIN32
@@ -967,6 +933,7 @@ solu_call_ex solu_call_bc(solu_state *s, solu_fproto *proto, const solu_val *arg
             DISPATCH();
         }
         CASE(SOLU_OP_CALL) {
+            s->cpc = pc - 1;
             uint32_t var_r = UINT32_MAX;
             uint32_t fun_r = solu_iabc_bx(ins);
             solu_val var = SOLU_NIL;
@@ -1028,8 +995,6 @@ solu_call_ex solu_call_bc(solu_state *s, solu_fproto *proto, const solu_val *arg
                 f->upvals[i].value = ov;
 
             if (!fex.is_ok) {
-                if (f->tt == SOLU_FPROTO_C)
-                    fex.err.pc = pc - 1;
                 s->ecall = f;
                 return fex;
             }
@@ -1037,6 +1002,7 @@ solu_call_ex solu_call_bc(solu_state *s, solu_fproto *proto, const solu_val *arg
             DISPATCH();
         }
         CASE(SOLU_OP_MCALL) {
+            s->cpc = pc - 1;
             uint32_t var_r = UINT32_MAX;
             uint32_t obj_r = solu_iabc_bx(ins), arg_r = obj_r + 2;
             solu_val var = SOLU_NIL;
@@ -1062,7 +1028,7 @@ solu_call_ex solu_call_bc(solu_state *s, solu_fproto *proto, const solu_val *arg
                 extend = da->metadata[SOLU_META_EXTEND].tt != SOLU_TNIL;
                 get = da->metadata[SOLU_META_GET];
                 if (get.tt != SOLU_TNIL) {
-                    solu_call_ex ex = solu_call(s, get.dyn, (solu_val[]){key}, 1);
+                    solu_call_ex ex = solu_call(s, get.dyn, (solu_val[]){obj, key}, 2);
                     if (!ex.is_ok) return ex;
                     fun = ex.ok;
                 }
@@ -1121,8 +1087,6 @@ solu_call_ex solu_call_bc(solu_state *s, solu_fproto *proto, const solu_val *arg
                 f->upvals[i].value = ov;
 
             if (!fex.is_ok) {
-                if (f->tt == SOLU_FPROTO_C)
-                    fex.err.pc = pc - 1;
                 s->ecall = f;
                 return fex;
             }
@@ -1182,7 +1146,9 @@ solu_call_ex solu_call_bc(solu_state *s, solu_fproto *proto, const solu_val *arg
                     solu_set(s, solu_iabc_a(ins), (solu_val){.tt = SOLU_TF64, .f64 = lhs.f64 + rhs.f64});
                     break;
                 case SOLU_TI64:
-                    solu_set(s, solu_iabc_a(ins), (solu_val){.tt = SOLU_TI64, .i64 = lhs.i64 + rhs.i64});
+                    solu_set(s, solu_iabc_a(ins), (solu_val){.tt = SOLU_TI64,
+                        .i64 = (solu_i64)((uint64_t)lhs.i64 + (uint64_t)rhs.i64)
+                    });
                     break;
                 case SOLU_TDYN: {
                     solu_dalloc *dh = solu_dheader(lhs);
@@ -1210,8 +1176,7 @@ solu_call_ex solu_call_bc(solu_state *s, solu_fproto *proto, const solu_val *arg
                             break;
                         }
                         case SOLU_DOBJ: {
-                            if (pleq)
-                                solu_dappend(lhs, rhs);
+                            if (pleq) solu_dappend(lhs, rhs);
                             else solu_set(s, solu_iabc_a(ins), solu_djoin(s, lhs, rhs));
                             break;
                         }
@@ -1265,7 +1230,7 @@ solu_call_ex solu_call_bc(solu_state *s, solu_fproto *proto, const solu_val *arg
                     (solu_val){.tt = SOLU_TI64, .i64 = (solu_i64)rhs.f64} :
                     (solu_val){.tt = SOLU_TF64, .f64 = (solu_f64)rhs.i64};
             solu_set(s, solu_iabc_a(ins), lhs.tt == SOLU_TI64 ?
-                (solu_val){.tt = SOLU_TI64, .i64 = lhs.i64 - rhs.i64} :
+                (solu_val){.tt = SOLU_TI64, .i64 = (solu_i64)((uint64_t)lhs.i64 - (uint64_t)rhs.i64)} :
                 (solu_val){.tt = SOLU_TF64, .f64 = lhs.f64 - rhs.f64}
             );
             DISPATCH();
@@ -1303,7 +1268,7 @@ solu_call_ex solu_call_bc(solu_state *s, solu_fproto *proto, const solu_val *arg
                     (solu_val){.tt = SOLU_TI64, .i64 = (solu_i64)rhs.f64} :
                     (solu_val){.tt = SOLU_TF64, .f64 = (solu_f64)rhs.i64};
             solu_set(s, solu_iabc_a(ins), lhs.tt == SOLU_TI64 ?
-                (solu_val){.tt = SOLU_TI64, .i64 = lhs.i64 * rhs.i64} :
+                (solu_val){.tt = SOLU_TI64, .i64 = (solu_i64)((uint64_t)lhs.i64 * (uint64_t)rhs.i64)} :
                 (solu_val){.tt = SOLU_TF64, .f64 = lhs.f64 * rhs.f64}
             );
             DISPATCH();
@@ -1340,17 +1305,27 @@ solu_call_ex solu_call_bc(solu_state *s, solu_fproto *proto, const solu_val *arg
                 rhs = lhs.tt == SOLU_TI64 ?
                     (solu_val){.tt = SOLU_TI64, .i64 = (solu_i64)rhs.f64} :
                     (solu_val){.tt = SOLU_TF64, .f64 = (solu_f64)rhs.i64};
-            solu_set(s, solu_iabc_a(ins), lhs.tt == SOLU_TI64 ?
-                (solu_val){.tt = SOLU_TI64, .i64 = lhs.i64 / rhs.i64} :
-                (solu_val){.tt = SOLU_TF64, .f64 = lhs.f64 / rhs.f64}
-            );
+            if (lhs.tt == SOLU_TI64) {
+                if (rhs.i64 == 0)
+                    return solu_callerr(SOLU_ERRV_PANIC, "Division by zero", NULL);
+                solu_set(s, solu_iabc_a(ins), (solu_val){
+                    .tt = SOLU_TI64,
+                    .i64 = rhs.i64 == -1
+                        ? (solu_i64)(0ULL - (uint64_t)lhs.i64)
+                        : lhs.i64 / rhs.i64
+                });
+                DISPATCH();
+            }
+            solu_set(s, solu_iabc_a(ins), (solu_val){.tt = SOLU_TF64, .f64 = lhs.f64 / rhs.f64});
             DISPATCH();
         }
 
         CASE(SOLU_OP_NEG) {
             solu_val in = solu_get(s, solu_iab_b(ins));
             switch (in.tt) {
-                case SOLU_TI64: in.i64 = -in.i64; break;
+                case SOLU_TI64:
+                    in.i64 = (solu_i64)(0ULL - (uint64_t)in.i64);
+                    break;
                 case SOLU_TF64: in.f64 = -in.f64; break;
                 case SOLU_TBOOL: in.boolean = !in.boolean; break;
                 case SOLU_TDYN: {
@@ -1499,7 +1474,7 @@ solu_call_ex solu_call_bc(solu_state *s, solu_fproto *proto, const solu_val *arg
 
         CASE(SOLU_OP_SETU) {
             if (!proto->upvals)
-                return solu_panic("Corrupt Bytecode");
+                return solu_callerr(SOLU_ERRV_CORRUPT, "Corrupt Bytecode", NULL);
             solu_val v = solu_get(s, solu_iab_b(ins));
             solu_upvalue *upv = proto->upvals + solu_iab_a(ins);
             if (upv->tt == SOLU_UP_VAL) {
@@ -1513,7 +1488,7 @@ solu_call_ex solu_call_bc(solu_state *s, solu_fproto *proto, const solu_val *arg
         }
         CASE(SOLU_OP_GETU) {
             if (!proto->upvals)
-                return solu_panic("Corrupt Bytecode");
+                return solu_callerr(SOLU_ERRV_CORRUPT, "Corrupt Bytecode", NULL);
             solu_upvalue *upv = proto->upvals + solu_iab_b(ins);
             if (upv->tt == SOLU_UP_VAL) {
                 solu_set(s, solu_iab_a(ins), solu_isdtype(upv->value, SOLU_DREF) ?
@@ -1601,7 +1576,7 @@ solu_call_ex solu_call_bc(solu_state *s, solu_fproto *proto, const solu_val *arg
                 }
             }
             if (get.tt != SOLU_TNIL) {
-                solu_call_ex ex = solu_call(s, get.dyn, (solu_val[]){key}, 1);
+                solu_call_ex ex = solu_call(s, get.dyn, (solu_val[]){obj, key}, 2);
                 if (!ex.is_ok) return ex;
                 solu_set(s, solu_iabc_a(ins), ex.ok);
                 DISPATCH();
@@ -1648,7 +1623,7 @@ ret: {}
 
 solu_call_ex solu_call(solu_state *state, solu_fproto *proto, const solu_val *args, uint32_t arg_c) {
     if (state->call_stack > CALL_STACK_MAX)
-        return solu_panic("Stack Overflow");
+        return solu_panic(state, "Stack Overflow");
     sf_str od = proto->file_name;
     if (proto->file_name.len)
         state->cwd = proto->file_name;
@@ -1680,7 +1655,7 @@ solu_call_ex solu_call(solu_state *state, solu_fproto *proto, const solu_val *ar
 
 solu_call_ex solu_dcall(solu_state *state, solu_fproto *proto, const solu_val *args, uint32_t arg_c, bool *bps) {
     if (state->call_stack > CALL_STACK_MAX)
-        return solu_panic("Stack Overflow");
+        return solu_panic(state, "Stack Overflow");
 
     ++state->call_stack;
     if (proto->tt == SOLU_FPROTO_BC) {
@@ -1716,7 +1691,7 @@ solu_call_ex solu_err(solu_state *s, char *fmt, ...) {
     return solu_call_ex_ok(err);
 }
 
-solu_call_ex solu_panic(char *fmt, ...) {
+solu_call_ex solu_panic(solu_state *s, char *fmt, ...) {
     va_list arglist;
 
     va_start(arglist, fmt);
@@ -1729,5 +1704,5 @@ solu_call_ex solu_panic(char *fmt, ...) {
     vsnprintf(_fmt, size + 1, fmt, arglist);
     va_end(arglist);
 
-    return solu_call_ex_err((solu_call_err){SOLU_ERRV_PANIC, _fmt, 0});
+    return solu_call_ex_err((solu_call_err){SOLU_ERRV_PANIC, _fmt, s->cpc});
 }
