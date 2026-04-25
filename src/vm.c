@@ -1146,7 +1146,9 @@ solu_call_ex solu_call_bc(solu_state *s, solu_fproto *proto, const solu_val *arg
                     solu_set(s, solu_iabc_a(ins), (solu_val){.tt = SOLU_TF64, .f64 = lhs.f64 + rhs.f64});
                     break;
                 case SOLU_TI64:
-                    solu_set(s, solu_iabc_a(ins), (solu_val){.tt = SOLU_TI64, .i64 = lhs.i64 + rhs.i64});
+                    solu_set(s, solu_iabc_a(ins), (solu_val){.tt = SOLU_TI64,
+                        .i64 = (solu_i64)((uint64_t)lhs.i64 + (uint64_t)rhs.i64)
+                    });
                     break;
                 case SOLU_TDYN: {
                     solu_dalloc *dh = solu_dheader(lhs);
@@ -1228,7 +1230,7 @@ solu_call_ex solu_call_bc(solu_state *s, solu_fproto *proto, const solu_val *arg
                     (solu_val){.tt = SOLU_TI64, .i64 = (solu_i64)rhs.f64} :
                     (solu_val){.tt = SOLU_TF64, .f64 = (solu_f64)rhs.i64};
             solu_set(s, solu_iabc_a(ins), lhs.tt == SOLU_TI64 ?
-                (solu_val){.tt = SOLU_TI64, .i64 = lhs.i64 - rhs.i64} :
+                (solu_val){.tt = SOLU_TI64, .i64 = (solu_i64)((uint64_t)lhs.i64 - (uint64_t)rhs.i64)} :
                 (solu_val){.tt = SOLU_TF64, .f64 = lhs.f64 - rhs.f64}
             );
             DISPATCH();
@@ -1266,7 +1268,7 @@ solu_call_ex solu_call_bc(solu_state *s, solu_fproto *proto, const solu_val *arg
                     (solu_val){.tt = SOLU_TI64, .i64 = (solu_i64)rhs.f64} :
                     (solu_val){.tt = SOLU_TF64, .f64 = (solu_f64)rhs.i64};
             solu_set(s, solu_iabc_a(ins), lhs.tt == SOLU_TI64 ?
-                (solu_val){.tt = SOLU_TI64, .i64 = lhs.i64 * rhs.i64} :
+                (solu_val){.tt = SOLU_TI64, .i64 = (solu_i64)((uint64_t)lhs.i64 * (uint64_t)rhs.i64)} :
                 (solu_val){.tt = SOLU_TF64, .f64 = lhs.f64 * rhs.f64}
             );
             DISPATCH();
@@ -1303,17 +1305,27 @@ solu_call_ex solu_call_bc(solu_state *s, solu_fproto *proto, const solu_val *arg
                 rhs = lhs.tt == SOLU_TI64 ?
                     (solu_val){.tt = SOLU_TI64, .i64 = (solu_i64)rhs.f64} :
                     (solu_val){.tt = SOLU_TF64, .f64 = (solu_f64)rhs.i64};
-            solu_set(s, solu_iabc_a(ins), lhs.tt == SOLU_TI64 ?
-                (solu_val){.tt = SOLU_TI64, .i64 = lhs.i64 / rhs.i64} :
-                (solu_val){.tt = SOLU_TF64, .f64 = lhs.f64 / rhs.f64}
-            );
+            if (lhs.tt == SOLU_TI64) {
+                if (rhs.i64 == 0)
+                    return solu_callerr(SOLU_ERRV_PANIC, "Division by zero", NULL);
+                solu_set(s, solu_iabc_a(ins), (solu_val){
+                    .tt = SOLU_TI64,
+                    .i64 = rhs.i64 == -1
+                        ? (solu_i64)(0ULL - (uint64_t)lhs.i64)
+                        : lhs.i64 / rhs.i64
+                });
+                DISPATCH();
+            }
+            solu_set(s, solu_iabc_a(ins), (solu_val){.tt = SOLU_TF64, .f64 = lhs.f64 / rhs.f64});
             DISPATCH();
         }
 
         CASE(SOLU_OP_NEG) {
             solu_val in = solu_get(s, solu_iab_b(ins));
             switch (in.tt) {
-                case SOLU_TI64: in.i64 = -in.i64; break;
+                case SOLU_TI64:
+                    in.i64 = (solu_i64)(0ULL - (uint64_t)in.i64);
+                    break;
                 case SOLU_TF64: in.f64 = -in.f64; break;
                 case SOLU_TBOOL: in.boolean = !in.boolean; break;
                 case SOLU_TDYN: {
