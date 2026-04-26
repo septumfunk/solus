@@ -1,5 +1,4 @@
 build*
-solus
 .cache/
 *.exe
 *.o
