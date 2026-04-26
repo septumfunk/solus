@@ -300,7 +300,7 @@ char *solu_realpath(const char *base_file, const char *path) {
         return NULL;
     return strdup(buf);
 }
-#elif defined(VITA) //
+#elif defined(__vita__) //
 char *solu_realpath(const char *path) {
     return strdup(path);
 }
