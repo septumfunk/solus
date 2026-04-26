@@ -990,7 +990,7 @@ solu_call_ex solu_call_bc(solu_state *s, solu_fproto *proto, const solu_val *arg
             if (i >= 0)
                 f->upvals[i].value = ov;
 
-            if (!fex.is_ok) {
+            if (!fex.is_ok && f->tt == SOLU_FPROTO_BC) {
                 s->ecall = f;
                 return fex;
             }
@@ -1083,7 +1083,8 @@ solu_call_ex solu_call_bc(solu_state *s, solu_fproto *proto, const solu_val *arg
                 f->upvals[i].value = ov;
 
             if (!fex.is_ok) {
-                s->ecall = f;
+                if (f->tt == SOLU_FPROTO_BC)
+                    s->ecall = f;
                 return fex;
             }
             solu_set(s, solu_iabc_a(ins), fex.ok);
@@ -1625,7 +1626,6 @@ solu_call_ex solu_call(solu_state *state, solu_fproto *proto, const solu_val *ar
     if (proto->file_name.len)
         state->cwd = proto->file_name;
 
-    state->ecall = NULL;
     ++state->call_stack;
     solu_fproto *ocall = state->ccall;
     state->ccall = proto;
@@ -1642,8 +1642,6 @@ solu_call_ex solu_call(solu_state *state, solu_fproto *proto, const solu_val *ar
         return ex;
     }
     solu_call_ex ex = solu_call_cfun(state, proto, args, arg_c);
-    if (!ex.is_ok && !state->ecall)
-        state->ecall = proto;
     --state->call_stack;
     state->ccall = ocall;
     state->cwd = od;

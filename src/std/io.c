@@ -187,6 +187,9 @@ static solu_call_ex io_input(solu_state *s) {
     ssize_t n = getline(&line, &cap, stdin);
     if (n == -1)
         return solu_ok(solu_dnerr(s, "User canceled input"));
+    #ifndef _WIN32
+    if (n > 0) line[n - 1] = 0;
+    #endif
 
     solu_val str = solu_dnstr(s, line);
     free(line);
