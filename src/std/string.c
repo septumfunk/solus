@@ -1,6 +1,7 @@
 #include "sf/str.h"
 #include "solus/val.h"
 #include "solus/vm.h"
+#include "solus/compat.h"
 #include "std.h"
 #include <ctype.h>
 #include <string.h>
@@ -43,7 +44,7 @@ static solu_call_ex string_sub(solu_state *s) {
     end.i64 = clamp_i64(end.i64, 0, len);
 
     if (end.i64 < start.i64)
-        return solu_panic(s, _strdup("end cannot be before start"));
+        return solu_panic(s, strdup("end cannot be before start"));
 
     size_t slen = (size_t)(end.i64 - start.i64 + 1);
     char *buf = (char *)malloc(slen + 1);

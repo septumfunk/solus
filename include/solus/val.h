@@ -257,4 +257,6 @@ static inline bool solu_isutype(solu_val val, sf_str name) { return sf_str_eq(na
 /// Disassemble fun
 EXPORT sf_str solu_dasmf(solu_fproto *proto);
 
+
+
 #endif // VAL_H

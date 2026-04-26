@@ -121,7 +121,7 @@ solu_token solu_scanstr(solu_scanner *s, char quote, bool fmt) {
         goto error;
     buf[len] = 0;
     uint16_t c = s->current.column;
-    s->current.column += (uint16_t)(cc - s->cc) + 1;
+    s->current.column += (uint16_t)(cc - s->cc + 1U);
     s->cc = cc;
     solu_token tk = (solu_token){
         TK_STRING,
@@ -343,6 +343,7 @@ solu_scan_ex solu_scan(sf_str src) {
                     ++s.current.column;
                     goto err;
                 }
+                __attribute__((fallthrough));
             case '"':
             case '\'': {
                 solu_token tk = solu_scanstr(&s, c, fstr);
@@ -367,6 +368,7 @@ solu_scan_ex solu_scan(sf_str src) {
                     s.current.tt = TK_PERIOD;
                     break;
                 }
+                __attribute__((fallthrough));
             default:
                 if (solu_isnumber(c) || c == '.') { // Number
                     solu_token tk = solu_scannum(&s);
@@ -662,6 +664,7 @@ solu_parse_ex solu_pprimary(solu_parser *p) {
         case TK_NAN:
         case TK_INF:
             p->tok->value = (solu_val){SOLU_TF64, .f64=p->tok->tt == TK_NAN ? NAN : INFINITY};
+            __attribute__((fallthrough));
         case TK_INTEGER: case TK_NUMBER: case TK_STRING:
         case TK_TRUE: case TK_FALSE: case TK_NIL: {
             solu_node *n = malloc(sizeof(solu_node));
@@ -1681,7 +1684,9 @@ solu_parse_ex solu_pstmt(solu_parser *p) {
         }
         case TK_RETURN: return solu_preturn(p);
 
-        case TK_DO: ++p->tok;
+        case TK_DO:
+            ++p->tok;
+            __attribute__((fallthrough));
         case TK_SOF: return solu_pblock(p);
 
         default: {

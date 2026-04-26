@@ -70,6 +70,8 @@ static sf_str _stringify(solu_state *s, solu_dobj *obj, bool pretty, bool commas
                     sf_str_append(&out, _stringify(s, val.dyn, false, true, id + 1));
                     break;
                 }
+                __attribute__((fallthrough));
+
                 default: {
                     char *str = solu_tostr(s, val);
                     if (solu_isdtype(val, SOLU_DSTR)) {
@@ -119,6 +121,8 @@ static void _stringify_fe(void *u, sf_str key, solu_val val) {
             sf_str_append(args->out, _stringify(args->s, val.dyn, args->pretty, args->commas, args->id + 1));
             break;
         }
+        __attribute__((fallthrough));
+
         default: {
             char *s = solu_tostr(args->s, val);
             if (solu_isdtype(val, SOLU_DSTR)) {

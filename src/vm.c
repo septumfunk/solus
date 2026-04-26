@@ -9,6 +9,7 @@
 #include "solus/bytecode.h"
 #include "solus/val.h"
 #include "solus/compiler.h"
+#include "solus/compat.h"
 #include "sf/str.h"
 #include "std/std.h"
 
@@ -239,27 +240,28 @@ solu_val solu_dnerr(solu_state *s, const char *str) {
 
 char *solu_tostr(solu_state *s, solu_val val) {
     switch (val.tt) {
-        case SOLU_TNIL: return _strdup("nil");
+        case SOLU_TNIL: return strdup("nil");
         case SOLU_TF64: return sf_str_fmt("%g", val.f64).c_str;
         case SOLU_TI64: return sf_str_fmt("%lld", val.i64).c_str;
-        case SOLU_TBOOL: return _strdup(val.boolean ? "true" : "false");
+        case SOLU_TBOOL: return strdup(val.boolean ? "true" : "false");
         case SOLU_TDYN: {
             solu_val f = solu_dheader(val)->metadata[SOLU_META_STR];
             if (f.tt != SOLU_TNIL) {
                 solu_call_ex ex = solu_call(s, f.dyn, &val, 1);
                 if (ex.is_ok && solu_isdtype(ex.ok, SOLU_DSTR))
-                    return _strdup(ex.ok.dyn);
+                    return strdup(ex.ok.dyn);
             }
             switch (solu_dheader(val)->tt) {
                 case SOLU_DSTR:
                 case SOLU_DERR:
-                return _strdup(val.dyn); break;
+                return strdup(val.dyn); break;
                 case SOLU_DOBJ:
                 case SOLU_DUSR:
                 case SOLU_DFUN: return sf_str_fmt("%p", val.dyn).c_str;
                 case SOLU_DREF: return solu_tostr(s, *(solu_val *)val.dyn);
                 case SOLU_DCOUNT: return NULL;
             }
+            return NULL;
         }
         default: return NULL;
     }
@@ -557,12 +559,6 @@ solu_val solu_wrapcfun(solu_state *state, solu_cfunction fptr, uint32_t arg_c, s
     return fun;
 }
 
-#if defined(_WIN32)
-#include <winsock2.h>
-#else
-#include <arpa/inet.h>
-#endif
-
 sf_buffer solu_fproto_serialize(solu_fproto *proto) {
     sf_buffer buf = sf_buffer_grow();
 
@@ -656,8 +652,8 @@ solu_load_ex _solu_loadfun(solu_state *s, sf_buffer *buf) {
     if (n_len > 1024) return solu_load_ex_err(SOLU_ERRV_CORRUPT);
 
     if (n_len > 0) {
-        name = malloc(n_len + 1);
-        ex = sf_buffer_read(buf, name, n_len);
+        name = malloc((size_t)n_len + 1);
+        ex = sf_buffer_read(buf, name, (size_t)n_len);
         if (!ex.is_ok) goto corrupt;
         name[n_len] = 0;
     }
@@ -692,24 +688,24 @@ solu_load_ex _solu_loadfun(solu_state *s, sf_buffer *buf) {
                 if (!ex.is_ok) goto corrupt;
                 slen = ntohll(slen);
 
-                char *temp = slen == 0 ? "" : malloc(slen + 1);
+                char *temp = slen == 0 ? "" : malloc((size_t)slen + 1);
                 if (!temp) goto corrupt;
-                ex = sf_buffer_read(buf, temp, slen);
+                ex = sf_buffer_read(buf, temp, (size_t)slen);
                 if (!ex.is_ok) { if (slen) free(temp); goto corrupt; }
                 if (slen) temp[slen] = 0;
 
-                solu_dyn p = calloc(1, sizeof(solu_dalloc) + slen + 1);
+                solu_dyn p = calloc(1, sizeof(solu_dalloc) + (size_t)slen + 1);
                 solu_dalloc *dh = p;
                 *dh = (solu_dalloc){
                     .next = NULL,
-                    .size = slen + 1,
+                    .size = (size_t)slen + 1,
                     .thread = 1,
                     .tt = SOLU_DSTR,
                     .mark = SOLU_DYN_WHITE,
                     .held = true,
                 };
                 p = (char *)p + sizeof(solu_dalloc);
-                memcpy(p, temp, slen + 1);
+                memcpy(p, temp, (size_t)slen + 1);
                 val.dyn = p;
                 if (slen) free(temp);
                 break;
@@ -771,9 +767,9 @@ solu_load_ex _solu_loadfun(solu_state *s, sf_buffer *buf) {
         slen = ntohll(slen);
         if (slen == 0) goto corrupt;
 
-        char *temp = malloc(slen + 1);
+        char *temp = malloc((size_t)slen + 1);
         if (!temp) goto corrupt;
-        ex = sf_buffer_read(buf, temp, slen);
+        ex = sf_buffer_read(buf, temp, (size_t)slen);
         if (!ex.is_ok) { free(temp); goto corrupt; }
         temp[slen] = 0;
 
@@ -1338,6 +1334,7 @@ solu_call_ex solu_call_bc(solu_state *s, solu_fproto *proto, const solu_val *arg
                         solu_set(s, solu_iabc_a(ins), ex.ok);
                         DISPATCH();
                     }
+                    __attribute__((fallthrough));
                 }
                 default: return solu_callerr(SOLU_ERRV_TYPE_MISMATCH, "Type %s does not support prefix operator '-/!'", solu_typename(in).c_str);
             }

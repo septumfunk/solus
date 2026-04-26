@@ -1,5 +1,5 @@
 #include "solus/bytecode.h"
-#include "sf/containers/buffer.h"
+#include "solus/compat.h"
 #include "sf/str.h"
 #include <stdbool.h>
 #include <stdlib.h>
@@ -10,7 +10,7 @@ char *solu_realdir(const char *rp) {
     char out[4096];
     size_t len = strlen(rp);
     if (len == 0)
-        return _strdup(".");
+        return strdup(".");
     if (len >= sizeof(out))
         return NULL;
     memcpy(out, rp, len + 1);
@@ -31,22 +31,22 @@ char *solu_realdir(const char *rp) {
         if (*p == '/' || *p == '\\')
             last_slash = p;
     if (!last_slash)
-        return _strdup(".");
+        return strdup(".");
     if (last_slash == out) {
         out[1] = '\0';
-        return _strdup(out);
+        return strdup(out);
     }
 
 #ifdef _WIN32
     if (last_slash == out + 2 && out[1] == ':') {
         out[3] = out[2];
         out[2] = '\0';
-        return _strdup(out);
+        return strdup(out);
     }
 #endif
 
     *last_slash = '\0';
-    return _strdup(out);
+    return strdup(out);
 }
 
 static sf_str solu_try_realpath(const char *_cwd, sf_str p) {
@@ -292,13 +292,17 @@ double solu_timesec(void) {
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
-char *solu_realpath(const char *path) {
+char *solu_realpath(const char *base_file, const char *path) {
     char buf[_MAX_PATH];
     if (!_fullpath(buf, path, _MAX_PATH))
         return NULL;
     if (!sf_file_exists(sf_ref(path)))
         return NULL;
-    return _strdup(buf);
+    return strdup(buf);
+}
+#elif defined(VITA) //
+char *solu_realpath(const char *path) {
+    return strdup(path);
 }
 #else
 char *solu_realpath(const char *path) {

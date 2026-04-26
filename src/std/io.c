@@ -174,12 +174,16 @@ static ssize_t getline(char **lineptr, size_t *n, FILE *stream) {
  * Get input from the user in a command line, printing a prefix before hand
  */
 static solu_call_ex io_input(solu_state *s) {
+    #ifdef POSIX_COMPAT
+    return solu_ok(solu_dnerr(s, "Platform does not support input"));
+    #else
     solu_val prefix = solu_get(s, 0);
+    printf("%s", (char *)prefix.dyn);
     expect_dtype(SOLU_DSTR, prefix);
 
     char *line = NULL;
     size_t cap = 0;
-    printf("%s", (char *)prefix.dyn);
+
     ssize_t n = getline(&line, &cap, stdin);
     if (n == -1)
         return solu_ok(solu_dnerr(s, "User canceled input"));
@@ -188,6 +192,7 @@ static solu_call_ex io_input(solu_state *s) {
     free(line);
 
     return solu_ok(str);
+    #endif
 }
 
 solu_val solu_mod_io(solu_state *s) {

@@ -6,13 +6,6 @@
 #include <sf/fs.h>
 #include <stddef.h>
 #include <stdint.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-
-#ifndef _WIN32
-#define _strdup strdup
-#endif
 
 /// Bytecode version
 #define SOLU_VERSION "0.10.2"
@@ -86,7 +79,7 @@ extern const char *SOLU_ERR_STRINGS[SOLU_ERR_COUNT];
 
 /// Pack type AB instruction
 #define solu_ins_ab(op, a, b) \
-  ((op & MASKI(6U)) << 26U) | ((a & MASKI(8U)) << 18U) | ((b & MASKI(18U)))
+  (((op) & MASKI(6U)) << 26U) | (((a) & MASKI(8U)) << 18U) | (((b) & MASKI(18U)))
 #define solu_iab_a(i) ((i >> 18U) & MASKI(8U)) /// Retrieve operand A
 #define solu_iab_b(i) ((i) & MASKI(18U)) /// Retrieve operand B
 
@@ -118,7 +111,7 @@ extern const char *SOLU_ERR_STRINGS[SOLU_ERR_COUNT];
      ((uint32_t)(col)  & SOLU_DBG_COL_MASK) )
 
 /// Retrieve debug line
-#define SOLU_DBG_LINE(loc) (((loc) >> SOLU_DBG_COL_BITS) & SOLU_DBG_LINE_MASK)
+#define SOLU_DBG_LINE(loc) ((uint16_t)((loc) >> SOLU_DBG_COL_BITS) & (uint16_t)SOLU_DBG_LINE_MASK)
 /// Retrieve debug column
 #define SOLU_DBG_COL(loc)  ((loc) & SOLU_DBG_COL_MASK)
 
