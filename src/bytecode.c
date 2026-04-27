@@ -1,5 +1,4 @@
 #include "solus/bytecode.h"
-#include "solus/compat.h"
 #include "sf/str.h"
 #include <stdbool.h>
 #include <stdio.h>
@@ -69,7 +68,6 @@ static sf_str solu_try_realpath(const char *_cwd, sf_str p) {
         );
         sf_str_append(&cwd, p);
         char *c = solu_realpath(cwd.c_str);
-        printf("Realpath: %s\n", c);
         rp = sf_own(c);
         sf_str_free(cwd);
     }
@@ -94,7 +92,6 @@ char *solu_findfile(const char *cwd, const char *rel_path) {
     if (!has_ext) {
         sf_str p1 = sf_str_dup(base);
         sf_str_append(&p1, sf_lit(".solu"));
-        printf("Path: %s\n", p1.c_str);
 
         sf_str rp1 = solu_try_realpath(cwd, p1);
         sf_str_free(p1);
