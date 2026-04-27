@@ -51,8 +51,12 @@ char *solu_realdir(const char *rp) {
 }
 
 static sf_str solu_try_realpath(const char *_cwd, sf_str p) {
+    #ifndef POSIX_COMPAT
     sf_str rp = sf_own(solu_realpath(p.c_str));
     if (rp.c_str) return rp;
+    #else
+    sf_str rp = sf_str_dup(p);
+    #endif
 
     if (_cwd) {
         sf_str cwd = sf_str_cdup(_cwd);
@@ -65,6 +69,7 @@ static sf_str solu_try_realpath(const char *_cwd, sf_str p) {
         );
         sf_str_append(&cwd, p);
         char *c = solu_realpath(cwd.c_str);
+        printf("Realpath: %s\n", c);
         rp = sf_own(c);
         sf_str_free(cwd);
     }
@@ -82,11 +87,9 @@ char *solu_findfile(const char *cwd, const char *rel_path) {
 
     sf_str base = sf_str_cdup(rel_path);
 
-    #ifndef POSIX_COMPAT
     sf_str rp0 = solu_try_realpath(cwd, base);
     if (rp0.c_str && sf_file_exists(rp0)) { sf_str_free(base); return rp0.c_str; }
     sf_str_free(rp0);
-    #endif
 
     if (!has_ext) {
         sf_str p1 = sf_str_dup(base);
