@@ -300,6 +300,10 @@ char *solu_realpath(const char *base_file, const char *path) {
         return NULL;
     return strdup(buf);
 }
+#elif defined(__vita__) && defined(VITA_DATA)
+char *solu_realpath(const char *path) {
+    return strcat(VITA_DATA, path);
+}
 #elif defined(POSIX_COMPAT)
 char *solu_realpath(const char *path) {
     return strdup(path);
