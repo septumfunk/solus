@@ -15,11 +15,6 @@ static inline sf_str solu_cwd(solu_state *s) {
     return sf_own(rd);
 }
 
-#ifdef __vita__
-#include <debugnet.h>
-#define printf(...) debugNetPrintf(DEBUG, __VA_ARGS__)
-#endif
-
 /*
  * import(path: str) -> any|err
  * Loads a solus file and then executes it. If the file is not found at
@@ -29,14 +24,10 @@ static inline sf_str solu_cwd(solu_state *s) {
 static solu_call_ex builtin_import(solu_state *s) {
     solu_val path = solu_get(s, 0);
     expect_dtype(SOLU_DSTR, path);
-    printf("Original path: %s\n", path.dyn);
 
     // Locate file
     sf_str cwd = solu_cwd(s);
-    printf("Cwd: %s\n", cwd.c_str);
-    printf("s->cwd: %s\n", s->cwd);
     char *rpath = solu_findfile(cwd.c_str, path.dyn);
-    printf("Found path: %s\n", rpath);
     sf_str_free(cwd);
     if (!rpath) {
         sf_str p2 = sf_str_fmt("File '%s' not found", path.dyn);
