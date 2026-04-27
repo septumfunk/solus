@@ -2,6 +2,7 @@
 #include "solus/compat.h"
 #include "sf/str.h"
 #include <stdbool.h>
+#include <stdio.h>
 #include <stdlib.h>
 
 char *solu_realdir(const char *rp) {
@@ -81,17 +82,20 @@ char *solu_findfile(const char *cwd, const char *rel_path) {
 
     sf_str base = sf_str_cdup(rel_path);
 
+    #ifndef POSIX_COMPAT
     sf_str rp0 = solu_try_realpath(cwd, base);
-    if (rp0.c_str) { sf_str_free(base); return rp0.c_str; }
+    if (rp0.c_str && sf_file_exists(rp0)) { sf_str_free(base); return rp0.c_str; }
     sf_str_free(rp0);
+    #endif
 
     if (!has_ext) {
         sf_str p1 = sf_str_dup(base);
         sf_str_append(&p1, sf_lit(".solu"));
+        printf("Path: %s\n", p1.c_str);
 
         sf_str rp1 = solu_try_realpath(cwd, p1);
         sf_str_free(p1);
-        if (rp1.c_str) { sf_str_free(base); return rp1.c_str; }
+        if (rp1.c_str && sf_file_exists(rp1)) { sf_str_free(base); return rp1.c_str; }
         sf_str_free(rp1);
 
         sf_str p2 = sf_str_dup(base);
@@ -99,7 +103,7 @@ char *solu_findfile(const char *cwd, const char *rel_path) {
 
         sf_str rp2 = solu_try_realpath(cwd, p2);
         sf_str_free(p2);
-        if (rp2.c_str) { sf_str_free(base); return rp2.c_str; }
+        if (rp2.c_str && sf_file_exists(rp2)) { sf_str_free(base); return rp2.c_str; }
         sf_str_free(rp2);
 
         sf_str p3 = sf_str_dup(base);
@@ -107,7 +111,7 @@ char *solu_findfile(const char *cwd, const char *rel_path) {
 
         sf_str rp3 = solu_try_realpath(cwd, p3);
         sf_str_free(p3);
-        if (rp3.c_str) { sf_str_free(base); return rp3.c_str; }
+        if (rp3.c_str && sf_file_exists(rp3)) { sf_str_free(base); return rp3.c_str; }
         sf_str_free(rp3);
     }
 
