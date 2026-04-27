@@ -302,7 +302,7 @@ char *solu_realpath(const char *base_file, const char *path) {
 }
 #elif defined(__vita__) && defined(VITA_DATA)
 char *solu_realpath(const char *path) {
-    return strcat(VITA_DATA, path);
+    return sf_str_fmt("%s/%s", VITA_DATA, path).c_str;
 }
 #elif defined(POSIX_COMPAT)
 char *solu_realpath(const char *path) {

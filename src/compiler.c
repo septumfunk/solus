@@ -128,7 +128,7 @@ static inline bool solu_lexists(solu_compiler *c, char *name, solu_local *loc) {
 /// Clear temporary register(s)
 static inline void solu_ctemps(solu_compiler *c, uint32_t count) {
     if (count > c->temps) {
-        fprintf(stderr, "TEMP UNDERFLOW: ctemps(%u) but temps=%u\n", count, c->temps);
+        printf("TEMP UNDERFLOW: ctemps(%u) but temps=%u\n", count, c->temps);
         abort();
     }
     c->temps -= count;

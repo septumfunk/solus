@@ -51,7 +51,7 @@ static void cli_print_line(sf_str src, uint16_t line) {
         ++line_end;
     if (line_end > line_start && line_end[-1] == '\r')
         --line_end;
-    fprintf(stderr, "%4u | %.*s\n", line, (int)(line_end - line_start), line_start);
+    printf("%4u | %.*s\n", line, (int)(line_end - line_start), line_start);
 }
 
 void cli_highlight_line(sf_str src, sf_str err, uint16_t line, uint16_t column, uint8_t lookback, uint8_t lookahead) {
@@ -68,7 +68,7 @@ void cli_highlight_line(sf_str src, sf_str err, uint16_t line, uint16_t column, 
     pointer[caret] = '^';
     pointer[caret + 1] = '\0';
 
-    fprintf(stderr, TUI_ERR "%s %s\n" TUI_CLR, pointer, err.c_str);
+    printf(TUI_ERR "%s %s\n" TUI_CLR, pointer, err.c_str);
     for (uint16_t i = line + 1; i < line + lookahead + 1; ++i)
         cli_print_line(src, i);
 
@@ -78,15 +78,15 @@ void cli_highlight_line(sf_str src, sf_str err, uint16_t line, uint16_t column, 
 sf_str cli_load_file(char *name) {
     sf_str f = sf_own(name);
     if (!sf_file_exists(f)) {
-        fprintf(stderr, TUI_ERR "error: file '%s' not found.\n", name);
+        printf(TUI_ERR "error: file '%s' not found.\n", name);
         return SF_STR_EMPTY;
     }
     sf_fsb_ex fsb = sf_file_buffer(f);
     if (!fsb.is_ok) {
         switch (fsb.err) {
-            case SF_FILE_NOT_FOUND: fprintf(stderr, TUI_ERR "error: file '%s' not found\n" TUI_CLR, name); break;
-            case SF_OPEN_FAILURE: fprintf(stderr, TUI_ERR "error: file '%s' failed to open\n" TUI_CLR, name); break;
-            case SF_READ_FAILURE: fprintf(stderr, TUI_ERR "error: file '%s' failed to read\n" TUI_CLR, name); break;
+            case SF_FILE_NOT_FOUND: printf(TUI_ERR "error: file '%s' not found\n" TUI_CLR, name); break;
+            case SF_OPEN_FAILURE: printf(TUI_ERR "error: file '%s' failed to open\n" TUI_CLR, name); break;
+            case SF_READ_FAILURE: printf(TUI_ERR "error: file '%s' failed to read\n" TUI_CLR, name); break;
         }
         return SF_STR_EMPTY;
     }
@@ -103,7 +103,7 @@ int cli_run(char *path, sf_str src) {
 
     sf_fsb_ex fsb = sf_file_buffer(sf_ref(path));
     if (!fsb.is_ok) {
-        fprintf(stderr, TUI_ERR "error: File '%s' not found\n" TUI_CLR, path);
+        printf(TUI_ERR "error: File '%s' not found\n" TUI_CLR, path);
         solu_state_free(s);
         return -1;
     }
@@ -112,7 +112,7 @@ int cli_run(char *path, sf_str src) {
     if (is_solc) {
         solu_load_ex lex = solu_loadfun(s, path);
         if (!lex.is_ok) {
-            fprintf(stderr, TUI_ERR "error: %s\n" TUI_CLR, solu_err_string(lex.err));
+            printf(TUI_ERR "error: %s\n" TUI_CLR, solu_err_string(lex.err));
             solu_state_free(s);
             return -1;
         }
@@ -121,9 +121,9 @@ int cli_run(char *path, sf_str src) {
         solu_compile_ex comp_ex = solu_cfile(s, path);
         if (!comp_ex.is_ok) {
             if (comp_ex.err.line) {
-                fprintf(stderr, TUI_ERR "error: %s:%u:%u\n" TUI_CLR, path, comp_ex.err.line, comp_ex.err.column);
+                printf(TUI_ERR "error: %s:%u:%u\n" TUI_CLR, path, comp_ex.err.line, comp_ex.err.column);
                 cli_highlight_line(src, sf_ref(solu_err_string(comp_ex.err.tt)), comp_ex.err.line, comp_ex.err.column, 2, 2);
-            } else fprintf(stderr, TUI_ERR "error: %s\n" TUI_CLR, solu_err_string(comp_ex.err.tt));            solu_state_free(s);
+            } else printf(TUI_ERR "error: %s\n" TUI_CLR, solu_err_string(comp_ex.err.tt));            solu_state_free(s);
             return -1;
         }
         fb = comp_ex.ok;
@@ -136,8 +136,8 @@ int cli_run(char *path, sf_str src) {
         if (fb.dbg) {
             line = SOLU_DBG_LINE(fb.dbg[call_ex.err.pc]);
             col = SOLU_DBG_COL(fb.dbg[call_ex.err.pc]);
-            fprintf(stderr, TUI_ERR "error: %s:%u:%u\n" TUI_CLR, path, line, col);
-        } else fprintf(stderr, TUI_ERR "error: %s\n" TUI_CLR, path);
+            printf(TUI_ERR "error: %s:%u:%u\n" TUI_CLR, path, line, col);
+        } else printf(TUI_ERR "error: %s\n" TUI_CLR, path);
 
 
         if (call_ex.err.panic) {
@@ -145,13 +145,13 @@ int cli_run(char *path, sf_str src) {
             if (line)
                 cli_highlight_line(src, full, line, col, 2, 2);
             else
-                fprintf(stderr, TUI_ERR TUI_BLD "%s\n" TUI_CLR, full.c_str);
+                printf(TUI_ERR TUI_BLD "%s\n" TUI_CLR, full.c_str);
             free(call_ex.err.panic);
             sf_str_free(full);
         } else if (line)
             cli_highlight_line(src, sf_ref(solu_err_string(call_ex.err.tt)), line, col, 2, 2);
         else
-            fprintf(stderr, TUI_ERR TUI_BLD "%s\n" TUI_CLR, solu_err_string(call_ex.err.tt));
+            printf(TUI_ERR TUI_BLD "%s\n" TUI_CLR, solu_err_string(call_ex.err.tt));
         return -1;
     }
 
@@ -173,16 +173,16 @@ int cli_compile(char *path, sf_str src) {
     solu_compile_ex comp_ex = solu_cfile(s, path);
     if (!comp_ex.is_ok) {
         if (comp_ex.err.line) {
-            fprintf(stderr, TUI_ERR "error: %s:%u:%u\n" TUI_CLR, path, comp_ex.err.line, comp_ex.err.column);
+            printf(TUI_ERR "error: %s:%u:%u\n" TUI_CLR, path, comp_ex.err.line, comp_ex.err.column);
             cli_highlight_line(src, sf_ref(solu_err_string(comp_ex.err.tt)), comp_ex.err.line, comp_ex.err.column, 2, 2);
-        } else fprintf(stderr, TUI_ERR "error: %s\n" TUI_CLR, solu_err_string(comp_ex.err.tt));
+        } else printf(TUI_ERR "error: %s\n" TUI_CLR, solu_err_string(comp_ex.err.tt));
         solu_state_free(s);
         return -1;
     }
 
     sf_str pstr = sf_own(solu_realpath(path));
     if (!pstr.c_str) {
-        fprintf(stderr, TUI_ERR "error: Unknown\n" TUI_CLR);
+        printf(TUI_ERR "error: Unknown\n" TUI_CLR);
         solu_fproto_free(&comp_ex.ok);
         solu_state_free(s);
         return -1;
@@ -231,7 +231,7 @@ int cli_test(char *dirpath) {
     WIN32_FIND_DATAA fd;
     HANDLE h = FindFirstFileA(pattern, &fd);
     if (h == INVALID_HANDLE_VALUE) {
-        fprintf(stderr, "FindFirstFileA failed for '%s'\n", pattern);
+        printf("FindFirstFileA failed for '%s'\n", pattern);
         return 1;
     }
 
@@ -247,7 +247,7 @@ int cli_test(char *dirpath) {
 
         sf_fsb_ex fsb = sf_file_buffer(sf_ref(full));
         if (!fsb.is_ok) {
-            fprintf(stderr, TUI_ERR TUI_UL "Test %s failed to open!\n" TUI_CLR, full);
+            printf(TUI_ERR TUI_UL "Test %s failed to open!\n" TUI_CLR, full);
             continue;
         }
         cli_tf(full, (sf_str){(char *)fsb.ok.ptr, fsb.ok.size - 1, SF_STR_NONE});
@@ -294,7 +294,7 @@ int cli_test(char *dirpath) {
 
         sf_fsb_ex fsb = sf_file_buffer(sf_ref(full));
         if (!fsb.is_ok) {
-            fprintf(stderr, TUI_ERR TUI_UL "Test %s failed to open!\n" TUI_CLR, full);
+            printf(TUI_ERR TUI_UL "Test %s failed to open!\n" TUI_CLR, full);
             continue;
         }
         sf_buffer_seek(&fsb.ok, SF_BUFFER_END, 0);
