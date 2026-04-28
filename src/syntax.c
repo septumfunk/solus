@@ -425,6 +425,7 @@ void solu_node_free(solu_node *tree) {
         case SOLU_ND_LOCAL:
             for (uint16_t i = 0; i < tree->n_local.entry_c; ++i)
                 solu_node_free(tree->n_local.entries[i].value);
+            free(tree->n_local.entries);
             break;
         case SOLU_ND_IF:
             solu_node_free(tree->n_if.condition);
@@ -983,7 +984,6 @@ solu_parse_ex solu_plocal(solu_parser *p) {
         return solu_perr(SOLU_ERRP_EXPECTED_SEMICOLON, p->tok);
     }
     ++p->tok;
-    free(names);
 
     solu_node *n_local = malloc(sizeof(solu_node));
     *n_local = (solu_node){
