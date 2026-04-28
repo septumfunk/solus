@@ -1697,6 +1697,7 @@ solu_call_ex solu_call(solu_state *state, solu_fproto *proto, const solu_val *ar
         char *rd = solu_realdir(proto->file_name.c_str);
         if (rd) {
             solu_val dn = solu_dnstr(state, rd);
+            free(rd);
             solu_dhold(dn);
             solu_valvec_insert(&state->import_paths, 0, dn);
             fd = true;

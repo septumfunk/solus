@@ -984,6 +984,7 @@ solu_parse_ex solu_plocal(solu_parser *p) {
         return solu_perr(SOLU_ERRP_EXPECTED_SEMICOLON, p->tok);
     }
     ++p->tok;
+    free(names);
 
     solu_node *n_local = malloc(sizeof(solu_node));
     *n_local = (solu_node){
