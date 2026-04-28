@@ -137,6 +137,7 @@ void solu_dclean(solu_val val) {
         case SOLU_DUSR: {
             solu_usrwrap *uh = solu_uheader(val);
             if (uh->del) uh->del(val.dyn);
+            sf_str_free(uh->name);
         }
         default: break;
     }
