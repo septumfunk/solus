@@ -940,7 +940,7 @@ solu_cnode_ex solu_cnode(solu_compiler *c, solu_node *node, uint32_t t_reg) {
                 solu_val *cap = node->n_fun.captures + i;
                 char *name = cap->dyn;
                 // Self capture (reserved name)
-                solu_local loc;
+                solu_local loc = {0};
                 if (c->obj_r != UINT32_MAX && strcmp(name, "self") == 0) {
                     self = true;
                     upvals[ofs + i] = (solu_upvalue){sf_lit("self"), .tt = SOLU_UP_REF, .ref = c->obj_r, .frame = c->frame, .mut = false};
