@@ -4,6 +4,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#ifdef POSIX_COMPAT
+#include "solus/compat.h"
+#endif
+
 char *solu_realdir(const char *rp) {
     if (!rp) return NULL;
 
@@ -47,76 +51,6 @@ char *solu_realdir(const char *rp) {
 
     *last_slash = '\0';
     return strdup(out);
-}
-
-static sf_str solu_try_realpath(const char *_cwd, sf_str p) {
-    #ifndef POSIX_COMPAT
-    sf_str rp = sf_own(solu_realpath(p.c_str));
-    if (rp.c_str) return rp;
-    #else
-    sf_str rp = sf_str_dup(p);
-    #endif
-
-    if (_cwd) {
-        sf_str cwd = sf_str_cdup(_cwd);
-        sf_str_append(&cwd,
-            #if defined(_WIN32) || defined(_WIN64)
-            sf_lit("\\")
-            #else
-            sf_lit("/")
-            #endif
-        );
-        sf_str_append(&cwd, p);
-        char *c = solu_realpath(cwd.c_str);
-        rp = sf_own(c);
-        sf_str_free(cwd);
-    }
-
-    return rp;
-}
-
-char *solu_findfile(const char *cwd, const char *rel_path) {
-    if (!rel_path || !*rel_path) return NULL;
-
-    size_t len = strlen(rel_path);
-    int has_ext = (len >= 5 && memcmp(rel_path + len - 5, ".solu",  5) == 0) ||
-        (len >= 5 && memcmp(rel_path + len - 5, ".solc",  5) == 0) ||
-        (len >= 6 && memcmp(rel_path + len - 6, ".solus",  6) == 0);
-
-    sf_str base = sf_str_cdup(rel_path);
-
-    sf_str rp0 = solu_try_realpath(cwd, base);
-    if (rp0.c_str && sf_file_exists(rp0)) { sf_str_free(base); return rp0.c_str; }
-    sf_str_free(rp0);
-
-    if (!has_ext) {
-        sf_str p1 = sf_str_dup(base);
-        sf_str_append(&p1, sf_lit(".solu"));
-
-        sf_str rp1 = solu_try_realpath(cwd, p1);
-        sf_str_free(p1);
-        if (rp1.c_str && sf_file_exists(rp1)) { sf_str_free(base); return rp1.c_str; }
-        sf_str_free(rp1);
-
-        sf_str p2 = sf_str_dup(base);
-        sf_str_append(&p2, sf_lit(".solus"));
-
-        sf_str rp2 = solu_try_realpath(cwd, p2);
-        sf_str_free(p2);
-        if (rp2.c_str && sf_file_exists(rp2)) { sf_str_free(base); return rp2.c_str; }
-        sf_str_free(rp2);
-
-        sf_str p3 = sf_str_dup(base);
-        sf_str_append(&p3, sf_lit(".solc"));
-
-        sf_str rp3 = solu_try_realpath(cwd, p3);
-        sf_str_free(p3);
-        if (rp3.c_str && sf_file_exists(rp3)) { sf_str_free(base); return rp3.c_str; }
-        sf_str_free(rp3);
-    }
-
-    sf_str_free(base);
-    return NULL;
 }
 
 sf_str solu_dasmi(solu_instruction ins) {
@@ -303,11 +237,6 @@ char *solu_realpath(const char *base_file, const char *path) {
     if (!sf_file_exists(sf_ref(path)))
         return NULL;
     return strdup(buf);
-}
-#elif defined(__vita__) && defined(VITA_DATA)
-char *solu_realpath(const char *path) {
-    if (strchr(path, ':')) return strdup(path);
-    return sf_str_fmt("%s/%s", VITA_DATA, path).c_str;
 }
 #elif defined(POSIX_COMPAT)
 char *solu_realpath(const char *path) {

@@ -30,6 +30,7 @@ solu_state *solu_state_new(void) {
         .lb = 1<<20, .cb = 0, .nb = 0,
         .call_stack = 0,
         .ccall = NULL,
+        .import_paths = solu_valvec_new(),
 
         .collect = false,
         .alloc = NULL,
@@ -39,6 +40,7 @@ solu_state *solu_state_new(void) {
 
 void solu_state_free(solu_state *state) {
     solu_valvec_free(&state->stack);
+    solu_valvec_free(&state->import_paths);
     solu_frames_free(&state->frames);
     solu_strcache_free(&state->strcache);
     solu_dclean(state->global);
@@ -109,6 +111,73 @@ solu_compile_ex solu_cfile(solu_state *state, char *path) {
         if (*c == '\n') ++ex.ok.line_c;
     sf_buffer_clear(&fsb.ok);
     return ex;
+}
+
+static char *solu_check_file_candidate(const char *base, bool has_ext) {
+    sf_str rp0 = sf_str_cdup(base);
+    if (sf_file_exists(rp0)) return rp0.c_str;
+
+    if (!has_ext) {
+        sf_str rp1 = sf_str_fmt("%s.solu", rp0.c_str);
+        if (sf_file_exists(rp1)) {
+            sf_str_free(rp0);
+            return rp1.c_str;
+        }
+        sf_str_free(rp1);
+        sf_str rp2 = sf_str_fmt("%s.solc", rp0.c_str);
+        if (sf_file_exists(rp2)) {
+            sf_str_free(rp0);
+            return rp2.c_str;
+        }
+        sf_str_free(rp2);
+        sf_str rp3 = sf_str_fmt("%s.solus", rp0.c_str);
+        if (sf_file_exists(rp3)) {
+            sf_str_free(rp0);
+            return rp3.c_str;
+        }
+        sf_str_free(rp3);
+    }
+    sf_str_free(rp0);
+    return NULL;
+}
+
+char *solu_findfile(solu_state *s, char *name) {
+    if (!s || !name || !*name) return NULL;
+    bool is_static =
+        strchr(name, ':') != NULL ||
+        name[0] == '/';
+
+    size_t len = strlen(name);
+    bool has_ext =
+        (len >= 5 && memcmp(name + len - 5, ".solu",  5) == 0) ||
+        (len >= 5 && memcmp(name + len - 5, ".solc",  5) == 0) ||
+        (len >= 6 && memcmp(name + len - 6, ".solus", 6) == 0);
+    if (is_static)
+        return solu_check_file_candidate(name, has_ext);
+
+    for (uint32_t i = 0; i < s->import_paths.count; ++i) {
+        char *path = s->import_paths.data[i].dyn;
+        if (!path) continue;
+
+        sf_str base;
+        size_t plen = strlen(path);
+        if (plen && (path[plen - 1] == '/' || path[plen - 1] == '\\'))
+            base = sf_str_fmt("%s%s", path, name);
+        else
+            base = sf_str_fmt("%s/%s", path, name);
+
+        char *found = solu_check_file_candidate(base.c_str, has_ext);
+        sf_str_free(base);
+        if (found) return found;
+    }
+
+    return NULL;
+}
+
+void solu_addpath(solu_state *s, char *realpath) {
+    solu_val str = solu_dnstr(s, realpath);
+    solu_dhold(str);
+    solu_valvec_push(&s->import_paths, str);
 }
 
 void solu_dpush(solu_state *s, solu_dalloc *ac) {
@@ -1622,9 +1691,17 @@ ret: {}
 solu_call_ex solu_call(solu_state *state, solu_fproto *proto, const solu_val *args, uint32_t arg_c) {
     if (state->call_stack > CALL_STACK_MAX)
         return solu_panic(state, "Stack Overflow");
-    sf_str od = proto->file_name;
-    if (proto->file_name.len)
-        state->cwd = proto->file_name;
+
+    bool fd = false;
+    if (proto->file_name.len) {
+        char *rd = solu_realdir(proto->file_name.c_str);
+        if (rd) {
+            solu_val dn = solu_dnstr(state, rd);
+            solu_dhold(dn);
+            solu_valvec_insert(&state->import_paths, 0, dn);
+            fd = true;
+        }
+    }
 
     ++state->call_stack;
     solu_fproto *ocall = state->ccall;
@@ -1638,13 +1715,19 @@ solu_call_ex solu_call(solu_state *state, solu_fproto *proto, const solu_val *ar
         }
         --state->call_stack;
         state->ccall = ocall;
-        state->cwd = od;
+        if (fd) {
+            solu_drelease(state->import_paths.data[0]);
+            solu_valvec_delete(&state->import_paths, 0);
+        }
         return ex;
     }
     solu_call_ex ex = solu_call_cfun(state, proto, args, arg_c);
     --state->call_stack;
     state->ccall = ocall;
-    state->cwd = od;
+    if (fd) {
+        solu_drelease(state->import_paths.data[0]);
+        solu_valvec_delete(&state->import_paths, 0);
+    }
     return ex;
 }
 

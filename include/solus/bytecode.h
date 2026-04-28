@@ -131,7 +131,6 @@ EXPORT char *solu_realpath(const char *path);
 
 /// Get dir of canonized path
 EXPORT char *solu_realdir(const char *rp);
-EXPORT char *solu_findfile(const char *cwd, const char *rel_path);
 
 /// Disassemble instruction
 EXPORT sf_str solu_dasmi(solu_instruction ins);

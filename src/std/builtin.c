@@ -7,14 +7,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-/// Get the working directory (sf_str)
-static inline sf_str solu_cwd(solu_state *s) {
-    char *rp = solu_realpath(s->cwd.len ? s->cwd.c_str : ".");
-    char *rd = solu_realdir(rp);
-    free(rp);
-    return sf_own(rd);
-}
-
 /*
  * import(path: str) -> any|err
  * Loads a solus file and then executes it. If the file is not found at
@@ -26,9 +18,7 @@ static solu_call_ex builtin_import(solu_state *s) {
     expect_dtype(SOLU_DSTR, path);
 
     // Locate file
-    sf_str cwd = solu_cwd(s);
-    char *rpath = solu_findfile(cwd.c_str, path.dyn);
-    sf_str_free(cwd);
+    char *rpath = solu_findfile(s, path.dyn);
     if (!rpath) {
         sf_str p2 = sf_str_fmt("File '%s' not found", path.dyn);
         solu_val e = solu_dnerr(s, p2.c_str);

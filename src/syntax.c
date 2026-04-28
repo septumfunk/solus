@@ -1607,7 +1607,7 @@ solu_parse_ex solu_pinclude(solu_parser *p) {
     char *path = p->tok->value.dyn;
     char *cwd = solu_realdir(p->path.c_str);
     if (!cwd) return solu_perr(SOLU_ERRP_INCLUDE_NOT_FOUND, st);
-    sf_str realpath = sf_own(solu_findfile(cwd, path));
+    sf_str realpath = sf_own(solu_realpath(path));
     free(cwd);
     if (!realpath.c_str) return solu_perr(SOLU_ERRP_INCLUDE_NOT_FOUND, st);
     ++p->tok;

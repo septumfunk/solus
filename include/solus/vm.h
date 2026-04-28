@@ -45,6 +45,7 @@ typedef struct solu_state {
     solu_fproto *ccall, *ecall; // the proto being called currently
     uint32_t cpc; // current program counter at call
     sf_str cwd;
+    solu_valvec import_paths;
 
     struct {
         solu_val prim;
@@ -70,6 +71,10 @@ EXPORT solu_compile_ex solu_csrc(solu_state *state, char *src);
 /// Compile a solus source code file.
 /// Returns a fun or an err
 EXPORT solu_compile_ex solu_cfile(solu_state *state, char *path);
+/// Locate a file from the given name and the state's import paths
+EXPORT char *solu_findfile(solu_state *state, char *name);
+/// Add a path to the searchable import paths stored in the state
+EXPORT void solu_addpath(solu_state *state, char *realpath);
 
 /// Construct a new dynamic type
 EXPORT solu_val solu_dnew(solu_state *state, solu_dtype type);
