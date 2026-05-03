@@ -48,6 +48,7 @@ typedef struct solu_state {
     sf_str cwd;
     solu_valvec import_paths;
     solu_trace trace;
+    solu_ctrace ctrace;
     char *panic;
 
     struct {

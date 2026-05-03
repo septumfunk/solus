@@ -9,6 +9,6 @@
 #define EXPECTED_E solu_ctrace *
 #include <sf/containers/expected.h>
 /// Compile a solu_proto from source code
-EXPORT solu_compile_ex solu_cproto(sf_str path, char *src, uint32_t arg_c, solu_val *args, uint32_t up_c, solu_upvalue *upvals);
+solu_compile_ex solu_cproto(solu_ctrace *ct, sf_str path, char *src, uint32_t arg_c, solu_val *args, uint32_t up_c, solu_upvalue *upvals);
 
 #endif // SOLUC_H

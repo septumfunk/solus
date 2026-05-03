@@ -2,6 +2,7 @@
 #include "sf/containers/buffer.h"
 #include "solus/compat.h"
 #include "sf/str.h"
+#include "solus/syntax.h"
 #include "std/std.h"
 #include <sf/fs.h>
 #include <stdarg.h>
@@ -26,6 +27,7 @@ solu_state *solu_state_new(void) {
 
         .import_paths = solu_valvec_new(),
         .trace = solu_trace_new(),
+        .ctrace = solu_ctrace_new(),
 
         .collect = false,
         .alloc = NULL,
@@ -37,6 +39,7 @@ void solu_state_free(solu_state *state) {
     solu_valvec_free(&state->stack);
     solu_valvec_free(&state->import_paths);
     solu_trace_free(&state->trace);
+    solu_ctrace_free(&state->ctrace);
     solu_frames_free(&state->frames);
     solu_strcache_free(&state->strcache);
     solu_dclean(state->global);
@@ -65,7 +68,7 @@ void solu_usestd(solu_state *s) {
 // Functions/Files
 
 solu_compile_ex solu_csrc(solu_state *state, char *src) {
-    solu_compile_ex ex = solu_cproto(SF_STR_EMPTY, src, 0, NULL, 1, (solu_upvalue[]){
+    solu_compile_ex ex = solu_cproto(&state->ctrace, sf_lit("Source Code"), src, 0, NULL, 1, (solu_upvalue[]){
         (solu_upvalue){sf_lit("global"), SOLU_UP_VAL, .value = state->global, .mut = false}
     });
     ex.ok.line_c = 1;
@@ -75,15 +78,12 @@ solu_compile_ex solu_csrc(solu_state *state, char *src) {
 }
 
 solu_compile_ex solu_cfile(solu_state *state, char *path) {
-    if (!sf_file_exists(sf_ref(path)))
-        return solu_compile_ex_err((solu_compile_err){SOLU_ERRC_FILE_NOT_FOUND, 0, 0});
+    if (state->ctrace.count)
+        solu_ctrace_free(&state->ctrace);
     sf_fsb_ex fsb = sf_file_buffer(sf_ref(path));
     if (!fsb.is_ok) {
-        switch (fsb.err) {
-            case SF_FILE_NOT_FOUND: return solu_compile_ex_err((solu_compile_err){SOLU_ERRC_FILE_NOT_FOUND, 0, 0}); break;
-            case SF_OPEN_FAILURE:
-            case SF_READ_FAILURE: return solu_compile_ex_err((solu_compile_err){SOLU_ERRC_FILE_UNREADABLE, 0, 0}); break;
-        }
+        solu_ctrace_push(&state->ctrace, (solu_compiledata){SOLU_ERRC_FILE_NOT_FOUND, 0, 0});
+        return solu_compile_ex_err(&state->ctrace);
     }
     fsb.ok.flags = SF_BUFFER_GROW;
     sf_buffer_seek(&fsb.ok, SF_BUFFER_END, 0);
@@ -92,11 +92,11 @@ solu_compile_ex solu_cfile(solu_state *state, char *path) {
 
     char *realpath = solu_realpath(path);
     if (!realpath) {
-        sf_buffer_clear(&fsb.ok);
-        return solu_compile_ex_err((solu_compile_err){SOLU_ERRC_FILE_NOT_FOUND, 0, 0});
+        solu_ctrace_push(&state->ctrace, (solu_compiledata){SOLU_ERRC_FILE_NOT_FOUND, 0, 0});
+        return solu_compile_ex_err(&state->ctrace);
     }
 
-    solu_compile_ex ex = solu_cproto(sf_ref(realpath), (char *)fsb.ok.ptr, 0, NULL, 1, (solu_upvalue[]){
+    solu_compile_ex ex = solu_cproto(&state->ctrace, sf_ref(realpath), (char *)fsb.ok.ptr, 0, NULL, 1, (solu_upvalue[]){
         (solu_upvalue){sf_lit("global"), SOLU_UP_VAL, .value = state->global, .mut = false}
     });
     free(realpath);
@@ -542,122 +542,6 @@ solu_call_ex solu_call(solu_state *state, solu_fproto *proto, const solu_val *ar
         solu_valvec_delete(&state->import_paths, 0);
     }
     return ex;
-}
-
-void _solu_trace_cleanup(solu_trace *st) {
-    for (uint32_t i = 0; i < st->count; ++i)
-        free(st->data[i].path);
-}
-
-solu_trace solu_trace_clone(solu_trace *st) {
-    solu_trace new = solu_trace_new();
-    new.count = st->count;
-    new.slots = st->slots;
-    new.data = malloc(sizeof(solu_tracedata) * new.slots);
-    memcpy(new.data, st->data, sizeof(solu_tracedata) * new.slots);
-    new.top = new.data + new.count - 1;
-    return new;
-}
-
-static void print_line(sf_str *out, sf_str src, uint16_t line) {
-    if (!src.c_str || src.len == 0 || line == 0)
-        return;
-
-    const char *line_start = src.c_str;
-    uint16_t ln = 1;
-    for (const char *p = src.c_str; p < src.c_str + src.len && ln < line; ++p) {
-        if (*p == '\n') {
-            ++ln;
-            line_start = p + 1;
-        }
-    }
-    if (ln != line || line_start >= src.c_str + src.len) return;
-
-    const char *line_end = line_start;
-    while (line_end < src.c_str + src.len && *line_end != '\n' && *line_end != '\0')
-        ++line_end;
-    if (line_end > line_start && line_end[-1] == '\r')
-        --line_end;
-
-    sf_str work = sf_str_fmt("%4u | %.*s\n", line, (int)(line_end - line_start), line_start);
-    sf_str_append(out, work);
-    sf_str_free(work);
-}
-
-#ifndef _WIN32
-    #define TUI_CLR  "\x1b[0m"
-    #define TUI_ERR    "\x1b[1;31m"  // bright red
-    #define TUI_INFO   "\x1b[0;90m"  // gray
-    #define TUI_UL  "\x1b[4m"
-    #define TUI_BLD "\x1b[1m"
-    #define TUI_ITL "\x1b[3m"
-#else
-    #define TUI_CLR  ""
-    #define TUI_ERR    ""
-    #define TUI_INFO   ""
-    #define TUI_UL  ""
-    #define TUI_BLD ""
-    #define TUI_ITL ""
-#endif
-
-static void highlight_line(sf_str *out, sf_str src, uint16_t line, uint16_t column, uint8_t lookback, uint8_t lookahead) {
-    for (uint16_t i = (uint16_t)(line <= lookback ? 1 : line - lookback + 1); i < line + 1; ++i)
-        print_line(out, src, i);
-
-    int prefix = snprintf(NULL, 0, "%4u | ", line);
-    int caret = prefix + column - 1;
-
-    char *pointer = malloc((size_t)caret + 3);
-    memset(pointer, ' ', (size_t)caret);
-    pointer[5] = '|';
-    pointer[caret] = '^';
-    pointer[caret + 1] = '\n';
-    pointer[caret + 2] = '\0';
-
-    sf_str_append(out, sf_ref(pointer));
-    for (uint16_t i = line + 1; i < line + lookahead + 1; ++i)
-        print_line(out, src, i);
-
-    free(pointer);
-}
-
-char *solu_trace_print(solu_trace *st, uint32_t max, uint8_t lookback, uint8_t lookahead) {
-    if (!st) return NULL;
-
-    max = min(st->count, max);
-    sf_str out = max > 0 ? sf_str_cdup(TUI_UL "stack trace:\n" TUI_CLR) : SF_STR_EMPTY;
-    for (uint32_t i = 0; i < max; ++i) {
-        solu_tracedata *sd = st->data + i;
-        sf_str p = sf_ref(sd->path);
-        bool exists = sf_file_exists(p);
-
-        sf_str work;
-        if (sd->line)
-            work = sf_str_fmt(TUI_ITL"  at "TUI_CLR TUI_INFO"[%s:%u:%u]",
-                sd->path, sd->line, sd->column);
-        else if (exists)
-            work = sf_str_fmt(TUI_ITL"  at "TUI_CLR TUI_INFO"[%s]", sd->path);
-        else {
-            max = min(st->count, max + 1);
-            work = sf_str_fmt(TUI_ITL"  at "TUI_CLR TUI_INFO"[%s]", sd->path);
-        }
-        sf_str_append(&out, work);
-        sf_str_free(work);
-
-        if (exists) {
-            sf_str_append(&out, sf_lit(TUI_CLR ":\n"));
-            sf_fsb_ex fsb = sf_file_buffer(p);
-            if (fsb.is_ok) {
-                highlight_line(&out, sf_ref((char *)fsb.ok.ptr), sd->line, sd->column, lookback, lookahead);
-                sf_buffer_clear(&fsb.ok);
-            }
-        } else sf_str_append(&out, sf_lit(TUI_CLR "\n"));
-    }
-
-    if (max < st->count)
-        sf_str_append(&out, sf_lit(TUI_INFO "  ...\n" TUI_CLR));
-
-    return out.c_str;
 }
 
 // Dynamic

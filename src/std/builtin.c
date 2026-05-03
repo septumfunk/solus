@@ -34,11 +34,12 @@ static solu_call_ex builtin_import(solu_state *s) {
     } else {
         // Source code
         solu_compile_ex cm_ex = solu_cfile(s, rpath);
-        free(rpath);
         if (!cm_ex.is_ok) {
             char *trace = solu_ctrace_print(rpath, cm_ex.err, 15, 2, 1);
+            free(rpath);
             return solu_err(s, "%s", trace ? "Unknown compile error" : trace);
         }
+        free(rpath);
         cl_ex = solu_call(s, &cm_ex.ok, NULL, 0);
         solu_fproto_free(&cm_ex.ok);
     }

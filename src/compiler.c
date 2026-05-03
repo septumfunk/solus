@@ -1006,8 +1006,7 @@ solu_cnode_ex solu_cnode(solu_compiler *c, solu_node *node, uint32_t t_reg) {
     }
 }
 
-solu_compile_ex solu_cproto(sf_str path, char *src, uint32_t arg_c, solu_val *args, uint32_t up_c, solu_upvalue *upvals) {
-    solu_ctrace *ct = malloc(sizeof(solu_ctrace));
+solu_compile_ex solu_cproto(solu_ctrace *ct, sf_str path, char *src, uint32_t arg_c, solu_val *args, uint32_t up_c, solu_upvalue *upvals) {
     *ct = solu_ctrace_new();
 
     if (memcmp(src, "[SOLC]", 6) == 0) {

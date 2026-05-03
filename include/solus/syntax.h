@@ -8,13 +8,10 @@ typedef struct {
     uint16_t line, column;
 } solu_compiledata;
 
-typedef struct solu_ctrace solu_ctrace;
-void _solu_ctrace_cleanup(solu_ctrace *ct);
 #define VEC_NAME solu_ctrace
 #define VEC_T solu_compiledata
 #define VSIZE_T uint32_t
 #define VSIZE_MAX UINT32_MAX
-#define CLEANUP_FN _solu_ctrace_cleanup
 #include <sf/containers/vec.h>
 
 char *solu_ctrace_print(char *path, solu_ctrace *ct, uint32_t max, uint8_t lookback, uint8_t lookahead);
