@@ -1,6 +1,4 @@
-#include "sf/str.h"
-#include "solus/val.h"
-#include "solus/vm.h"
+#include "solus/api.h"
 #include "std.h"
 #include <setjmp.h>
 
@@ -179,7 +177,6 @@ static solu_call_ex template_tostring(solu_state *s) {
     solu_call_ex ex = solu_call(temp->s, temp->fun.dyn, NULL, 0);
     if (!ex.is_ok) {
         sf_str fmt = sf_str_fmt("<%s>", ex.err.panic ? ex.err.panic : solu_err_string(ex.err.tt));
-        solu_panic_cleanup(ex);
         solu_val o = solu_dnstr(s, fmt.c_str);
         sf_str_free(fmt);
         return solu_ok(o);

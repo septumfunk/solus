@@ -1,12 +1,7 @@
 #include "solus/bytecode.h"
-#include "sf/str.h"
-#include <stdbool.h>
-#include <stdio.h>
-#include <stdlib.h>
-
-#ifdef POSIX_COMPAT
 #include "solus/compat.h"
-#endif
+#include <sf/str.h>
+#include <stdio.h>
 
 char *solu_realdir(const char *rp) {
     if (!rp) return NULL;

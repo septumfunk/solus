@@ -1,8 +1,23 @@
 #ifndef SYNTAX_H
 #define SYNTAX_H
 
-#include <stdint.h>
 #include "val.h"
+
+typedef struct {
+    solu_error tt;
+    uint16_t line, column;
+} solu_compiledata;
+
+typedef struct solu_ctrace solu_ctrace;
+void _solu_ctrace_cleanup(solu_ctrace *ct);
+#define VEC_NAME solu_ctrace
+#define VEC_T solu_compiledata
+#define VSIZE_T uint32_t
+#define VSIZE_MAX UINT32_MAX
+#define CLEANUP_FN _solu_ctrace_cleanup
+#include <sf/containers/vec.h>
+
+char *solu_ctrace_print(char *path, solu_ctrace *ct, uint32_t max, uint8_t lookback, uint8_t lookahead);
 
 /// Token type, or character
 typedef enum {
@@ -32,12 +47,6 @@ typedef struct {
     uint16_t line, column;
 } solu_token;
 
-typedef struct {
-    solu_error tt;
-    sf_str token;
-    uint16_t line, column;
-} solu_scan_err;
-
 struct solu_tokenvec;
 #define VEC_NAME solu_tokenvec
 #define VEC_T solu_token
@@ -63,9 +72,9 @@ typedef struct {
 } solu_scan_ok;
 #define EXPECTED_NAME solu_scan_ex
 #define EXPECTED_O solu_scan_ok
-#define EXPECTED_E solu_scan_err
+#define EXPECTED_E solu_ctrace *
 #include <sf/containers/expected.h>
-EXPORT solu_scan_ex solu_scan(sf_str src);
+solu_scan_ex solu_scan(sf_str src, solu_ctrace *ct);
 
 /// Node types that the parser is capable of producing
 typedef enum {
@@ -169,18 +178,13 @@ EXPORT bool solu_niscondition(solu_node *node);
 /// Walk through an AST and free all of its nodes
 EXPORT void solu_node_free(solu_node *root);
 
-/// A possible result of parsing, describes what went wrong and where
-typedef struct {
-    solu_error tt;
-    solu_token token;
-} solu_parse_err;
 /// An optional type alias for the root node of an AST
 typedef solu_node *solu_ast;
 
 #define EXPECTED_NAME solu_parse_ex
 #define EXPECTED_O solu_ast
-#define EXPECTED_E solu_parse_err
+#define EXPECTED_E solu_ctrace *
 #include <sf/containers/expected.h>
-EXPORT solu_parse_ex solu_parse(sf_str path, solu_scan_ex scan_ex);
+solu_parse_ex solu_parse(sf_str path, solu_scan_ex scan_ex, solu_ctrace *ct);
 
 #endif // SYNTAX_H

@@ -1,5 +1,4 @@
-// Compatibility files
-#ifndef COMPAT_H
+#if !defined(COMPAT_H) && (defined(_WIN32) || defined(POSIX_COMPAT))
 #define COMPAT_H
 
 #include <stdlib.h>
@@ -7,7 +6,6 @@
 #include <stdint.h>
 #include <arpa/inet.h>
 
-#if defined(_WIN32) || defined(POSIX_COMPAT)
 static inline uint64_t htonll(uint64_t x) {
 #if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
     return ((uint64_t)htonl((uint32_t)(x & 0xFFFFFFFFULL)) << 32) |
@@ -34,6 +32,5 @@ static inline char *strdup(const char *s) {
     memcpy(out, s, len);
     return out;
 }
-#endif
 
 #endif // COMPAT_H

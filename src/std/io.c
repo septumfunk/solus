@@ -1,6 +1,6 @@
-#include "sf/fs.h"
-#include "solus/vm.h"
+#include "solus/api.h"
 #include "std.h"
+#include <sf/fs.h>
 
 /*
  * io.print(val: any)
@@ -109,10 +109,12 @@ static solu_call_ex io_compile(solu_state *s) {
     expect_dtype(SOLU_DSTR, path);
 
     solu_compile_ex comp_ex = solu_csrc(s, src.dyn);
-    if (!comp_ex.is_ok)
-        return solu_call_ex_err((solu_call_err){
-            .tt = comp_ex.err.tt,
-        });
+    if (!comp_ex.is_ok) {
+        char *trace = solu_ctrace_print("Source", comp_ex.err, 15, 2, 1);
+        solu_call_ex e = solu_err(s, "%s", trace ? "Unknown compile error" : trace);
+        if (trace) free(trace);
+        return e;
+    }
     solu_savefun(&comp_ex.ok, path.dyn);
     if (!sf_file_exists(sf_lit(path.dyn)))
         return solu_err(s, "Failed to write compiled file.");

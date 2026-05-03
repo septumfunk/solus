@@ -1,3 +1,5 @@
+assert(false);
+
 var pos = { 15, 0 }.usemeta({
     _add = [](a, b) {
         { a[0] + b[0], a[1] + b[1] }

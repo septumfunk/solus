@@ -113,7 +113,6 @@ typedef struct {
     union {
         struct {
             uint16_t code_c, line_c; // lines/instruction count
-            uint32_t dbg_res, dbg_ll; // debug resume/line
             sf_str file_name;
             solu_instruction *code; // bytecode
             solu_dbg *dbg; // debug info
@@ -257,6 +256,38 @@ static inline bool solu_isutype(solu_val val, sf_str name) { return sf_str_eq(na
 /// Disassemble fun
 EXPORT sf_str solu_dasmf(solu_fproto *proto);
 
+typedef struct {
+    char *path;
+    uint16_t line, column;
+    solu_fproto *p;
+} solu_tracedata;
+typedef struct solu_trace solu_trace;
+void _solu_trace_cleanup(solu_trace *st);
+#define VEC_NAME solu_trace
+#define VEC_T solu_tracedata
+#define VSIZE_T uint32_t
+#define VSIZE_MAX UINT32_MAX
+#define CLEANUP_FN _solu_trace_cleanup
+#include <sf/containers/vec.h>
 
+#ifndef _WIN32
+    #define TUI_CLR  "\x1b[0m"
+    #define TUI_ERR    "\x1b[1;31m"  // bright red
+    #define TUI_INFO   "\x1b[0;90m"  // gray
+    #define TUI_UL  "\x1b[4m"
+    #define TUI_BLD "\x1b[1m"
+    #define TUI_ITL "\x1b[3m"
+#else
+    #define TUI_CLR  ""
+    #define TUI_ERR    ""
+    #define TUI_INFO   ""
+    #define TUI_UL  ""
+    #define TUI_BLD ""
+    #define TUI_ITL ""
+#endif
+
+EXPORT solu_trace solu_trace_clone(solu_trace *st);
+EXPORT char *solu_trace_print(solu_trace *st, uint32_t max, uint8_t lookback, uint8_t lookahead);
+EXPORT void highlight_line(sf_str *out, sf_str src, uint16_t line, uint16_t column, uint8_t lookback, uint8_t lookahead);
 
 #endif // VAL_H

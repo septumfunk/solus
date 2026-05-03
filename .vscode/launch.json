@@ -4,9 +4,9 @@
     {
       "name": "Debug CLI",
       "request": "launch",
-      "program": "${workspaceRoot}/build/solus",
+      "program": "${workspaceFolder:solus}/build/solus",
       "args": ["${input:cliMode}", "solus.tests/${input:scriptName}"],
-      "cwd": "${workspaceRoot}",
+      "cwd": "${workspaceFolder:solus}",
       "terminal": "integrated",
 
       // Defaults (Linux/macOS)
@@ -19,17 +19,17 @@
       // Windows overrides
       "windows": {
         "type": "cppvsdbg",
-        "program": "${workspaceRoot}/build/solus.exe",
+        "program": "${workspaceFolder:solus}/build/solus.exe",
         "args": ["${input:cliMode}", "solus.tests/${input:scriptName}"],
       }
     },
     {
       "name": "Sanitize CLI",
       "request": "launch",
-      "cwd": "${workspaceFolder}",
+      "cwd": "${workspaceFolder:solus}",
       "args": ["${input:cliMode}", "solus.tests/${input:scriptName}"],
       "type": "lldb",
-      "program": "${workspaceFolder}/build/sanitized/solus",
+      "program": "${workspaceFolder:solus}/build/sanitized/solus",
       "terminal": "integrated",
 
       "env": {
@@ -39,17 +39,17 @@
 
       "windows": {
         "type": "cppvsdbg",
-        "program": "${workspaceFolder}/build/sanitized/solus.exe",
+        "program": "${workspaceFolder:solus}/build/sanitized/solus.exe",
         "args": ["${input:cliMode}", "solus.tests/${input:scriptName}"],
-        "cwd": "${workspaceFolder}"
+        "cwd": "${workspaceFolder:solus}"
       }
     },
     {
       "name": "Run Tests",
       "request": "launch",
-      "program": "${workspaceRoot}/build/solus",
+      "program": "${workspaceFolder:solus}/build/solus",
       "args": ["test", "solus.tests"],
-      "cwd": "${workspaceRoot}",
+      "cwd": "${workspaceFolder:solus}",
 
       // Defaults (Linux/macOS)
       "type": "lldb",
@@ -61,7 +61,7 @@
       // Windows overrides
       "windows": {
         "type": "cppvsdbg",
-        "program": "${workspaceRoot}/build/solus.exe",
+        "program": "${workspaceFolder:solus}/build/solus.exe",
         "args": ["test", "solus.tests"],
       }
     }

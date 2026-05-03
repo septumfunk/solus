@@ -1,12 +1,5 @@
-#include "sf/containers/buffer.h"
-#include "solus/bytecode.h"
-#include "solus/val.h"
-#include "solus/compiler.h"
-#include "solus/vm.h"
-#include <sf/str.h>
+#include "solus/api.h"
 #include <sf/fs.h>
-#include <stdio.h>
-#include <string.h>
 
 #ifndef _WIN32
 #define TUI_UL  "\x1b[4m"
@@ -64,7 +57,8 @@ void cli_highlight_line(sf_str src, sf_str err, uint16_t line, uint16_t column, 
     int caret = prefix + column - 1;
 
     char *pointer = malloc((size_t)caret + 2);
-    memset(pointer, '~', (size_t)caret);
+    memset(pointer, ' ', (size_t)caret);
+    pointer[5] = '|';
     pointer[caret] = '^';
     pointer[caret + 1] = '\0';
 
@@ -97,7 +91,7 @@ sf_str cli_load_file(char *name) {
     return sf_own((char *)fsb.ok.ptr);
 }
 
-int cli_run(char *path, sf_str src) {
+int cli_run(char *path) {
     solu_state *s = solu_state_new();
     solu_usestd(s);
 
@@ -120,10 +114,8 @@ int cli_run(char *path, sf_str src) {
     } else {
         solu_compile_ex comp_ex = solu_cfile(s, path);
         if (!comp_ex.is_ok) {
-            if (comp_ex.err.line) {
-                printf(TUI_ERR "error: %s:%u:%u\n" TUI_CLR, path, comp_ex.err.line, comp_ex.err.column);
-                cli_highlight_line(src, sf_ref(solu_err_string(comp_ex.err.tt)), comp_ex.err.line, comp_ex.err.column, 2, 2);
-            } else printf(TUI_ERR "error: %s\n" TUI_CLR, solu_err_string(comp_ex.err.tt));            solu_state_free(s);
+            char *trace = solu_ctrace_print(path, comp_ex.err, 15, 2, 1);
+            if (trace) printf("%s", trace);
             return -1;
         }
         fb = comp_ex.ok;
@@ -132,26 +124,18 @@ int cli_run(char *path, sf_str src) {
 
     solu_call_ex call_ex = solu_call(s, &fb, NULL, 0);
     if (!call_ex.is_ok) {
-        uint16_t line = 0, col = 0;
-        if (fb.dbg) {
-            line = SOLU_DBG_LINE(fb.dbg[call_ex.err.pc]);
-            col = SOLU_DBG_COL(fb.dbg[call_ex.err.pc]);
-            printf(TUI_ERR "error: %s:%u:%u\n" TUI_CLR, path, line, col);
-        } else printf(TUI_ERR "error: %s\n" TUI_CLR, path);
-
-
         if (call_ex.err.panic) {
-            sf_str full = sf_str_fmt("%s: %s", solu_err_string(call_ex.err.tt), call_ex.err.panic);
-            if (line)
-                cli_highlight_line(src, full, line, col, 2, 2);
-            else
-                printf(TUI_ERR TUI_BLD "%s\n" TUI_CLR, full.c_str);
-            free(call_ex.err.panic);
+            sf_str full = sf_str_fmt("panic: %s", call_ex.err.panic);
+            printf(TUI_ERR TUI_BLD "%s\n" TUI_CLR, full.c_str);
             sf_str_free(full);
-        } else if (line)
-            cli_highlight_line(src, sf_ref(solu_err_string(call_ex.err.tt)), line, col, 2, 2);
-        else
-            printf(TUI_ERR TUI_BLD "%s\n" TUI_CLR, solu_err_string(call_ex.err.tt));
+        } else printf(TUI_ERR TUI_BLD "error: %s\n" TUI_CLR, solu_err_string(call_ex.err.tt));
+
+        char *trace = solu_trace_print(call_ex.err.trace, 3, 2, 1);
+        if (trace) {
+            printf("%s", trace);
+            free(trace);
+        }
+
         return -1;
     }
 
@@ -167,16 +151,13 @@ int cli_run(char *path, sf_str src) {
     return 0;
 }
 
-int cli_compile(char *path, sf_str src) {
+int cli_compile(char *path) {
     solu_state *s = solu_state_new();
     solu_usestd(s);
     solu_compile_ex comp_ex = solu_cfile(s, path);
     if (!comp_ex.is_ok) {
-        if (comp_ex.err.line) {
-            printf(TUI_ERR "error: %s:%u:%u\n" TUI_CLR, path, comp_ex.err.line, comp_ex.err.column);
-            cli_highlight_line(src, sf_ref(solu_err_string(comp_ex.err.tt)), comp_ex.err.line, comp_ex.err.column, 2, 2);
-        } else printf(TUI_ERR "error: %s\n" TUI_CLR, solu_err_string(comp_ex.err.tt));
-        solu_state_free(s);
+        char *trace = solu_ctrace_print(path, comp_ex.err, 15, 2, 1);
+        if (trace) printf("%s", trace);
         return -1;
     }
 
@@ -202,10 +183,10 @@ int cli_compile(char *path, sf_str src) {
     return 0;
 }
 
-int cli_tf(char *path, sf_str src) {
+int cli_tf(char *path) {
     printf(TUI_BLD TUI_UL "Test '%s'\n" TUI_CLR, path);
     double start = solu_timesec();
-    int ret = cli_run(path, src);
+    int ret = cli_run(path);
     printf( ret == 0 ? (TUI_BLD "Success: %fs\n" TUI_CLR) : (TUI_BLD "Failure: %fs\n" TUI_CLR), solu_timesec() - start);
     return ret;
 }
@@ -298,7 +279,7 @@ int cli_test(char *dirpath) {
             continue;
         }
         sf_buffer_seek(&fsb.ok, SF_BUFFER_END, 0);
-        cli_tf(full, (sf_str){(char *)fsb.ok.ptr, fsb.ok.size - 1, SF_STR_NONE});
+        cli_tf(full);
         sf_buffer_clear(&fsb.ok);
     }
 
@@ -320,7 +301,7 @@ int main(int argc, char **argv) {
         if (sf_file_exists(sf_ref(fp))) {
             sf_str src = cli_load_file(fp);
             if (sf_isempty(src) || src.len == 0) { free(fp); goto usage; }
-            int r = cli_run(fp, src);
+            int r = cli_run(fp);
             free(fp);
             return r;
         }
@@ -363,8 +344,8 @@ int main(int argc, char **argv) {
 
     int ret = 0;
     switch (mode) {
-        case CLI_RUN: ret = cli_run(argv[2], src); break;
-        case CLI_COMPILE: ret = cli_compile(argv[2], src); break;
+        case CLI_RUN: ret = cli_run(argv[2]); break;
+        case CLI_COMPILE: ret = cli_compile(argv[2]); break;
         default: ret = -1; break;
     }
     sf_str_free(src);

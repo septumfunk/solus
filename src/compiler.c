@@ -1,13 +1,6 @@
 #include "solus/compiler.h"
-#include "solus/bytecode.h"
-#include "solus/val.h"
 #include "solus/syntax.h"
-#include "sf/str.h"
-#include <limits.h>
-#include <stdint.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
+#include <sf/str.h>
 
 #ifndef _WIN32
 #define TUI_UL  "\x1b[4m"
@@ -68,6 +61,7 @@ typedef struct { uint16_t idx; solu_tokentype tt; } solu_control;
 
 /// Temporary compilation info that's shared between all compiler functions
 typedef struct {
+    sf_str path;
     solu_fproto proto;
     solu_ast ast;
     solu_scopes scopes;
@@ -78,6 +72,7 @@ typedef struct {
     solu_valmap fields;
     bool inloop;
     solu_controls controls;
+    solu_ctrace *ct;
 } solu_compiler;
 
 #define OP_W 10
@@ -172,22 +167,26 @@ static uint32_t solu_kadd(solu_compiler *c, solu_val con) {
     return c->proto.constants.count - 1;
 }
 
-/// Shorthand macro for returning a solu_cnode_ex_err
-#define solu_cerr(type) solu_cnode_ex_err((solu_compile_err){(type), node->line, node->column})
-
-
+typedef struct {
+    solu_error tt;
+    uint16_t line, column;
+} solu_cnode_err;
 #define EXPECTED_NAME solu_cnode_ex
-#define EXPECTED_E solu_compile_err
+#define EXPECTED_E solu_cnode_err
 #include <sf/containers/expected.h>
+/// Shorthand macro for returning a solu_cnode_ex_err
+#define solu_cerr(type) solu_cnode_ex_err((solu_cnode_err){(type), node->line, node->column})
+
 solu_cnode_ex solu_cnode(solu_compiler *c, solu_node *node, uint32_t t_reg);
 
 /// Compile a fun from a block and info
 solu_compile_ex solu_cfun(
     sf_str file_name, uint32_t frame, solu_dalloc *alloc, solu_node *ast,
     uint32_t arg_c, solu_val *args, bool variadic,
-    uint32_t up_c, solu_upvalue *upvals) {
+    uint32_t up_c, solu_upvalue *upvals, solu_ctrace *ct) {
 
     solu_compiler c = {
+        .path = file_name,
         .proto = solu_fproto_new(),
         .ast = ast,
         .scopes = solu_scopes_new(),
@@ -196,6 +195,7 @@ solu_compile_ex solu_cfun(
         .alloc = alloc,
         .obj_r = UINT32_MAX,
         .frame = frame,
+        .ct = ct,
 
         .controls = solu_controls_new(),
     };
@@ -214,12 +214,12 @@ solu_compile_ex solu_cfun(
     memcpy(c.proto.upvals, upvals, sizeof(solu_upvalue) * up_c);
     c.proto.up_c = up_c;
 
-    solu_cnode_ex e = solu_cnode(&c, c.ast, UINT32_MAX);
+    solu_cnode(&c, c.ast, UINT32_MAX);
     c.proto.reg_c = c.max_reg;
 
     solu_scopes_free(&c.scopes);
     solu_controls_free(&c.controls);
-    return e.is_ok ? solu_compile_ex_ok(c.proto) : solu_compile_ex_err(e.err);
+    return !ct->count ? solu_compile_ex_ok(c.proto) : solu_compile_ex_err(ct);
 }
 
 static solu_cnode_ex solu_cmembers(solu_compiler *c, solu_node *node, uint32_t t_reg) {
@@ -237,7 +237,7 @@ static solu_cnode_ex solu_cmembers(solu_compiler *c, solu_node *node, uint32_t t
                 key_i = solu_kadd(c, idx);
             right = solu_cnode(c, nd, it);
             if (!right.is_ok) return right;
-            solu_cemit(c, solu_ins_ab(SOLU_OP_PUSH, t_reg, it));
+            solu_cemitraw(c, solu_ins_ab(SOLU_OP_PUSH, t_reg, it), nd->line, nd->column);
         } else {
             bool isk = nd->n_binary.left->tt == SOLU_ND_IDENTIFIER || nd->n_binary.left->tt == SOLU_ND_LITERAL;
             if (isk) {
@@ -252,7 +252,7 @@ static solu_cnode_ex solu_cmembers(solu_compiler *c, solu_node *node, uint32_t t
             }
             right = solu_cnode(c, nd->n_binary.right, it);
             if (!right.is_ok) return right;
-            solu_cemit(c, solu_ins_abc(SOLU_OP_SET, t_reg, key_i, solu_reg(it)));
+            solu_cemitraw(c, solu_ins_abc(SOLU_OP_SET, t_reg, key_i, solu_reg(it)), nd->line, nd->column);
         }
     }
     c->obj_r = obj_r;
@@ -898,7 +898,10 @@ solu_cnode_ex solu_cnode(solu_compiler *c, solu_node *node, uint32_t t_reg) {
                     val = true;
                     ex = solu_cnode(c, nd, t_reg);
                 } else ex = solu_cnode(c, nd, UINT32_MAX);
-                if (!ex.is_ok) return ex;
+                if (!ex.is_ok) {
+                    solu_ctrace_push(c->ct, (solu_compiledata){ex.err.tt, ex.err.line, ex.err.column});
+                    continue;
+                }
             }
             if (t_reg != UINT32_MAX && !val) {
                 uint32_t nil;
@@ -962,11 +965,11 @@ solu_cnode_ex solu_cnode(solu_compiler *c, solu_node *node, uint32_t t_reg) {
                 c->alloc,
                 node->n_fun.stmt,
                 node->n_fun.arg_c, node->n_fun.args, node->n_fun.variadic,
-                ofs + node->n_fun.cap_c, upvals
+                ofs + node->n_fun.cap_c, upvals, c->ct
             );
             if (upvals) free(upvals);
 
-            if (!ex.is_ok) return solu_cnode_ex_err(ex.err);
+            if (!ex.is_ok) return solu_cnode_ex_ok();
 
             ex.ok.variadic = node->n_fun.variadic;
             ex.ok.self = self;
@@ -1004,12 +1007,18 @@ solu_cnode_ex solu_cnode(solu_compiler *c, solu_node *node, uint32_t t_reg) {
 }
 
 solu_compile_ex solu_cproto(sf_str path, char *src, uint32_t arg_c, solu_val *args, uint32_t up_c, solu_upvalue *upvals) {
-    if (memcmp(src, "[SOLC]", 6) == 0)
-        return solu_compile_ex_err((solu_compile_err){SOLU_ERRP_EXPECTED_SOURCE, 0, 0});
-    solu_scan_ex scan_ex = solu_scan(sf_ref(src));
+    solu_ctrace *ct = malloc(sizeof(solu_ctrace));
+    *ct = solu_ctrace_new();
+
+    if (memcmp(src, "[SOLC]", 6) == 0) {
+        solu_ctrace_push(ct, (solu_compiledata){SOLU_ERRP_EXPECTED_SOURCE, 0, 0});
+        return solu_compile_ex_err(ct);
+    }
+    solu_scan_ex scan_ex = solu_scan(sf_ref(src), ct);
     if (!scan_ex.is_ok)
-        return solu_compile_ex_err((solu_compile_err){scan_ex.err.tt, scan_ex.err.line, scan_ex.err.column});
-    solu_parse_ex par_ex = solu_parse(path, scan_ex);
+        return solu_compile_ex_err(ct);
+
+    solu_parse_ex par_ex = solu_parse(path, scan_ex, ct);
     solu_tokenvec_free(&scan_ex.ok.tv);
     if (!par_ex.is_ok) {
         if (scan_ex.is_ok)
@@ -1018,17 +1027,13 @@ solu_compile_ex solu_cproto(sf_str path, char *src, uint32_t arg_c, solu_val *ar
                 free(ac);
                 ac = next;
             }
-        return solu_compile_ex_err((solu_compile_err){
-            .tt = par_ex.err.tt,
-            .line = par_ex.err.token.line,
-            .column = par_ex.err.token.column,
-        });
+        return solu_compile_ex_err(ct);
     }
 
     solu_compile_ex ex = solu_cfun(
         sf_str_dup(path), 0, scan_ex.ok.alloc, par_ex.ok,
         arg_c, args, true,
-        up_c, upvals
+        up_c, upvals, ct
     );
     solu_node_free(par_ex.ok);
 

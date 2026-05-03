@@ -12,6 +12,7 @@ add_library(${PROJECT_NAME} ${LIBRARY_TYPE}
     src/bytecode.c
     src/compiler.c
     src/syntax.c
+    src/api.c
     src/vm.c
     src/val.c
 

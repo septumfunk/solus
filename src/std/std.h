@@ -1,8 +1,7 @@
 #ifndef STD_H
 #define STD_H
 
-#include "solus/vm.h"
-#include <sf/fs.h>
+#include "solus/api.h"
 
 #define expect_type(T, val) do { \
     if (val.tt != T) \

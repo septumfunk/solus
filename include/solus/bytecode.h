@@ -1,11 +1,7 @@
 #ifndef BYTECODE_H
 #define BYTECODE_H
 
-#include <sf/containers/buffer.h>
 #include <sf/str.h>
-#include <sf/fs.h>
-#include <stddef.h>
-#include <stdint.h>
 
 /// Bytecode version
 #define SOLU_VERSION "0.10.2"

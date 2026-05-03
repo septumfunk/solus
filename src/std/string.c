@@ -1,10 +1,7 @@
-#include "sf/str.h"
-#include "solus/val.h"
-#include "solus/vm.h"
+#include "solus/api.h"
 #include "solus/compat.h"
 #include "std.h"
 #include <ctype.h>
-#include <string.h>
 
 static inline solu_i64 clamp_i64(solu_i64 v, solu_i64 lo, solu_i64 hi) {
     if (v < lo) return lo;

@@ -1,5 +1,4 @@
-#include "solus/val.h"
-#include "solus/vm.h"
+#include "solus/api.h"
 #include "std.h"
 #include <math.h>
 #include <time.h>

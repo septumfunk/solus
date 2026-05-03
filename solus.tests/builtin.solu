@@ -1,25 +1,7 @@
-var module = import('module').unwrap();
-io.println(module.type() == 'err' and module or module.version);
+val x = 2;
 
-var mod2 = catch([]() require('notfound')); # Same as import('notfound')
-assert(mod2.type() == 'err');
+x = 3;
 
-var cat = "{ meows = 2, paws = 4 }";
-var instance = eval(cat);
-assert(instance.meows == 2);
+var fun = [no_good]() { 'hi :3c' };
 
-var mod = attempt(
-    []() import("doesnt-exist.solu"),
-    [](err) { io.println(err); {} }
-);
-
-assert(io.fread('test.cfg').or_else(2) == 2);
-
-var cfg = {
-    version = 2.2,
-    color = 'red'
-}.then([](cfg) {
-    io.println($'Version: {cfg.version}');
-    io.println($'Color: {cfg.color}');
-    cfg
-});
+var x = 3.3;

@@ -1,11 +1,6 @@
-#include "solus/bytecode.h"
-#include "solus/val.h"
-#include "solus/vm.h"
+#include "solus/api.h"
 #include "std.h"
 #include <errno.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
 
 /*
  * import(path: str) -> any|err
@@ -40,8 +35,10 @@ static solu_call_ex builtin_import(solu_state *s) {
         // Source code
         solu_compile_ex cm_ex = solu_cfile(s, rpath);
         free(rpath);
-        if (!cm_ex.is_ok)
-            return solu_err(s, "%s", solu_err_string(cm_ex.err.tt));
+        if (!cm_ex.is_ok) {
+            char *trace = solu_ctrace_print(rpath, cm_ex.err, 15, 2, 1);
+            return solu_err(s, "%s", trace ? "Unknown compile error" : trace);
+        }
         cl_ex = solu_call(s, &cm_ex.ok, NULL, 0);
         solu_fproto_free(&cm_ex.ok);
     }
@@ -49,7 +46,6 @@ static solu_call_ex builtin_import(solu_state *s) {
     if (!cl_ex.is_ok) {
         // Compile failure
         solu_val e = solu_dnerr(s, cl_ex.err.panic);
-        free(cl_ex.err.panic);
         return solu_ok(e);
     }
     return cl_ex;
@@ -79,15 +75,20 @@ static solu_call_ex builtin_eval(solu_state *s) {
     expect_dtype(SOLU_DSTR, src);
 
     solu_compile_ex cm_ex = solu_csrc(s, src.dyn);
-    if (!cm_ex.is_ok)
-        return solu_ok(solu_dnerr(s, solu_err_string(cm_ex.err.tt)));
+    if (!cm_ex.is_ok) {
+        char *trace = solu_ctrace_print("Source", cm_ex.err, 15, 2, 1);
+        solu_call_ex e = solu_err(s, "%s", trace ? "Unknown compile error" : trace);
+        if (trace) free(trace);
+        return e;
+    }
     solu_call_ex cl_ex = solu_call(s, &cm_ex.ok, NULL, 0);
     solu_fproto_free(&cm_ex.ok);
+
     if (!cl_ex.is_ok) {
-        return solu_ok(solu_dnerr(s, cl_ex.err.panic ?
-            cl_ex.err.panic :
-            solu_err_string(cm_ex.err.tt)
-        ));
+        char *trace = solu_trace_print(cl_ex.err.trace, 15, 2, 1);
+        solu_call_ex e = solu_err(s, trace ? "error: %s\n%s" : "error: %s", cl_ex.err.panic, trace);
+        if (trace) free(trace);
+        return e;
     }
     return cl_ex;
 }
