@@ -97,6 +97,7 @@ typedef struct {
     };
     uint32_t frame;
     bool mut;
+    solu_val type;
 } solu_upvalue;
 
 struct solu_state;

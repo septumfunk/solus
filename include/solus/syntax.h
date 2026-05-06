@@ -19,11 +19,11 @@ char *solu_ctrace_print(char *path, solu_ctrace *ct, uint32_t max, uint8_t lookb
 /// Token type, or character
 typedef enum {
     // Statements
-    TK_VAL, TK_VAR, TK_DO, TK_IF, TK_ELSE, TK_FOR, TK_WHILE, TK_INCLUDE,
+    TK_VAL, TK_VAR, TK_DO, TK_IF, TK_ELSE, TK_FOR, TK_WHILE, TK_INCLUDE, TK_TYPEOF,
     TK_BREAK, TK_CONTINUE, TK_RETURN,
     // Operators
     TK_PLUS, TK_MINUS, TK_BANG, TK_NEG, TK_INCREMENT, TK_DECREMENT, TK_ASTERISK, TK_SLASH,
-    TK_EQUAL, TK_PLUS_EQUAL, TK_MINUS_EQUAL, TK_STAR_EQUAL, TK_SLASH_EQUAL,
+    TK_EQUAL, TK_PLUS_EQUAL, TK_MINUS_EQUAL, TK_STAR_EQUAL, TK_SLASH_EQUAL, TK_COL_EQUAL,
     TK_NOT_EQUAL, TK_DOUBLE_EQUAL, TK_GREATER, TK_GREATER_EQUAL,
     TK_LESS, TK_LESS_EQUAL, TK_AND, TK_OR, TK_ELIPSES,
     // Assembly
@@ -79,7 +79,7 @@ typedef enum {
     SOLU_ND_LOCAL, SOLU_ND_IF, SOLU_ND_FOR, SOLU_ND_WHILE, SOLU_ND_INS, SOLU_ND_RETURN,
     SOLU_ND_LCONTROL,
     // Operators
-    SOLU_ND_UNARY, SOLU_ND_BINARY, SOLU_ND_POSTFIX, SOLU_ND_CALL,
+    SOLU_ND_UNARY, SOLU_ND_BINARY, SOLU_ND_POSTFIX, SOLU_ND_CALL, SOLU_ND_CAST, SOLU_ND_TYPEOF,
     // Literals
     SOLU_ND_IDENTIFIER, SOLU_ND_LITERAL, SOLU_ND_OBJ,
     // Functions
@@ -94,8 +94,9 @@ typedef struct solu_node {
     union {
         struct { // <let> n = v; // { n = v }
             struct solu_name {
-                solu_val name;
+                solu_val name, type;
                 struct solu_node *value;
+                bool infer;
             } *entries;
             uint16_t entry_c;
             bool mut;
@@ -144,6 +145,13 @@ typedef struct solu_node {
             uint32_t arg_c;
             bool variadic;
         } n_call;
+        struct {
+            solu_val type;
+            struct solu_node *expr;
+        } n_cast;
+        struct {
+            struct solu_node *expr;
+        } n_typeof;
 
         solu_val n_identifier, n_literal;
         struct { // { n_binary, }
@@ -183,5 +191,7 @@ typedef solu_node *solu_ast;
 #define EXPECTED_E solu_ctrace *
 #include <sf/containers/expected.h>
 solu_parse_ex solu_parse(sf_str path, solu_scan_ex scan_ex, solu_ctrace *ct);
+
+
 
 #endif // SYNTAX_H

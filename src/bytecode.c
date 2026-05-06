@@ -186,6 +186,27 @@ const solu_inssig SOLU_OP_INFO[SOLU_OP_COUNT] = {
         .type = SOLU_INS_ABC,
     },
 
+    [SOLU_OP_CI64] = {
+        .opcode = SOLU_OP_CI64,
+        .mnemonic = "CI64",
+        .type = SOLU_INS_AB,
+    },
+    [SOLU_OP_CF64] = {
+        .opcode = SOLU_OP_CF64,
+        .mnemonic = "CF64",
+        .type = SOLU_INS_AB,
+    },
+    [SOLU_OP_CBOOL] = {
+        .opcode = SOLU_OP_CBOOL,
+        .mnemonic = "CBOOL",
+        .type = SOLU_INS_AB,
+    },
+    [SOLU_OP_CSTR] = {
+        .opcode = SOLU_OP_CSTR,
+        .mnemonic = "CSTR",
+        .type = SOLU_INS_AB,
+    },
+
     [SOLU_OP_UNKNOWN] = {
         .opcode = SOLU_OP_UNKNOWN,
         .mnemonic = "???",

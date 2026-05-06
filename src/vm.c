@@ -1,4 +1,7 @@
 #include "solus/api.h"
+#include "solus/bytecode.h"
+#include "solus/val.h"
+#include <errno.h>
 
 /// Push a stack frame to the VM
 uint32_t solu_pushframe(solu_state *state, uint32_t reg_c) {
@@ -113,6 +116,11 @@ solu_call_ex solu_call_bc(solu_state *s, solu_fproto *proto, const solu_val *arg
 
         LABEL(SOLU_OP_SUPO),
         LABEL(SOLU_OP_GUPO),
+
+        LABEL(SOLU_OP_CI64),
+        LABEL(SOLU_OP_CF64),
+        LABEL(SOLU_OP_CBOOL),
+        LABEL(SOLU_OP_CSTR),
 
         LABEL(SOLU_OP_UNKNOWN),
     };
@@ -825,6 +833,64 @@ solu_call_ex solu_call_bc(solu_state *s, solu_fproto *proto, const solu_val *arg
             solu_upvalue *upv = proto->upvals + solu_iabc_bx(ins);
             solu_val upo = upv->tt == SOLU_UP_VAL ? upv->value : solu_rawget(s, upv->ref, upv->frame);
             solu_set(s, solu_iabc_a(ins), solu_dobj_strget(upo.dyn, kkey.dyn));
+            DISPATCH();
+        }
+
+        CASE(SOLU_OP_CI64) {
+            solu_val convert = solu_get(s, solu_iab_b(ins));
+            switch (convert.tt) {
+                case SOLU_TI64: break;
+                case SOLU_TF64: convert = (solu_val){SOLU_TI64, .i64 = (solu_i64)convert.f64}; break;
+                case SOLU_TBOOL: convert = (solu_val){SOLU_TI64, .i64 = convert.boolean}; break;
+                case SOLU_TDYN:
+                    if (solu_isdtype(convert, SOLU_DSTR)) {
+                        errno = 0;
+                        char *end;
+                        convert = (solu_val){SOLU_TI64, .i64 = (solu_i64)strtoll(convert.dyn, &end, 10)};
+                        if (end == convert.dyn)
+                            return solu_callerr(SOLU_ERRV_PANIC, "no value found for conversion", NULL);
+                        if (errno == ERANGE)
+                            return solu_callerr(SOLU_ERRV_PANIC, "value out of range for type i64", NULL);
+                        break;
+                    }
+                default:
+                    return solu_callerr(SOLU_ERRV_TYPE_MISMATCH, "Cannot cast type %s into i64", solu_typename(convert).c_str);
+            }
+            solu_set(s, solu_iab_a(ins), convert);
+            DISPATCH();
+        }
+        CASE(SOLU_OP_CF64) {
+            solu_val convert = solu_get(s, solu_iab_b(ins));
+            switch (convert.tt) {
+                case SOLU_TI64: break;
+                case SOLU_TF64: convert = (solu_val){SOLU_TI64, .i64 = (solu_i64)convert.f64}; break;
+                case SOLU_TBOOL: convert = (solu_val){SOLU_TI64, .i64 = convert.boolean}; break;
+                case SOLU_TDYN:
+                    if (solu_isdtype(convert, SOLU_DSTR)) {
+                        errno = 0;
+                        char *end;
+                        convert = (solu_val){SOLU_TF64, .f64 = strtof(convert.dyn, &end)};
+                        if (end == convert.dyn)
+                            return solu_callerr(SOLU_ERRV_PANIC, "no value found for conversion", NULL);
+                        if (errno == ERANGE)
+                            return solu_callerr(SOLU_ERRV_PANIC, "value out of range for type f64", NULL);
+                        break;
+                    }
+                default:
+                    return solu_callerr(SOLU_ERRV_TYPE_MISMATCH, "Cannot cast type %s into f64", solu_typename(convert).c_str);
+            }
+            solu_set(s, solu_iab_a(ins), convert);
+            DISPATCH();
+        }
+        CASE(SOLU_OP_CBOOL) {
+            solu_set(s, solu_iab_a(ins), (solu_val){SOLU_TBOOL, .boolean = solu_truthy(solu_get(s, solu_iab_b(ins)))});
+            DISPATCH();
+        }
+        CASE(SOLU_OP_CSTR) {
+            solu_val convert = solu_get(s, solu_iab_b(ins));
+            char *e = solu_tostr(s, convert);
+            if (!e) return solu_callerr(SOLU_ERRV_TYPE_MISMATCH, "Cannot cast type %s into str", solu_typename(convert).c_str);
+            solu_set(s, solu_iab_a(ins), solu_dnstr(s, e));
             DISPATCH();
         }
 

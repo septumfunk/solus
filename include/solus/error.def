@@ -15,6 +15,7 @@ X(P, NO_TOKENS, "Parser expected to recieve tokens from scanner") \
 X(P, EXPECTED_EXPRESSION, "Expected expression") \
 X(P, EXPECTED_IDENTIFIER, "Expected identifier") \
 X(P, EXPECTED_NAME, "Reserved or invalid name") \
+X(P, EXPECTED_TYPE, "Expected type") \
 X(P, EXPECTED_STR, "Expected string") \
 X(P, EXPECTED_LITERAL, "Expected str literal") \
 X(P, EXPECTED_INDEX_LITERAL, "Expected i64 or str literal") \
@@ -22,6 +23,7 @@ X(P, EXPECTED_LPAREN, "Expected '('") \
 X(P, EXPECTED_RPAREN, "Expected ')'") \
 X(P, EXPECTED_RBRACKET, "Expected ']'") \
 X(P, EXPECTED_EQUAL, "Expected '='") \
+X(P, INFER_ANNOTATED, "Type inference operator ':=' used alongside type annotation") \
 X(P, EXPECTED_LIST_TERM, "Expected '=', ',', or ';'") \
 X(P, MAX_NAMES, "Exceeded max names (>255)") \
 X(P, EXPECTED_COMMA, "Expected ','") \
@@ -57,11 +59,15 @@ X(C, FILE_NOT_FOUND, "File not found") \
 X(C, FILE_UNREADABLE, "File unreadable") \
 X(C, NONE, "You shouldn't be seeing this...") \
 X(C, EXPECTED_BLOCK, "Expected block") \
+X(C, EXPECTED_CONDITION, "Expected condition") \
 X(C, EXPECTED_FUN, "Expected function") \
 X(C, EXPECTED_EXPRESSION, "Expected expression") \
 X(C, UNEXPECTED_BREAK, "break can only be used within loops") \
 X(C, UNEXPECTED_CONTINUE, "continue can only be used within loops") \
 X(C, UNKNOWN_LOCAL, "Unknown local variable") \
+X(C, INCORRECT_TYPE, "Incorrect type for variable") \
+X(C, UNDEFINED_TYPE, "Undefined type") \
+X(C, CANNOT_CAST, "Cannot cast to specified type") \
 X(C, REDEFINED_LOCAL, "Redefined local variable") \
 X(C, REASSIGNED_VAL, "Attempted to reassign a value. vals are immutable, did you mean var?") \
 X(C, REASSIGNED_SELF, "Attempted to assign self, a reserved keyword") \

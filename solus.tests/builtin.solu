@@ -1,7 +1,4 @@
-val x = 2;
-
-x = 3;
-
-var fun = [no_good]() { 'hi :3c' };
-
-var x = 3.3;
+val x = i64:'9';
+if bool:x {
+    io.println("Wow!");
+}

@@ -45,6 +45,11 @@ typedef enum {
     SOLU_OP_SUPO,
     SOLU_OP_GUPO,
 
+    SOLU_OP_CI64,
+    SOLU_OP_CF64,
+    SOLU_OP_CBOOL,
+    SOLU_OP_CSTR,
+
     SOLU_OP_UNKNOWN,
     SOLU_OP_COUNT,
 } solu_opcode;

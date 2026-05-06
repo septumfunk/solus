@@ -1,6 +1,9 @@
 #include "solus/compiler.h"
+#include "solus/bytecode.h"
 #include "solus/syntax.h"
+#include "solus/val.h"
 #include <sf/str.h>
+#include <stdbool.h>
 
 #ifndef _WIN32
 #define TUI_UL  "\x1b[4m"
@@ -19,6 +22,7 @@ typedef struct {
     uint32_t reg, scope;
     bool upval, mut;
     uint32_t frame;
+    solu_val type;
 } solu_local;
 
 struct solu_scope;
@@ -59,6 +63,17 @@ typedef struct { uint16_t idx; solu_tokentype tt; } solu_control;
 #define VSIZE_MAX UINT32_MAX
 #include <sf/containers/vec.h>
 
+typedef enum {
+    SOLU_CANY,
+    SOLU_CF64,
+    SOLU_CI64,
+    SOLU_CBOOL,
+    SOLU_CSTR,
+    SOLU_COBJ,
+    SOLU_CERR,
+    SOLU_CCOUNT,
+} solu_pinfo;
+
 /// Temporary compilation info that's shared between all compiler functions
 typedef struct {
     sf_str path;
@@ -73,7 +88,47 @@ typedef struct {
     bool inloop;
     solu_controls controls;
     solu_ctrace *ct;
+    solu_valmap types;
+    solu_val ptypes[SOLU_CCOUNT];
 } solu_compiler;
+
+typedef struct {
+    solu_val name;
+    bool complex, nil;
+    solu_valmap members;
+    solu_opcode cast;
+} solu_tinfo;
+static solu_val solu_push_tinfo(solu_compiler *c, sf_str name, bool complex, bool nil, solu_valmap members, solu_opcode cast) {
+    solu_dalloc *alloc = c->alloc;
+    while (alloc && alloc->next)
+        alloc = alloc->next;
+    if (!alloc) return SOLU_NIL;
+    solu_dalloc *da = malloc(sizeof(solu_dalloc) + sizeof(solu_tinfo));
+    alloc->next = da;
+    solu_dalloc *na = malloc(sizeof(solu_dalloc) + name.len + 1);
+    *da = (solu_dalloc) {
+        na,
+        sizeof(solu_tinfo),
+        1, SOLU_DUSR,
+        SOLU_DYN_WHITE,
+        true, SOLU_NIL, {SOLU_NIL}
+    };
+    *na = (solu_dalloc) {
+        NULL,
+        name.len + 1,
+        1, SOLU_DSTR,
+        SOLU_DYN_WHITE,
+        true, SOLU_NIL, {SOLU_NIL}
+    };
+    solu_tinfo *ti = (solu_tinfo *)(da + 1);
+    *ti = (solu_tinfo) {
+        (solu_val){SOLU_TDYN, .dyn=na + 1},
+        complex, nil,
+        members, cast
+    };
+    memcpy(na + 1, name.c_str, name.len + 1);
+    return (solu_val){SOLU_TDYN, .dyn=ti};
+}
 
 #define OP_W 10
 /// Add an instruction to the proto.
@@ -115,7 +170,7 @@ static inline bool solu_lexists(solu_compiler *c, char *name, solu_local *loc) {
         }
     }
     if (strcmp(name, "self") == 0 && c->obj_r != UINT32_MAX) {
-        *loc = (solu_local){c->obj_r, c->scopes.count - 1, false, false, c->frame};
+        *loc = (solu_local){c->obj_r, c->scopes.count - 1, false, false, c->frame, c->ptypes[SOLU_CANY]};
         return true;
     }
     return false;
@@ -154,6 +209,7 @@ bool solu_kfind(solu_compiler *c, solu_val con, uint32_t *idx) {
     }
     return false;
 }
+
 /// Add a constant to the proto
 static uint32_t solu_kadd(solu_compiler *c, solu_val con) {
     if (con.tt == SOLU_TDYN) {
@@ -179,6 +235,46 @@ typedef struct {
 
 solu_cnode_ex solu_cnode(solu_compiler *c, solu_node *node, uint32_t t_reg);
 
+static solu_val solu_typeof(solu_compiler *c, solu_node *node) {
+    switch (node->tt) {
+        case SOLU_ND_CAST: {
+            solu_valmap_ex ex = solu_valmap_get(&c->types, sf_ref(node->n_cast.type.dyn));
+            if (!ex.is_ok) return SOLU_NIL;
+            return ex.ok;
+        }
+        case SOLU_ND_BINARY: {
+            if (solu_niscondition(node))
+                return c->ptypes[SOLU_CBOOL];
+
+            solu_val to = solu_typeof(c, node->n_binary.left);
+            if (to.tt == SOLU_TNIL) return SOLU_NIL;
+
+            if (to.dyn == c->ptypes[SOLU_CI64].dyn // f64 promotion
+                && solu_typeof(c, node->n_binary.right).dyn == c->ptypes[SOLU_CF64].dyn) {
+                to = c->ptypes[SOLU_CF64];
+            }
+            return to;
+        }
+        case SOLU_ND_LITERAL: {
+            switch (node->n_literal.tt) {
+                case SOLU_TCOUNT:
+                case SOLU_TNIL:   return c->ptypes[SOLU_CANY];
+                case SOLU_TI64:   return c->ptypes[SOLU_CI64];
+                case SOLU_TF64:   return c->ptypes[SOLU_CF64];
+                case SOLU_TBOOL:  return c->ptypes[SOLU_CBOOL];
+                case SOLU_TDYN:   return c->ptypes[SOLU_CSTR];
+            }
+        }
+        case SOLU_ND_IDENTIFIER: {
+            solu_local loc;
+            if (solu_lexists(c, node->n_identifier.dyn, &loc))
+                return loc.type;
+            return c->ptypes[SOLU_CANY];
+        }
+        default: return c->ptypes[SOLU_CANY];
+    }
+}
+
 /// Compile a fun from a block and info
 solu_compile_ex solu_cfun(
     sf_str file_name, uint32_t frame, solu_dalloc *alloc, solu_node *ast,
@@ -198,14 +294,10 @@ solu_compile_ex solu_cfun(
         .ct = ct,
 
         .controls = solu_controls_new(),
+        .types = solu_valmap_new(),
     };
     c.proto.arg_c = arg_c - variadic;
     c.proto.file_name = file_name;
-    solu_scopes_push(&c.scopes, solu_scope_new());
-    for (uint32_t i = 0; i < arg_c; ++i)
-        solu_scope_set(c.scopes.data + c.scopes.count - 1, sf_str_cdup(args[i].dyn), (solu_local){i, 0, false, true, 0});
-    for (uint32_t i = 0; i < up_c; ++i)
-        solu_scope_set(c.scopes.data + c.scopes.count - 1, sf_str_dup(upvals[i].name), (solu_local){i, 0, true, upvals[i].mut, upvals[i].frame});
 
     solu_kadd(&c, (solu_val){.tt = SOLU_TBOOL, .boolean = false});
     solu_kadd(&c, (solu_val){.tt = SOLU_TBOOL, .boolean = true});
@@ -214,11 +306,41 @@ solu_compile_ex solu_cfun(
     memcpy(c.proto.upvals, upvals, sizeof(solu_upvalue) * up_c);
     c.proto.up_c = up_c;
 
+    c.ptypes[SOLU_CANY] = solu_push_tinfo(&c, sf_lit("any"), false, false, (solu_valmap){0}, SOLU_OP_COUNT);
+    solu_valmap_set(&c.types, sf_lit("any"), c.ptypes[SOLU_CANY]);
+    c.ptypes[SOLU_CF64] = solu_push_tinfo(&c, sf_lit("f64"), false, false, (solu_valmap){0}, SOLU_OP_CF64);
+    solu_valmap_set(&c.types, sf_lit("f64"), c.ptypes[SOLU_CF64]);
+    c.ptypes[SOLU_CI64] = solu_push_tinfo(&c, sf_lit("i64"), false, false, (solu_valmap){0}, SOLU_OP_CI64);
+    solu_valmap_set(&c.types, sf_lit("i64"), c.ptypes[SOLU_CI64]);
+    c.ptypes[SOLU_CBOOL] = solu_push_tinfo(&c, sf_lit("bool"), false, false, (solu_valmap){0}, SOLU_OP_CBOOL);
+    solu_valmap_set(&c.types, sf_lit("bool"), c.ptypes[SOLU_CBOOL]);
+
+
+    c.ptypes[SOLU_CSTR] = solu_push_tinfo(&c, sf_lit("str"), false, false, (solu_valmap){0}, SOLU_OP_CSTR);
+    solu_valmap_set(&c.types, sf_lit("str"), c.ptypes[SOLU_CSTR]);
+    c.ptypes[SOLU_COBJ] = solu_push_tinfo(&c, sf_lit("obj"), false, false, (solu_valmap){0}, SOLU_OP_UNKNOWN);
+    solu_valmap_set(&c.types, sf_lit("obj"), c.ptypes[SOLU_COBJ]);
+    c.ptypes[SOLU_CERR] = solu_push_tinfo(&c, sf_lit("err"), false, false, (solu_valmap){0}, SOLU_OP_UNKNOWN);
+    solu_valmap_set(&c.types, sf_lit("err"), c.ptypes[SOLU_CERR]);
+
+    solu_scopes_push(&c.scopes, solu_scope_new());
+    for (uint32_t i = 0; i < arg_c; ++i)
+        solu_scope_set(c.scopes.data + c.scopes.count - 1, sf_str_cdup(args[i].dyn), (solu_local){
+            i, 0, false, true, 0,
+            c.ptypes[SOLU_CANY]
+        });
+    for (uint32_t i = 0; i < up_c; ++i)
+        solu_scope_set(c.scopes.data + c.scopes.count - 1, sf_str_dup(upvals[i].name), (solu_local){
+            i, 0, true, upvals[i].mut,
+            upvals[i].frame, upvals[i].type
+        });
+
     solu_cnode(&c, c.ast, UINT32_MAX);
     c.proto.reg_c = c.max_reg;
 
     solu_scopes_free(&c.scopes);
     solu_controls_free(&c.controls);
+    solu_valmap_free(&c.types);
     return !ct->count ? solu_compile_ex_ok(c.proto) : solu_compile_ex_err(ct);
 }
 
@@ -281,12 +403,25 @@ solu_cnode_ex solu_cnode(solu_compiler *c, solu_node *node, uint32_t t_reg) {
         case SOLU_ND_LOCAL: {
             for (uint16_t i = 0; i < node->n_local.entry_c; ++i) {
                 struct solu_name n = node->n_local.entries[i];
+
+                solu_val lhst = c->ptypes[SOLU_CANY];
+                if (n.type.tt != SOLU_TNIL) {
+                    solu_valmap_ex ex = solu_valmap_get(&c->types, sf_ref(n.type.dyn));
+                    if (!ex.is_ok) solu_cerr(SOLU_ERRC_UNDEFINED_TYPE);
+                    lhst = ex.ok;
+                }
+                solu_val rhst = solu_typeof(c, n.value);
+                if (rhst.tt == SOLU_TNIL) return solu_cerr(SOLU_ERRC_UNDEFINED_TYPE);
+                if (lhst.dyn != c->ptypes[SOLU_CANY].dyn && lhst.dyn != rhst.dyn)
+                    return solu_cerr(SOLU_ERRC_INCORRECT_TYPE);
+
                 solu_scope_ex exists = solu_scope_get(c->scopes.data + c->scopes.count - 1, sf_ref(n.name.dyn));
                 if (exists.is_ok)
                     return solu_cerr(SOLU_ERRC_REDEFINED_LOCAL);
                 uint32_t rhs = solu_rlocal(c);
+
                 solu_scope_set(c->scopes.data + c->scopes.count - 1, sf_str_cdup(n.name.dyn), (solu_local){
-                    rhs, c->scopes.count - 1, false, node->n_local.mut, 0
+                    rhs, c->scopes.count - 1, false, node->n_local.mut, 0, n.infer ? rhst : lhst
                 });
                 solu_cnode_ex ex = solu_cnode(c, n.value, rhs);
                 if (!ex.is_ok) return ex;
@@ -300,6 +435,9 @@ solu_cnode_ex solu_cnode(solu_compiler *c, solu_node *node, uint32_t t_reg) {
                 s = 1;
                 cond = cond->n_unary.right;
             }
+
+            if (solu_typeof(c, cond).dyn != c->ptypes[SOLU_CBOOL].dyn)
+                return solu_cnode_ex_err((solu_cnode_err){SOLU_ERRC_EXPECTED_CONDITION, cond->line, cond->column});
 
             if (cond->tt == SOLU_ND_IDENTIFIER) {
                 solu_local loc;
@@ -363,6 +501,9 @@ solu_cnode_ex solu_cnode(solu_compiler *c, solu_node *node, uint32_t t_reg) {
                 cond = cond->n_unary.right;
             }
 
+            if (solu_typeof(c, cond).dyn != c->ptypes[SOLU_CBOOL].dyn)
+                return solu_cnode_ex_err((solu_cnode_err){SOLU_ERRC_EXPECTED_CONDITION, cond->line, cond->column});
+
             if (cond->tt == SOLU_ND_IDENTIFIER) {
                 solu_local loc;
                 if (!solu_lexists(c, cond->n_identifier.dyn, &loc)) { // Global
@@ -424,6 +565,10 @@ solu_cnode_ex solu_cnode(solu_compiler *c, solu_node *node, uint32_t t_reg) {
                 s = 1;
                 cond = cond->n_unary.right;
             }
+
+            if (solu_typeof(c, cond).dyn != c->ptypes[SOLU_CBOOL].dyn)
+                return solu_cnode_ex_err((solu_cnode_err){SOLU_ERRC_EXPECTED_CONDITION, cond->line, cond->column});
+
             if (cond->tt == SOLU_ND_IDENTIFIER) {
                 solu_local loc;
                 if (!solu_lexists(c, cond->n_identifier.dyn, &loc)) { // Global
@@ -850,6 +995,38 @@ solu_cnode_ex solu_cnode(solu_compiler *c, solu_node *node, uint32_t t_reg) {
                 solu_cemit(c, solu_ins_abc(SOLU_OP_CALL, t_reg == UINT32_MAX ? solu_rtemp(c) : t_reg, f_reg, solu_reg(node->n_call.arg_c - node->n_call.variadic)));
                 solu_ctemps(c, (t_reg == UINT32_MAX ? node->n_call.arg_c + 2 : node->n_call.arg_c + 1) - node->n_call.variadic);
             }
+            return solu_cnode_ex_ok();
+        }
+        case SOLU_ND_CAST: {
+            if (t_reg == UINT32_MAX)
+                return solu_cerr(SOLU_ERRC_UNUSED_EVALUATION);
+            solu_valmap_ex ex = solu_valmap_get(&c->types, sf_ref(node->n_cast.type.dyn));
+            if (!ex.is_ok) return solu_cerr(SOLU_ERRC_UNDEFINED_TYPE);
+            solu_tinfo *ti = ex.ok.dyn;
+            if (ti->cast == SOLU_OP_UNKNOWN)
+                return solu_cerr(SOLU_ERRC_CANNOT_CAST);
+
+            uint32_t t = solu_rtemp(c);
+            solu_cnode_ex exp = solu_cnode(c, node->n_cast.expr, t);
+            if (!ex.is_ok) return exp;
+
+            solu_cemit(c, solu_ins_ab(ti->cast, t_reg, t));
+            solu_ctemps(c, 1);
+            return solu_cnode_ex_ok();
+        }
+        case SOLU_ND_TYPEOF: {
+            if (t_reg == UINT32_MAX)
+                return solu_cerr(SOLU_ERRC_UNUSED_EVALUATION);
+
+            solu_val t = solu_typeof(c, node->n_typeof.expr);
+            if (t.tt == SOLU_TNIL) return solu_cerr(SOLU_ERRC_UNDEFINED_TYPE);
+            solu_tinfo *ti = t.dyn;
+
+            uint32_t k;
+            if (!solu_kfind(c, ti->name, &k))
+                k = solu_kadd(c, ti->name);
+
+            solu_cemit(c, solu_ins_ab(SOLU_OP_LOAD, t_reg, k));
             return solu_cnode_ex_ok();
         }
         // literals
