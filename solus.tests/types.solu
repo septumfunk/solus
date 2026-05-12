@@ -1,0 +1,53 @@
+type Person: {
+    name: str,
+    age: i64,
+    nickname: str?,
+    tag: any,
+}
+
+var plain_any: any = nil;
+
+var maybe_name: str? = nil;
+val real_name: str = maybe_name;
+
+val file_text: str = io.fread("missing.txt");
+
+val maybe_count: i64? = nil;
+val count_plus_one: i64 = maybe_count + 1;
+
+val read_result := io.fread("missing.txt");
+val bad_math := read_result + 10;
+
+val maybe_callback: ((i64) -> i64)? = nil;
+val callback_result: i64 = maybe_callback(10);
+
+val takes_i64_callback := [](cb: (i64) -> i64) -> i64 {
+    cb(10)
+};
+
+val wrong_callback_result: i64 = takes_i64_callback([](x: str) -> i64 {
+    123
+});
+
+io.println(123, "extra");
+
+val bad_person_type: Person = {
+    name = "DJ",
+    age = "eighteen",
+    nickname = nil,
+    tag = "ok",
+};
+
+val missing_person_field: Person = {
+    name = "DJ",
+    nickname = nil,
+    tag = "ok",
+};
+
+if "not a bool" {
+    io.println("bad condition");
+}
+
+val direct_len := io.fread("missing.txt").len();
+
+val recovered: str = io.fread("missing.txt").or_else("recovered");

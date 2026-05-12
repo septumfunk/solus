@@ -1,17 +1,51 @@
 #include "solus/api.h"
 #include "sf/containers/buffer.h"
+#include "solus/bytecode.h"
 #include "solus/compat.h"
 #include "sf/str.h"
 #include "solus/syntax.h"
+#include "solus/val.h"
 #include "std/std.h"
 #include <sf/fs.h>
 #include <stdarg.h>
 
 #define CALL_STACK_MAX 1024
 
+static bool solu_usestd(solu_state *s) {
+    solu_val solus = solu_dnew(s, SOLU_DOBJ);
+    solu_dobj_strset(solus.dyn, "version", solu_dnstr(s, SOLU_VERSION));
+    solu_dobj_strset(solus.dyn, "git", solu_dnstr(s, SOLU_GIT));
+    solu_dobj_strset(s->global.dyn, "solus", solus);
+
+    solu_mod_builtin(s);
+    solu_error ex = solu_register_types(s);
+    if (ex != SOLU_ERRC_NONE) {
+        fprintf(stderr, TUI_ERR "init err: %s\n" TUI_CLR, (char *)solu_err_string(ex));
+        return false;
+    }
+    s->meta.string = solu_mod_string(s);
+    if (solu_isdtype(s->meta.string, SOLU_DERR)) {
+        fprintf(stderr, TUI_ERR "init err: %s\n" TUI_CLR, (char *)s->meta.string.dyn);
+        return false;
+    }
+    s->meta.obj = solu_mod_obj(s);
+    if (solu_isdtype(s->meta.obj, SOLU_DERR)) {
+        fprintf(stderr, TUI_ERR "init err: %s\n" TUI_CLR, (char *)s->meta.obj.dyn);
+        return false;
+    }
+    solu_dhold(s->meta.string);
+    solu_dhold(s->meta.obj);
+
+    solu_mod_io(s);
+    solu_mod_math(s);
+    solu_mod_gc(s);
+
+    return true;
+}
+
 solu_state *solu_state_new(void) {
     solu_dyn p = calloc(1, sizeof(solu_dalloc) + sizeof(solu_dobj));
-    *(solu_dalloc *)p = (solu_dalloc){NULL, sizeof(solu_dobj), 1, SOLU_DOBJ, SOLU_DYN_WHITE, true, SOLU_NIL, {SOLU_NIL}};
+    *(solu_dalloc *)p = (solu_dalloc){NULL, sizeof(solu_dobj), SOLU_DOBJ, SOLU_DYN_WHITE, true, SOLU_NIL, {SOLU_NIL}};
     p = (char *)p + sizeof(solu_dalloc);
     *(solu_dobj *)p = solu_dobj_new();
 
@@ -31,7 +65,18 @@ solu_state *solu_state_new(void) {
 
         .collect = false,
         .alloc = NULL,
+
+        .typeenv = {
+            NULL,
+            solu_valmap_new(),
+            {SOLU_NIL}
+        }
     };
+
+    if (!solu_usestd(s)) {
+        free(s);
+        return NULL;
+    }
     return s;
 }
 
@@ -46,31 +91,15 @@ void solu_state_free(solu_state *state) {
     free(state);
 }
 
-void solu_usestd(solu_state *s) {
-    solu_val solus = solu_dnew(s, SOLU_DOBJ);
-    solu_dobj_strset(solus.dyn, "version", solu_dnstr(s, SOLU_VERSION));
-    solu_dobj_strset(solus.dyn, "git", solu_dnstr(s, SOLU_GIT));
-    solu_dobj_strset(s->global.dyn, "solus", solus);
-
-    solu_mod_builtin(s);
-    s->meta.string = solu_mod_string(s, true);
-    s->meta.obj = solu_mod_obj(s, true);
-    solu_dhold(s->meta.string);
-    solu_dhold(s->meta.obj);
-
-    solu_mod_string(s, false);
-    solu_mod_obj(s, false);
-    solu_mod_io(s);
-    solu_mod_math(s);
-    solu_mod_gc(s);
-}
-
 // Functions/Files
 
 solu_compile_ex solu_csrc(solu_state *state, char *src) {
     solu_compile_ex ex = solu_cproto(&state->ctrace, sf_lit("Source Code"), src, 0, NULL, 1, (solu_upvalue[]){
-        (solu_upvalue){sf_lit("global"), SOLU_UP_VAL, .value = state->global, .mut = false}
-    });
+        (solu_upvalue){
+                sf_lit("global"), SOLU_UP_VAL, .value = state->global, .mut = false,
+                .type = (solu_val){SOLU_TDYN, .dyn=state->typeenv.global},
+            }
+    }, &state->typeenv);
     ex.ok.line_c = 1;
     for (char *c = src; *c != '\0'; ++c)
         if (*c == '\n') ++ex.ok.line_c;
@@ -82,7 +111,10 @@ solu_compile_ex solu_cfile(solu_state *state, char *path) {
         solu_ctrace_free(&state->ctrace);
     sf_fsb_ex fsb = sf_file_buffer(sf_ref(path));
     if (!fsb.is_ok) {
-        solu_ctrace_push(&state->ctrace, (solu_compiledata){SOLU_ERRC_FILE_NOT_FOUND, 0, 0});
+        solu_ctrace_push(&state->ctrace, (solu_compiledata){
+            SOLU_ERRC_FILE_NOT_FOUND, 0, 0,
+            sf_str_fmt("Cannot open file %s", path).c_str
+        });
         return solu_compile_ex_err(&state->ctrace);
     }
     fsb.ok.flags = SF_BUFFER_GROW;
@@ -92,13 +124,19 @@ solu_compile_ex solu_cfile(solu_state *state, char *path) {
 
     char *realpath = solu_realpath(path);
     if (!realpath) {
-        solu_ctrace_push(&state->ctrace, (solu_compiledata){SOLU_ERRC_FILE_NOT_FOUND, 0, 0});
+        solu_ctrace_push(&state->ctrace, (solu_compiledata){
+            SOLU_ERRC_FILE_NOT_FOUND, 0, 0,
+            sf_str_fmt("Cannot locate file %s", path).c_str
+        });
         return solu_compile_ex_err(&state->ctrace);
     }
 
     solu_compile_ex ex = solu_cproto(&state->ctrace, sf_ref(realpath), (char *)fsb.ok.ptr, 0, NULL, 1, (solu_upvalue[]){
-        (solu_upvalue){sf_lit("global"), SOLU_UP_VAL, .value = state->global, .mut = false}
-    });
+        (solu_upvalue){
+            sf_lit("global"), SOLU_UP_VAL, .value = state->global, .mut = false,
+            .type = (solu_val){SOLU_TDYN, .dyn=state->typeenv.global}
+        }
+    }, &state->typeenv);
     free(realpath);
     if (!ex.is_ok) {
         sf_buffer_clear(&fsb.ok);
@@ -338,7 +376,6 @@ solu_load_ex _solu_loadfun(solu_state *s, sf_buffer *buf) {
                 *dh = (solu_dalloc){
                     .next = NULL,
                     .size = (size_t)slen + 1,
-                    .thread = 1,
                     .tt = SOLU_DSTR,
                     .mark = SOLU_DYN_WHITE,
                     .held = true,
@@ -373,7 +410,6 @@ solu_load_ex _solu_loadfun(solu_state *s, sf_buffer *buf) {
                 *dh = (solu_dalloc){
                     .next = NULL,
                     .size = sizeof(solu_fproto),
-                    .thread = 1,
                     .tt = SOLU_DFUN,
                     .mark = SOLU_DYN_WHITE,
                     .held = true,
@@ -398,7 +434,10 @@ solu_load_ex _solu_loadfun(solu_state *s, sf_buffer *buf) {
     if (!ex.is_ok) goto corrupt;
     proto.up_c = ntohl(proto.up_c) + 1;
     upvals = calloc(proto.up_c, sizeof(solu_upvalue));
-    upvals[0] = (solu_upvalue){sf_lit("global"), SOLU_UP_VAL, .value = s->global, .mut = false};
+    upvals[0] = (solu_upvalue) {
+        sf_lit("global"), SOLU_UP_VAL, .value = s->global, .mut = false,
+        .type = (solu_val){SOLU_TDYN, .dyn=s->typeenv.global},
+    };
     for (uint32_t u = 1; u < proto.up_c; ++u) {
         uint64_t slen;
         ex = sf_buffer_autoread(buf, &slen);
@@ -577,7 +616,6 @@ solu_val solu_dnew(solu_state *s, solu_dtype tt) {
     *dh = (solu_dalloc){
         .next = NULL,
         .size = size,
-        .thread = 1,
         .tt = tt,
         .mark = SOLU_DYN_WHITE,
         .metadata = {[SOLU_META_EXTEND] = s->meta.base}
@@ -613,7 +651,6 @@ solu_val solu_dnusr(solu_state *s, size_t size, const char *name, void *value,
     *dh = (solu_dalloc){
         .next = NULL,
         .size = size,
-        .thread = 1,
         .tt = SOLU_DUSR,
         .mark = SOLU_DYN_WHITE,
     };
@@ -642,7 +679,6 @@ solu_val solu_dnstr(solu_state *s, const char *str) {
     *dh = (solu_dalloc){
         .next = NULL,
         .size = size,
-        .thread = 1,
         .tt = SOLU_DSTR,
         .mark = SOLU_DYN_WHITE,
         .metadata = {[SOLU_META_EXTEND] = s->meta.string}
@@ -662,7 +698,6 @@ solu_val solu_dnerr(solu_state *s, const char *str) {
     *dh = (solu_dalloc){
         .next = NULL,
         .size = size,
-        .thread = 1,
         .tt = SOLU_DERR,
         .mark = SOLU_DYN_WHITE,
         .metadata = {[SOLU_META_EXTEND] = s->meta.base}
@@ -979,4 +1014,271 @@ solu_call_ex solu_panic(solu_state *s, char *fmt, ...) {
     va_end(arglist);
 
     return solu_call_ex_err((solu_call_err){SOLU_ERRV_PANIC, _fmt, &s->trace, s->pc});
+}
+
+solu_type_ex solu_type_prim(solu_state *s, char *name, solu_tinfo ti) {
+    solu_dalloc *alloc = s->alloc;
+    while (alloc && alloc->next)
+        alloc = alloc->next;
+    solu_dalloc *da = malloc(sizeof(solu_dalloc) + sizeof(solu_tinfo));
+    if (alloc)
+        alloc->next = da;
+    else s->alloc = da;
+    *da = (solu_dalloc) {
+        NULL,
+        sizeof(solu_tinfo),
+        SOLU_DUSR,
+        SOLU_DYN_WHITE,
+        true, SOLU_NIL, {SOLU_NIL}
+    };
+
+    solu_tinfo *tip = (solu_tinfo *)(da + 1);
+    *tip = ti;
+
+    solu_val val = {SOLU_TDYN, .dyn=tip};
+    solu_valmap_set(&s->typeenv.types, sf_str_cdup(name), val);
+
+    solu_dhold(val);
+    return solu_type_ex_ok(val);
+}
+
+static char *solu_skip_ws(char *p) {
+    while (*p == ' ') ++p;
+    return p;
+}
+
+static bool solu_parse_type_atom(char **ptk, char out[256], bool *nil, bool *err) {
+    char *tk = solu_skip_ws(*ptk);
+    int depth = 0;
+    int i = 0;
+
+    while (*tk && i < 255) {
+        if (*tk == '(') {
+            depth++;
+            out[i++] = *tk++;
+            continue;
+        }
+        if (*tk == ')') {
+            if (depth == 0)
+                break;
+            depth--;
+            out[i++] = *tk++;
+            continue;
+        }
+        if (*tk == ',' && depth == 0)
+            break;
+        if ((*tk == '?' || *tk == '!') && depth == 0)
+            break;
+        out[i++] = *tk++;
+    }
+
+    out[i] = '\0';
+
+    *nil = false;
+    *err = false;
+
+    if (*tk == '?') {
+        *nil = true;
+        ++tk;
+    }
+    if (strcmp(out, "err") == 0 || *tk == '!') {
+        *err = true;
+        ++tk;
+    }
+
+    *ptk = tk;
+    return out[0] != '\0';
+}
+
+solu_type_ex solu_type_fun(solu_state *s, char *signature) {
+    char *tk = signature;
+    if (*tk != '(')
+        return solu_type_ex_err(SOLU_ERRP_EXPECTED_LPAREN);
+    ++tk;
+
+    sf_str canonical = sf_str_cdup("(");
+    solu_tinfo ti = {
+        SOLU_NIL,
+        SOLU_TI_FUN,
+        .fun = {
+            .args = NULL,
+            .arg_c = 0,
+            .return_t = {solu_valmap_get(&s->typeenv.types, sf_lit("any")).ok, true, true, true},
+        }
+    };
+    while (*tk != ')' && *tk) {
+        if (*tk == ' ') { ++tk; continue; }
+
+        char t[256] = {0};
+        int l = 1;
+        bool nil = false, err = false;
+        if (!solu_parse_type_atom(&tk, t, &nil, &err)) {
+            if (ti.fun.arg_c) free(ti.fun.args);
+            sf_str_free(canonical);
+            return solu_type_ex_err(SOLU_ERRP_EXPECTED_TYPE);
+        }
+        if ((*tk != ',' && *tk != ')') || l > 1) {
+            if (ti.fun.arg_c) free(ti.fun.args);
+            sf_str_free(canonical);
+            return solu_type_ex_err(SOLU_ERRP_EXPECTED_RPAREN);
+        }
+        if (*tk == ',') ++tk;
+
+        solu_val ok = SOLU_NIL;
+        if (*t == '(') {
+            solu_type_ex ex = solu_type_fun(s, t);
+            if (!ex.is_ok) {
+                if (ti.fun.arg_c) free(ti.fun.args);
+                sf_str_free(canonical);
+                return ex;
+            }
+            ok = ex.ok;
+        } else {
+            solu_valmap_ex ex = solu_valmap_get(&s->typeenv.types, sf_ref(t));
+            if (!ex.is_ok) {
+                if (ti.fun.arg_c) free(ti.fun.args);
+                sf_str_free(canonical);
+                return solu_type_ex_err(SOLU_ERRC_UNDEFINED_TYPE);
+            }
+            ok = ex.ok;
+        }
+        ti.fun.args = realloc(ti.fun.args, sizeof(solu_type) * ++ti.fun.arg_c);
+        ti.fun.args[ti.fun.arg_c - 1] = (solu_type){ok, nil, err, true};
+
+        if (ti.fun.arg_c > 1)
+            sf_str_append(&canonical, sf_lit(", "));
+        sf_str_append(&canonical, sf_ref(t));
+        if (nil) sf_str_append(&canonical, sf_lit("?"));
+        if (err) sf_str_append(&canonical, sf_lit("!"));
+    }
+    if (*tk != ')') {
+        if (ti.fun.arg_c) free(ti.fun.args);
+        sf_str_free(canonical);
+        return solu_type_ex_err(SOLU_ERRP_EXPECTED_RPAREN);
+    }
+    sf_str_append(&canonical, sf_lit(")"));
+    ++tk;
+    while (*tk == ' ') ++tk;
+    if (*tk == '-' && *(tk+1) == '>') {
+        tk += 2;
+
+        char t[256] = {0};
+        bool nil = false, err = false;
+        if (!solu_parse_type_atom(&tk, t, &nil, &err)) {
+            if (ti.fun.arg_c) free(ti.fun.args);
+            sf_str_free(canonical);
+            return solu_type_ex_err(SOLU_ERRP_EXPECTED_TYPE);
+        }
+
+        char *ws = t;
+        while (*ws == ' ') ++ws;
+
+        solu_val ok = SOLU_NIL;
+        if (*ws == '(') {
+            solu_type_ex rex = solu_type_fun(s, ws);
+            if (!rex.is_ok) {
+                if (ti.fun.arg_c) free(ti.fun.args);
+                sf_str_free(canonical);
+                return rex;
+            }
+            ok = rex.ok;
+        } else {
+            solu_valmap_ex ex = solu_valmap_get(&s->typeenv.types, sf_ref(ws));
+            if (!ex.is_ok) {
+                if (ti.fun.arg_c) free(ti.fun.args);
+                sf_str_free(canonical);
+                return solu_type_ex_err(SOLU_ERRC_UNDEFINED_TYPE);
+            }
+            ok = ex.ok;
+        }
+        ti.fun.return_t = (solu_type){ok, nil, err, true};
+
+        sf_str_append(&canonical, sf_lit(" -> "));
+        sf_str_append(&canonical, sf_ref(ws));
+        if (nil) sf_str_append(&canonical, sf_lit("?"));
+        if (err) sf_str_append(&canonical, sf_lit("!"));
+    }
+    ti.name = solu_dnstr(s, canonical.c_str);
+    solu_dhold(ti.name);
+
+    solu_valmap_ex exists = solu_valmap_get(&s->typeenv.types, canonical);
+    sf_str_free(canonical);
+    if (exists.is_ok) {
+        if (ti.fun.arg_c) free(ti.fun.args);
+        return solu_type_ex_ok(exists.ok);
+    }
+    return solu_type_prim(s, ti.name.dyn, ti);
+}
+
+static void solu_type_delete(solu_state *s, solu_val type) {
+    solu_val name = ((solu_tinfo *)type.dyn)->name;
+    solu_valmap_delete(&s->typeenv.types, sf_ref(name.dyn));
+    solu_drelease(name);
+    solu_drelease(type);
+}
+
+solu_type_ex solu_type_def(solu_state *s, char *name, solu_complex_member *members, uint32_t mem_c, bool complex) {
+    solu_val nval = solu_dnstr(s, name);
+    solu_val _temp;
+    solu_valmap_ex exists = solu_valmap_get(&s->typeenv.types, sf_ref(name));
+    if (exists.is_ok) _temp = exists.ok;
+    else {
+        solu_type_ex ex = solu_type_prim(s, name, (solu_tinfo){nval, SOLU_TI_DEF, .def={0}});
+        if (!ex.is_ok) return ex;
+        _temp = ex.ok;
+    }
+
+    solu_tinfo ti = {
+        nval,
+        SOLU_TI_DEF,
+        .complex = complex,
+        .def = solu_def_new(),
+    };
+    for (uint32_t i = 0; i < mem_c; ++i) {
+        solu_complex_member m = members[i];
+        char *tk = m.type;
+        while (*tk == ' ') ++tk;
+        solu_val type = SOLU_NIL;
+        if (*tk == '(') {
+            solu_type_ex ex = solu_type_fun(s, m.type);
+            if (!ex.is_ok) {
+                solu_type_delete(s, _temp);
+                solu_def_free(&ti.def);
+                return ex;
+            }
+            type = ex.ok;
+        } else {
+            solu_valmap_ex exists = solu_valmap_get(&s->typeenv.types, sf_ref(m.type));
+            if (!exists.is_ok) {
+                solu_type_delete(s, _temp);
+                solu_def_free(&ti.def);
+                return solu_type_ex_err(SOLU_ERRC_UNDEFINED_TYPE);
+            }
+            type = exists.ok;
+        }
+        solu_def_set(&ti.def, sf_str_cdup(m.name), (solu_type){type, m.nil, m.err, true});
+    }
+    solu_dhold(ti.name);
+
+    memcpy(_temp.dyn, &ti, sizeof(solu_tinfo));
+    return solu_type_ex_ok(_temp);
+}
+
+solu_type_ex solu_type_global(solu_state *s, char *global, char *type, bool nil, bool err) {
+    char *tk = type;
+    while (*tk == ' ') ++tk;
+    solu_val _type = SOLU_NIL;
+    if (*tk == '(') {
+        solu_type_ex ex = solu_type_fun(s, type);
+        if (!ex.is_ok) return ex;
+        _type = ex.ok;
+    } else {
+        solu_valmap_ex exists = solu_valmap_get(&s->typeenv.types, sf_ref(type));
+        if (!exists.is_ok)
+            return solu_type_ex_err(SOLU_ERRC_UNDEFINED_TYPE);
+        _type = exists.ok;
+    }
+
+    solu_def_set(&s->typeenv.global->def, sf_str_cdup(global), (solu_type){_type, nil, err, true});
+    return solu_type_ex_ok(_type);
 }

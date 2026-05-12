@@ -121,6 +121,7 @@ solu_call_ex solu_call_bc(solu_state *s, solu_fproto *proto, const solu_val *arg
         LABEL(SOLU_OP_CF64),
         LABEL(SOLU_OP_CBOOL),
         LABEL(SOLU_OP_CSTR),
+        LABEL(SOLU_OP_TRY),
 
         LABEL(SOLU_OP_UNKNOWN),
     };
@@ -387,7 +388,7 @@ solu_call_ex solu_call_bc(solu_state *s, solu_fproto *proto, const solu_val *arg
                             solu_dalloc *ac = malloc(sizeof(solu_dalloc) + lsize + rsize + 1);
                             *ac = (solu_dalloc) {
                                 NULL, lsize+rsize+1,
-                                1, SOLU_DSTR,
+                                SOLU_DSTR,
                                 SOLU_DYN_WHITE,
                                 false,
                                 SOLU_NIL,
@@ -891,6 +892,13 @@ solu_call_ex solu_call_bc(solu_state *s, solu_fproto *proto, const solu_val *arg
             char *e = solu_tostr(s, convert);
             if (!e) return solu_callerr(SOLU_ERRV_TYPE_MISMATCH, "Cannot cast type %s into str", solu_typename(convert).c_str);
             solu_set(s, solu_iab_a(ins), solu_dnstr(s, e));
+            DISPATCH();
+        }
+        CASE(SOLU_OP_TRY) {
+            solu_val test = solu_get(s, solu_iab_b(ins));
+            if (solu_isdtype(test, SOLU_DERR))
+                return solu_ok(test); // Error propagate
+            solu_set(s, solu_iab_a(ins), test);
             DISPATCH();
         }
 

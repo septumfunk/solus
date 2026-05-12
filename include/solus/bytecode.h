@@ -49,6 +49,7 @@ typedef enum {
     SOLU_OP_CF64,
     SOLU_OP_CBOOL,
     SOLU_OP_CSTR,
+    SOLU_OP_TRY,
 
     SOLU_OP_UNKNOWN,
     SOLU_OP_COUNT,

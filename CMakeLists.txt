@@ -11,12 +11,14 @@ project(solus C)
 add_library(${PROJECT_NAME} ${LIBRARY_TYPE}
     src/bytecode.c
     src/compiler.c
+    src/types.c
     src/syntax.c
     src/api.c
     src/vm.c
     src/val.c
 
     src/std/builtin.c
+    src/std/types.c
     src/std/io.c
     src/std/string.c
     src/std/obj.c

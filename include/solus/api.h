@@ -4,6 +4,7 @@
 #include "bytecode.h"
 #include "compiler.h"
 #include "val.h"
+#include "types.h"
 
 /// GC will collect after cb = lb * SOLU_GCSTEP
 #define SOLU_GCSTEP 1.5
@@ -57,6 +58,8 @@ typedef struct solu_state {
         solu_val obj;
         solu_val string;
     } meta;
+
+    solu_typeenv typeenv;
 
     bool rcmp; // Special flag for compiled files to reset the frame count
 } solu_state;
@@ -130,9 +133,6 @@ static inline void solu_setg(solu_state *state, char *name, solu_val value) {
     solu_dobj_strset(state->global.dyn, name, value);
 }
 
-/// Load the solus standard library into the global namespace.
-/// The standard library is implemented in C functions
-EXPORT void solu_usestd(solu_state *state);
 /// Compile solus source code.
 /// Returns a fun or an err
 EXPORT solu_compile_ex solu_csrc(solu_state *state, char *src);
@@ -223,5 +223,15 @@ static inline solu_call_ex solu_ok(solu_val return_val) {
 EXPORT solu_call_ex solu_err(solu_state *state, char *fmt, ...);
 /// Convenience function for returning panic in API functions
 EXPORT solu_call_ex solu_panic(solu_state *state, char *fmt, ...);
+
+typedef struct {
+    char *name;
+    char *type;
+    bool nil, err;
+} solu_complex_member;
+EXPORT solu_type_ex solu_type_prim(solu_state *s, char *name, solu_tinfo ti);
+EXPORT solu_type_ex solu_type_fun(solu_state *state, char *signature);
+EXPORT solu_type_ex solu_type_def(solu_state *state, char *name, solu_complex_member *members, uint32_t mem_c, bool complex);
+EXPORT solu_type_ex solu_type_global(solu_state *state, char *global, char *type, bool nil, bool err);
 
 #endif // VM_H

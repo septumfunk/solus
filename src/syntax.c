@@ -1,8 +1,10 @@
 #include "solus/syntax.h"
 #include "sf/str.h"
+#include "solus/bytecode.h"
 #include "solus/val.h"
 #include <sf/fs.h>
 #include <math.h>
+#include <stdlib.h>
 
 #define VEC_NAME solu_visited
 #define VEC_T sf_str
@@ -28,6 +30,11 @@ static void _solu_includecache_cleanup(solu_includecache *self) {
 void _keywords_foreach(void *_u, sf_str k, solu_tokentype _v) { (void)_u;(void)_v; sf_str_free(k); }
 void _solu_keywords_cleanup(solu_keywords *map) {
     solu_keywords_foreach(map, _keywords_foreach, NULL);
+}
+
+void solu_ctrace_cleanup(solu_ctrace *ct) {
+    for (uint32_t i = 0; i < ct->count; ++i)
+        if (ct->data[i].specific) free(ct->data[i].specific);
 }
 
 char *solu_ctrace_print(char *path, solu_ctrace *ct, uint32_t max, uint8_t lookback, uint8_t lookahead) {
@@ -62,7 +69,7 @@ char *solu_ctrace_print(char *path, solu_ctrace *ct, uint32_t max, uint8_t lookb
 
         } else sf_str_append(&out, sf_lit(TUI_CLR "\n"));
 
-        work = sf_str_fmt(TUI_ERR "  error: %s\n" TUI_CLR, solu_err_string(cd->tt));
+        work = sf_str_fmt(TUI_ERR "  error: %s\n" TUI_CLR, cd->specific ? cd->specific : solu_err_string(cd->tt));
         sf_str_append(&out, work);
         sf_str_free(work);
     }
@@ -95,7 +102,6 @@ static solu_val solu_scan_str(solu_scanner *s, const sf_str str) {
     *dh = (solu_dalloc){
         .next = NULL,
         .size = str.len + 1,
-        .thread = 1,
         .tt = SOLU_DSTR,
         .mark = SOLU_DYN_WHITE,
     };
@@ -164,8 +170,8 @@ solu_token solu_scanstr(solu_scanner *s, char quote, bool fmt) {
     s->current.column += (uint16_t)(cc - s->cc + 1U);
     s->cc = cc;
     solu_token tk = (solu_token){
-        TK_STRING,
         solu_scan_str(s, sf_own(buf)),
+        TK_STRING,
         s->current.line,
         c,
     };
@@ -173,7 +179,7 @@ solu_token solu_scanstr(solu_scanner *s, char quote, bool fmt) {
     return tk;
 error:
     free(buf);
-    return (solu_token){TK_NIL, SOLU_NIL, 0, 0};
+    return (solu_token){SOLU_NIL, TK_NIL, 0, 0};
 }
 
 solu_token solu_scannum(solu_scanner *s) {
@@ -273,7 +279,7 @@ solu_scan_ex solu_scan(sf_str src, solu_ctrace *ct) {
     solu_tokenvec tks = solu_tokenvec_new();
     solu_scanner s = {
         .src = src,
-        .current = {TK_EOF, SOLU_NIL, 1, 1},
+        .current = {SOLU_NIL, TK_EOF, 1, 1},
         .cc = 0,
         .keywords = solu_keywords_new(),
     };
@@ -292,6 +298,8 @@ solu_scan_ex solu_scan(sf_str src, solu_ctrace *ct) {
     solu_keywords_set(&s.keywords, sf_lit("for"), TK_FOR);
     solu_keywords_set(&s.keywords, sf_lit("while"), TK_WHILE);
     solu_keywords_set(&s.keywords, sf_lit("include"), TK_INCLUDE);
+    solu_keywords_set(&s.keywords, sf_lit("type"), TK_TYPE);
+    solu_keywords_set(&s.keywords, sf_lit("as"), TK_AS);
     solu_keywords_set(&s.keywords, sf_lit("typeof"), TK_TYPEOF);
     solu_keywords_set(&s.keywords, sf_lit("break"), TK_BREAK);
     solu_keywords_set(&s.keywords, sf_lit("continue"), TK_CONTINUE);
@@ -309,9 +317,9 @@ solu_scan_ex solu_scan(sf_str src, solu_ctrace *ct) {
     solu_keywords_set(&s.keywords, sf_lit("asm"), TK_ASM);
 
 
-    solu_tokenvec_push(&tks, (solu_token){TK_SOF, SOLU_NIL, s.current.line, s.current.column});
+    solu_tokenvec_push(&tks, (solu_token){SOLU_NIL, TK_SOF, s.current.line, s.current.column});
     for (; s.cc < src.len; ++s.cc) {
-        s.current = (solu_token){TK_EOF, SOLU_NIL, s.current.line, s.current.column};
+        s.current = (solu_token){SOLU_NIL, TK_EOF, s.current.line, s.current.column};
         char c = src.c_str[s.cc];
         bool fstr = false;
         switch (c) {
@@ -323,14 +331,29 @@ solu_scan_ex solu_scan(sf_str src, solu_ctrace *ct) {
             solu_scancase(']', TK_RIGHT_BRACKET);
             solu_scancase(',', TK_COMMA);
             solu_scancase(':', solu_scanpeek(&s, '=') ?  TK_COL_EQUAL : TK_COLON);
+            solu_scancase('?', TK_QUESTION);
             solu_scancase(';', TK_SEMICOLON);
 
             solu_scancase('*', solu_scanpeek(&s, '=') ? TK_STAR_EQUAL : TK_ASTERISK);
             solu_scancase('/', solu_scanpeek(&s, '=') ? TK_SLASH_EQUAL : TK_SLASH);
             solu_scancase('+', solu_scanpeek(&s, '=') ? TK_PLUS_EQUAL :
                 (solu_scanpeek(&s, '+') ? TK_INCREMENT : TK_PLUS));
-            solu_scancase('-', solu_scanpeek(&s, '=') ? TK_MINUS_EQUAL :
-                (solu_scanpeek(&s, '-') ? TK_DECREMENT : TK_MINUS));
+            case '-': {
+                if (solu_scanpeek(&s, '=')) {
+                    s.current.tt = TK_MINUS_EQUAL;
+                    break;
+                }
+                if (solu_scanpeek(&s, '-')) {
+                    s.current.tt = TK_DECREMENT;
+                    break;
+                }
+                if (solu_scanpeek(&s, '>')) {
+                    s.current.tt = TK_ARROW;
+                    break;
+                }
+                s.current.tt = TK_MINUS;
+                break;
+            }
 
             solu_scancase('!', solu_scanpeek(&s, '=') ? TK_NOT_EQUAL :
                 (solu_scanpeek(&s, '!') ? TK_NEG : TK_BANG));
@@ -394,7 +417,7 @@ solu_scan_ex solu_scan(sf_str src, solu_ctrace *ct) {
                     goto err;
                 }
                 solu_tokenvec_push(&tks, fstr ?
-                    (solu_token){TK_FSTRING, tk.value, tk.line, tk.column} :
+                    (solu_token){tk.value, TK_FSTRING, tk.line, tk.column} :
                     tk);
                 continue;
             }
@@ -426,7 +449,7 @@ solu_scan_ex solu_scan(sf_str src, solu_ctrace *ct) {
             err: {
                 if (!seek) {
                     seek = true;
-                    solu_ctrace_push(ct, (solu_compiledata){eval, s.current.line, s.current.column});
+                    solu_ctrace_push(ct, (solu_compiledata){eval, s.current.line, s.current.column, NULL});
                 }
                 continue;
             }
@@ -445,7 +468,7 @@ solu_scan_ex solu_scan(sf_str src, solu_ctrace *ct) {
         }
         return solu_scan_ex_err(ct);
     }
-    solu_tokenvec_push(&tks, (solu_token){TK_EOF, SOLU_NIL, s.current.line, s.current.column});
+    solu_tokenvec_push(&tks, (solu_token){SOLU_NIL, TK_EOF, s.current.line, s.current.column});
     return solu_scan_ex_ok((solu_scan_ok){tks, s.alloc});
 }
 
@@ -461,8 +484,10 @@ void solu_node_free(solu_node *tree) {
     switch (tree->tt) {
         // statements
         case SOLU_ND_LOCAL:
-            for (uint16_t i = 0; i < tree->n_local.entry_c; ++i)
+            for (uint16_t i = 0; i < tree->n_local.entry_c; ++i) {
+                solu_node_free(tree->n_local.entries[i].type);
                 solu_node_free(tree->n_local.entries[i].value);
+            }
             free(tree->n_local.entries);
             break;
         case SOLU_ND_IF:
@@ -514,6 +539,11 @@ void solu_node_free(solu_node *tree) {
         case SOLU_ND_TYPEOF:
             solu_node_free(tree->n_typeof.expr);
             break;
+        case SOLU_ND_TYPEDEF:
+            for (uint32_t i = 0; i < tree->n_typedef.member_c; ++i)
+                solu_node_free(tree->n_typedef.members[i]);
+            free(tree->n_typedef.members);
+            break;
         // literals
         case SOLU_ND_IDENTIFIER:
         case SOLU_ND_LITERAL:
@@ -540,6 +570,12 @@ void solu_node_free(solu_node *tree) {
         case SOLU_ND_ASM:
             solu_node_free(tree->n_asm.n_fun);
             break;
+        case SOLU_ND_SIG:
+            for (uint8_t i = 0; i < tree->n_sig.arg_c; ++i)
+                solu_node_free(tree->n_sig.args[i]);
+            free(tree->n_sig.args);
+            solu_node_free(tree->n_sig.return_t);
+            break;
     }
     free(tree);
 }
@@ -552,12 +588,13 @@ size_t solu_precedence(solu_tokentype tt) {
             return 0;
         case TK_OR: return 1;
         case TK_AND: return 2;
+        case TK_AS: return 3;
         case TK_DOUBLE_EQUAL:
-        case TK_NOT_EQUAL: return 3;
+        case TK_NOT_EQUAL: return 4;
         case TK_LESS: case TK_LESS_EQUAL:
-        case TK_GREATER: case TK_GREATER_EQUAL: return 4;
-        case TK_PLUS: case TK_MINUS: return 5;
-        case TK_ASTERISK: case TK_SLASH: return 6;
+        case TK_GREATER: case TK_GREATER_EQUAL: return 5;
+        case TK_PLUS: case TK_MINUS: return 6;
+        case TK_ASTERISK: case TK_SLASH: return 7;
         default: return SIZE_MAX;
     }
 }
@@ -586,7 +623,7 @@ static inline bool solu_parpeek(solu_parser *p, solu_tokentype match) {
 
 // Convenience err macro
 #define solu_perr(type, tok) do { \
-    solu_ctrace_push(p->shared->ct, (solu_compiledata){(type), (tok)->line, (tok)->column}); \
+    solu_ctrace_push(p->shared->ct, (solu_compiledata){(type), (tok)->line, (tok)->column, NULL}); \
     return solu_parse_ex_err(p->shared->ct); \
 } while (0)
 
@@ -601,7 +638,6 @@ static solu_val solu_pstr(solu_parser *p, char *str) {
     *dc = (solu_dalloc){
         NULL,
         len + 1,
-        1,
         SOLU_DSTR,
         SOLU_DYN_WHITE,
         true,
@@ -627,6 +663,16 @@ static solu_val solu_pstr(solu_parser *p, char *str) {
     return (solu_val){SOLU_TDYN, .dyn = dc};
 }
 
+static inline bool solu_istypetok(solu_tokentype tt) {
+    return tt == TK_IDENTIFIER || tt == TK_NIL;
+}
+
+static inline solu_val solu_tok_typename(solu_parser *p, solu_token *tk) {
+    if (tk->tt == TK_NIL)
+        return solu_pstr(p, "nil");
+    return tk->value;
+}
+
 solu_parse_ex solu_pprimary(solu_parser *p);
 solu_parse_ex solu_punary(solu_parser *p);
 solu_parse_ex solu_pexpr(solu_parser *p, size_t prec);
@@ -636,12 +682,14 @@ solu_parse_ex solu_ppostfix(solu_parser *p);
 solu_parse_ex solu_pblock(solu_parser *p);
 solu_parse_ex solu_pfun(solu_parser *p);
 solu_parse_ex solu_pasm(solu_parser *p);
+solu_parse_ex solu_psig(solu_parser *p);
 solu_parse_ex solu_pins(solu_parser *p);
 solu_parse_ex solu_pobj(solu_parser *p);
 solu_parse_ex solu_pwhile(solu_parser *p);
 solu_parse_ex solu_pfor(solu_parser *p);
 solu_parse_ex solu_preturn(solu_parser *p);
 solu_parse_ex solu_pinclude(solu_parser *p);
+solu_parse_ex solu_ptypedef(solu_parser *p);
 solu_parse_ex solu_ptypeof(solu_parser *p);
 solu_parse_ex solu_pstmt(solu_parser *p);
 
@@ -945,10 +993,15 @@ solu_parse_ex solu_pexpr(solu_parser *p, size_t prec) {
             break;
         ++p->tok;
 
+        // As
         ex = solu_pexpr(p, (op->tt == TK_EQUAL) ? op_prec : op_prec + 1);
         if (!ex.is_ok) {
             solu_node_free(left);
             return ex;
+        }
+        if (op->tt == TK_AS && ex.ok->tt != SOLU_ND_IDENTIFIER && !(ex.ok->tt == SOLU_ND_LITERAL && ex.ok->n_literal.tt == SOLU_TNIL)) {
+            solu_node_free(left);
+            solu_perr(SOLU_ERRP_EXPECTED_TYPE, p->tok);
         }
 
         solu_node *bin = malloc(sizeof(solu_node));
@@ -1012,22 +1065,39 @@ solu_parse_ex solu_plocal(solu_parser *p) {
             solu_perr(SOLU_ERRP_MAX_NAMES, p->tok);
         }
         solu_token *name = p->tok++;
-        solu_token *type = NULL;
+        solu_node *type = NULL;
         if (p->tok->tt == TK_COLON) { // Type annotation
             ++p->tok;
-            if (p->tok->tt != TK_IDENTIFIER) {
+            if (solu_istypetok(p->tok->tt)) {
+                solu_token *tname = p->tok;
+                ++p->tok;
+                bool nil = false, err = false;
+                if (p->tok->tt == TK_QUESTION) { nil = true; ++p->tok; }
+                if (p->tok->tt == TK_BANG)     { err = true; ++p->tok; }
+                if (tname->tt == TK_NIL) nil = true;
+
+                type = malloc(sizeof(solu_node));
+                *type = (solu_node){SOLU_ND_TYPE, tname->line, tname->column, .n_type={solu_tok_typename(p, tname), nil, err}};
+            } else if (p->tok->tt == TK_LEFT_PAREN) {
+                solu_parse_ex ex = solu_psig(p);
+                if (!ex.is_ok) {
+                    if (names) free(names);
+                    solu_perr(SOLU_ERRP_EXPECTED_TYPE, p->tok);
+                }
+                type = ex.ok;
+            } else {
                 if (names) free(names);
                 solu_perr(SOLU_ERRP_EXPECTED_TYPE, p->tok);
             }
-            type = p->tok;
-            ++p->tok;
         }
 
-        struct solu_name n = {name->value, type ? type->value : SOLU_NIL, NULL, false};
+        struct solu_name n = {name->value, type, NULL, false};
         if (p->tok->tt == TK_EQUAL || p->tok->tt == TK_COL_EQUAL) {
             n.infer = p->tok->tt == TK_COL_EQUAL;
             if (n.infer && type)
                 solu_perr(SOLU_ERRP_INFER_ANNOTATED, p->tok);
+            if (!n.infer && !type)
+                solu_perr(SOLU_ERRP_USE_INFER, p->tok);
 
             ++p->tok;
             solu_parse_ex vex = solu_pexpr(p, 0);
@@ -1087,8 +1157,8 @@ solu_parse_ex solu_ppostfix(solu_parser *p) {
                 solu_node *call = malloc(sizeof(solu_node));
                 *call = (solu_node){
                     .tt = SOLU_ND_CALL,
-                    .line = line,
-                    .column = column,
+                    .line = p->tok->line,
+                    .column = p->tok->column,
                     .n_call = {
                         .identifier = node,
                         .args = NULL,
@@ -1208,13 +1278,29 @@ solu_parse_ex solu_ppostfix(solu_parser *p) {
                     .column = column,
                     .n_binary = {
                         p->tok->tt == TK_INCREMENT ? TK_PLUS_EQUAL : TK_MINUS_EQUAL,
-                        node, lit,
-                        true
+                        true,
+                        node, lit
                     }
                 };
                 ++p->tok;
                 node = post;
                 continue;
+            }
+            case TK_QUESTION: {
+                solu_node *post = malloc(sizeof(solu_node));
+                solu_node *lit = malloc(sizeof(solu_node));
+                *lit = (solu_node){SOLU_ND_LITERAL, line, column, .n_literal=(solu_val){SOLU_TI64, .i64=1}};
+                *post = (solu_node){
+                    .tt = SOLU_ND_POSTFIX,
+                    .line = line,
+                    .column = column,
+                    .n_postfix = {
+                        .op = TK_QUESTION,
+                        .expr = node,
+                    }
+                };
+                ++p->tok;
+                node = post;
             }
             default: break;
         }
@@ -1252,7 +1338,7 @@ solu_parse_ex solu_pblock(solu_parser *p) {
                 ct = p->tok;
                 e = SOLU_ERRP_UNEXPECTED_SEMICOLON;
             } else ct = p->tok;
-            solu_ctrace_push(p->shared->ct, (solu_compiledata){e, ct->line, ct->column});
+            solu_ctrace_push(p->shared->ct, (solu_compiledata){e, ct->line, ct->column, NULL});
             solu_pseek(p);
             continue;
         }
@@ -1275,6 +1361,7 @@ solu_parse_ex solu_pblock(solu_parser *p) {
 solu_parse_ex solu_pfun(solu_parser *p) {
     ++p->tok; // Consume [
     solu_node *n_fun = malloc(sizeof(solu_node));
+    solu_node *n_sig = malloc(sizeof(solu_node));
     *n_fun = (solu_node){
         .tt = SOLU_ND_FUN,
         .line = p->tok->line, .column = p->tok->column,
@@ -1283,7 +1370,17 @@ solu_parse_ex solu_pfun(solu_parser *p) {
             .cap_c = 0,
             .args = NULL,
             .arg_c = 0,
+            .sig = n_sig,
         },
+    };
+    *n_sig = (solu_node) {
+        .tt = SOLU_ND_SIG,
+        .line = p->tok->line, .column = p->tok->column,
+        .n_sig = {
+            .args = NULL,
+            .arg_c = 0,
+            .return_t = NULL,
+        }
     };
 
     bool self = false;
@@ -1342,8 +1439,38 @@ solu_parse_ex solu_pfun(solu_parser *p) {
             solu_perr(SOLU_ERRP_DUPLICATE_SELF, p->tok);
         }
         n_fun->n_fun.args = realloc(n_fun->n_fun.args, ++n_fun->n_fun.arg_c * sizeof(solu_val));
+        n_sig->n_sig.args = realloc(n_sig->n_sig.args, ++n_sig->n_sig.arg_c * sizeof(solu_val));
+
         n_fun->n_fun.args[n_fun->n_fun.arg_c - 1] = p->tok->value;
+        n_sig->n_sig.args[n_sig->n_sig.arg_c - 1] = NULL;
         ++p->tok;
+
+        if (p->tok->tt == TK_COLON) {
+            ++p->tok;
+
+            solu_node *n;
+            if (p->tok->tt == TK_LEFT_PAREN) {
+                solu_parse_ex ex = solu_psig(p);
+                if (!ex.is_ok) {
+                    solu_node_free(n_fun);
+                    return ex;
+                }
+                n = ex.ok;
+            } else if (solu_istypetok(p->tok->tt)) {
+                solu_token *tname = p->tok;
+                ++p->tok;
+                n = malloc(sizeof(solu_node));
+                bool nil = false, err = false;
+                if (p->tok->tt == TK_QUESTION) { nil = true; ++p->tok; }
+                if (p->tok->tt == TK_BANG)     { err = true; ++p->tok; }
+                if (tname->tt == TK_NIL) nil = true;
+                *n = (solu_node) {SOLU_ND_TYPE, tname->line, tname->column, .n_type={solu_tok_typename(p, tname), nil, err}};
+            } else {
+                solu_node_free(n_fun);
+                solu_perr(SOLU_ERRP_EXPECTED_TYPE, p->tok);
+            }
+            n_sig->n_sig.args[n_sig->n_sig.arg_c - 1] = n;
+        }
 
         if (p->tok->tt != TK_COMMA && p->tok->tt != TK_RIGHT_PAREN) {
             solu_node_free(n_fun);
@@ -1358,7 +1485,24 @@ solu_parse_ex solu_pfun(solu_parser *p) {
         }
     }
     ++p->tok;
-    n_fun->n_fun.variadic = variadic;
+    n_fun->n_fun.variadic = n_sig->n_sig.variadic = variadic;
+
+    if (p->tok->tt == TK_ARROW) {
+        ++p->tok;
+        if (!solu_istypetok(p->tok->tt)) {
+            solu_node_free(n_fun);
+            solu_perr(SOLU_ERRP_EXPECTED_TYPE, p->tok);
+        }
+        solu_token *tname = p->tok;
+        ++p->tok;
+        bool nil = false, err = false;
+        if (p->tok->tt == TK_QUESTION) { nil = true; ++p->tok; }
+        if (p->tok->tt == TK_BANG)     { err = true; ++p->tok; }
+        if (tname->tt == TK_NIL) nil = true;
+
+        n_sig->n_sig.return_t = malloc(sizeof(solu_node));
+        *n_sig->n_sig.return_t = (solu_node){SOLU_ND_TYPE, p->tok->line, p->tok->column, .n_type={solu_tok_typename(p, tname), nil, err}};
+    } else n_sig->n_sig.return_t = NULL;
 
     if (p->tok->tt == TK_LEFT_BRACE) {
         solu_parse_ex bex = solu_pblock(p);
@@ -1413,6 +1557,109 @@ solu_parse_ex solu_pasm(solu_parser *p) {
         },
     };
     return solu_parse_ex_ok(n_asm);
+}
+
+solu_parse_ex solu_psig(solu_parser *p) {
+    ++p->tok;
+    bool cond = false;
+    if (p->tok->tt == TK_LEFT_PAREN) {
+        cond = true; // ?!
+        ++p->tok;
+    }
+
+    solu_node *n_sig = malloc(sizeof(solu_node));
+    *n_sig = (solu_node) {
+        SOLU_ND_SIG,
+        p->tok->line, p->tok->column,
+        .n_sig = {0}
+    };
+
+    bool variadic = false;
+    while (p->tok->tt != TK_RIGHT_PAREN && p->tok->tt != TK_EOF) {
+        if (variadic) {
+            solu_node_free(n_sig);
+            solu_perr(SOLU_ERRP_EXPECTED_RPAREN, p->tok);
+        }
+
+        solu_node *arg;
+        if (solu_istypetok(p->tok->tt)) {
+            solu_token *tname = p->tok;
+            ++p->tok;
+            bool nil = false, err = false;
+            if (p->tok->tt == TK_QUESTION) { nil = true; ++p->tok; }
+            if (p->tok->tt == TK_BANG)     { err = true; ++p->tok; }
+            if (tname->tt == TK_NIL) nil = true;
+
+            arg = malloc(sizeof(solu_node));
+            *arg = (solu_node){SOLU_ND_TYPE, p->tok->line, p->tok->column, .n_type={solu_tok_typename(p, tname), nil, err}};
+        } else if (p->tok->tt == TK_LEFT_PAREN) {
+            solu_parse_ex ex = solu_psig(p);
+            if (!ex.is_ok) {
+                solu_node_free(n_sig);
+                return ex;
+            }
+            arg = ex.ok;
+        } else if (p->tok->tt == TK_ELIPSES) {
+            ++n_sig->n_sig.arg_c;
+            n_sig->n_sig.variadic = true;
+            continue;
+        } else {
+            solu_node_free(n_sig);
+            solu_perr(SOLU_ERRP_EXPECTED_TYPE, p->tok);
+        }
+        n_sig->n_sig.args = realloc(n_sig->n_sig.args, ++n_sig->n_sig.arg_c * sizeof(solu_node *));
+        n_sig->n_sig.args[n_sig->n_sig.arg_c - 1] = arg;
+
+        if (p->tok->tt == TK_COMMA)
+            ++p->tok;
+    }
+    if (p->tok->tt != TK_RIGHT_PAREN) {
+        solu_node_free(n_sig);
+        solu_perr(SOLU_ERRP_EXPECTED_RPAREN, p->tok);
+    }
+    ++p->tok;
+
+    if (p->tok->tt == TK_ARROW) {
+        ++p->tok;
+        solu_node *arg;
+        if (solu_istypetok(p->tok->tt)) {
+            solu_token *tname = p->tok;
+            ++p->tok;
+            bool nil = false, err = false;
+            if (p->tok->tt == TK_QUESTION) { nil = true; ++p->tok; }
+            if (p->tok->tt == TK_BANG)     { err = true; ++p->tok; }
+            if (tname->tt == TK_NIL) nil = true;
+
+            arg = malloc(sizeof(solu_node));
+            *arg = (solu_node){SOLU_ND_TYPE, p->tok->line, p->tok->column, .n_type={solu_tok_typename(p, tname), nil, err}};
+        } else if (p->tok->tt == TK_LEFT_PAREN) {
+            solu_parse_ex ex = solu_psig(p);
+            if (!ex.is_ok) {
+                solu_node_free(n_sig);
+                return ex;
+            }
+            arg = ex.ok;
+        } else {
+            solu_node_free(n_sig);
+            solu_perr(SOLU_ERRP_EXPECTED_TYPE, p->tok);
+        }
+        n_sig->n_sig.return_t = arg;
+    }
+
+    if (cond) {
+        if (p->tok->tt != TK_RIGHT_PAREN) {
+            solu_node_free(n_sig);
+            solu_perr(SOLU_ERRP_EXPECTED_RPAREN, p->tok);
+        }
+        ++p->tok;
+        bool nil = false, err = false;
+        if (p->tok->tt == TK_QUESTION) { nil = true; ++p->tok; }
+        if (p->tok->tt == TK_BANG)     { err = true; ++p->tok; }
+        n_sig->n_sig.nil = nil;
+        n_sig->n_sig.err = err;
+    }
+
+    return solu_parse_ex_ok(n_sig);
 }
 
 solu_parse_ex solu_pins(solu_parser *p) {
@@ -1550,7 +1797,7 @@ solu_parse_ex solu_pobj(solu_parser *p) {
         *member = (solu_node){
             SOLU_ND_BINARY,
             name->line, name->column,
-            .n_binary = {TK_EQUAL, nn, right.ok, false},
+            .n_binary = {TK_EQUAL, false, nn, right.ok},
         };
         n_obj->n_obj.members = realloc(n_obj->n_obj.members, ++n_obj->n_obj.mem_c * sizeof(solu_node *));
         n_obj->n_obj.members[n_obj->n_obj.mem_c - 1] = member;
@@ -1743,6 +1990,87 @@ solu_parse_ex solu_pinclude(solu_parser *p) {
     return solu_parse_ex_ok(n_include);
 }
 
+solu_parse_ex solu_ptypedef(solu_parser *p) {
+    solu_token *ct = p->tok;
+    ++p->tok;
+    if (p->tok->tt != TK_IDENTIFIER)
+        solu_perr(SOLU_ERRP_EXPECTED_TYPE, p->tok);
+    solu_val tdef = p->tok->value;
+    ++p->tok;
+    if (p->tok->tt != TK_COLON)
+        solu_perr(SOLU_ERRP_EXPECTED_COLON, p->tok);
+    ++p->tok;
+    if (p->tok->tt != TK_LEFT_BRACE)
+        solu_perr(SOLU_ERRP_EXPECTED_COLON, p->tok);
+    ++p->tok;
+
+    solu_node *n = malloc(sizeof(solu_node));
+    *n = (solu_node){
+        SOLU_ND_TYPEDEF,
+        ct->line, ct->column,
+        .n_typedef = {
+            .name = tdef,
+            .members = NULL,
+            .member_c = 0,
+        }
+    };
+
+    while (p->tok->tt != TK_RIGHT_BRACE && p->tok->tt != TK_EOF) {
+        if (p->tok->tt != TK_IDENTIFIER) {
+            solu_node_free(n);
+            solu_perr(SOLU_ERRP_EXPECTED_IDENTIFIER, p->tok);
+        }
+        solu_token *left = p->tok;
+        ++p->tok;
+        if (p->tok->tt != TK_COLON) {
+            solu_node_free(n);
+            solu_perr(SOLU_ERRP_EXPECTED_COLON, p->tok);
+        }
+        solu_token *col = p->tok;
+        ++p->tok;
+
+        solu_node *rhs = NULL;
+
+        if (p->tok->tt == TK_LEFT_PAREN) {
+            solu_parse_ex ex = solu_psig(p);
+            if (!ex.is_ok) {
+                solu_node_free(n);
+                return ex;
+            }
+            rhs = ex.ok;
+        } else if (!solu_istypetok(p->tok->tt)) {
+            solu_node_free(n);
+            solu_perr(SOLU_ERRP_EXPECTED_TYPE, p->tok);
+        } else { // Regular name
+            bool nil = false, err = false;
+            solu_token *tname = p->tok;
+            ++p->tok;
+            if (p->tok->tt == TK_QUESTION) { nil = true; ++p->tok; }
+            if (p->tok->tt == TK_BANG)     { err = true; ++p->tok; }
+            if (tname->tt == TK_NIL) nil = true;
+
+            rhs = malloc(sizeof(solu_node));
+            *rhs = (solu_node){SOLU_ND_TYPE, tname->line, tname->column, .n_type={solu_tok_typename(p, tname), nil, err}};
+        }
+
+        solu_node *lhs = malloc(sizeof(solu_node));
+        solu_node *bin = malloc(sizeof(solu_node));
+        *lhs = (solu_node){SOLU_ND_IDENTIFIER, left->line, left->column, .n_identifier=left->value};
+        *bin = (solu_node){SOLU_ND_BINARY, col->line, col->column, .n_binary={TK_COLON, false, lhs, rhs}};
+        n->n_typedef.members = realloc(n->n_typedef.members, ++n->n_typedef.member_c * sizeof(solu_node *));
+        n->n_typedef.members[n->n_typedef.member_c - 1] = bin;
+
+        if (p->tok->tt == TK_COMMA) ++p->tok;
+    }
+    if (p->tok->tt != TK_RIGHT_BRACE) {
+        solu_node_free(n);
+        solu_perr(SOLU_ERRP_UNTERMINATED_BLOCK, p->tok);
+    }
+    ++p->tok;
+
+    return solu_parse_ex_ok(n);
+}
+
 solu_parse_ex solu_ptypeof(solu_parser *p) {
     solu_token *ct = p->tok;
     ++p->tok;
@@ -1782,6 +2110,7 @@ solu_parse_ex solu_pstmt(solu_parser *p) {
         case TK_VAR: return solu_plocal(p);
         case TK_WHILE: return solu_pwhile(p);
         case TK_FOR: return solu_pfor(p);
+        case TK_TYPE: return solu_ptypedef(p);
 
         case TK_BREAK:
         case TK_CONTINUE: {

@@ -93,7 +93,7 @@ sf_str cli_load_file(char *name) {
 
 int cli_run(char *path) {
     solu_state *s = solu_state_new();
-    solu_usestd(s);
+    if (!s) return -1;
 
     sf_fsb_ex fsb = sf_file_buffer(sf_ref(path));
     if (!fsb.is_ok) {
@@ -153,7 +153,6 @@ int cli_run(char *path) {
 
 int cli_compile(char *path) {
     solu_state *s = solu_state_new();
-    solu_usestd(s);
     solu_compile_ex comp_ex = solu_cfile(s, path);
     if (!comp_ex.is_ok) {
         char *trace = solu_ctrace_print(path, comp_ex.err, 15, 2, 1);

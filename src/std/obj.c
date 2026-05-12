@@ -202,7 +202,7 @@ static solu_call_ex obj_template(solu_state *s) {
     solu_val ud = solu_dnusr(s, sizeof(solu_template), "template", &(solu_template){
         s, serialize,
     }, NULL, template_mark);
-    solu_dheader(ud)->metadata[SOLU_META_STR] = solu_wrapcfun(s, template_tostring, 0, &ud, 1);
+    solu_dheader(ud)->metadata[SOLU_META_STR] = solu_wrapmfun(s, template_tostring, 0, &ud, 1);
     return solu_ok(ud);
 }
 
@@ -619,52 +619,48 @@ static solu_call_ex obj_contains(solu_state *s) {
 }
 
 
-solu_val solu_mod_obj(solu_state *s, bool meta) {
-    solu_val (*fun)(solu_state *, solu_cfunction, uint32_t, solu_val *, uint32_t) = meta ?
-        solu_wrapmfun : solu_wrapcfun;
+solu_val solu_mod_obj(solu_state *s) {
     solu_val obj = solu_dnew(s, SOLU_DOBJ);
 
     // General
-    solu_dobj_strset(obj.dyn, "usemeta", fun(s, obj_usemeta, 2, NULL, 0));
-    solu_dobj_strset(obj.dyn, "meta", fun(s, obj_meta, 1, NULL, 0));
-    solu_dobj_strset(obj.dyn, "stringify", fun(s, obj_stringify, 3, NULL, 0));
-    solu_dobj_strset(obj.dyn, "template", fun(s, obj_template, 1, NULL, 0));
+    solu_dobj_strset(obj.dyn, "usemeta", solu_wrapmfun(s, obj_usemeta, 2, NULL, 0));
+    solu_dobj_strset(obj.dyn, "meta", solu_wrapmfun(s, obj_meta, 1, NULL, 0));
+    solu_dobj_strset(obj.dyn, "stringify", solu_wrapmfun(s, obj_stringify, 3, NULL, 0));
 
     // Map
-    solu_dobj_strset(obj.dyn, "set", fun(s, obj_set, 3, NULL, 0));
-    solu_dobj_strset(obj.dyn, "setr", fun(s, obj_setr, 3, NULL, 0));
-    solu_dobj_strset(obj.dyn, "get", fun(s, obj_get, 2, NULL, 0));
-    solu_dobj_strset(obj.dyn, "getr", fun(s, obj_getr, 2, NULL, 0));
-    solu_dobj_strset(obj.dyn, "members", fun(s, obj_members, 1, NULL, 0));
-    solu_dobj_strset(obj.dyn, "pairs", fun(s, obj_pairs, 2, NULL, 0));
-    solu_dobj_strset(obj.dyn, "find", fun(s, obj_find, 2, NULL, 0));
-    solu_dobj_strset(obj.dyn, "match", fun(s, obj_match, 2, NULL, 0));
-    solu_dobj_strset(obj.dyn, "has", fun(s, obj_has, 2, NULL, 0));
+    solu_dobj_strset(obj.dyn, "set", solu_wrapmfun(s, obj_set, 3, NULL, 0));
+    solu_dobj_strset(obj.dyn, "setr", solu_wrapmfun(s, obj_setr, 3, NULL, 0));
+    solu_dobj_strset(obj.dyn, "get", solu_wrapmfun(s, obj_get, 2, NULL, 0));
+    solu_dobj_strset(obj.dyn, "getr", solu_wrapmfun(s, obj_getr, 2, NULL, 0));
+    solu_dobj_strset(obj.dyn, "members", solu_wrapmfun(s, obj_members, 1, NULL, 0));
+    solu_dobj_strset(obj.dyn, "pairs", solu_wrapmfun(s, obj_pairs, 2, NULL, 0));
+    solu_dobj_strset(obj.dyn, "find", solu_wrapmfun(s, obj_find, 2, NULL, 0));
+    solu_dobj_strset(obj.dyn, "match", solu_wrapmfun(s, obj_match, 2, NULL, 0));
+    solu_dobj_strset(obj.dyn, "has", solu_wrapmfun(s, obj_has, 2, NULL, 0));
 
     // Array
-    solu_dobj_strset(obj.dyn, "push", fun(s, obj_push, 2, NULL, 0));
-    solu_dobj_strset(obj.dyn, "push_back", fun(s, obj_push_back, 2, NULL, 0));
-    solu_dobj_strset(obj.dyn, "pop", fun(s, obj_pop, 1, NULL, 0));
-    solu_dobj_strset(obj.dyn, "pop_back", fun(s, obj_pop_back, 1, NULL, 0));
-    solu_dobj_strset(obj.dyn, "len", fun(s, obj_len, 1, NULL, 0));
-    solu_dobj_strset(obj.dyn, "remove", fun(s, obj_remove, 1, NULL, 0));
-    solu_dobj_strset(obj.dyn, "foreach", fun(s, obj_foreach, 2, NULL, 0));
-    solu_dobj_strset(obj.dyn, "reverse", fun(s, obj_reverse, 1, NULL, 0));
-    solu_dobj_strset(obj.dyn, "range", fun(s, obj_range, 3, NULL, 0));
-    solu_dobj_strset(obj.dyn, "where", fun(s, obj_where, 2, NULL, 0));
-    solu_dobj_strset(obj.dyn, "all", fun(s, obj_all, 2, NULL, 0));
-    solu_dobj_strset(obj.dyn, "map", fun(s, obj_map, 2, NULL, 0));
-    solu_dobj_strset(obj.dyn, "contains", fun(s, obj_contains, 2, NULL, 0));
+    solu_dobj_strset(obj.dyn, "push", solu_wrapmfun(s, obj_push, 2, NULL, 0));
+    solu_dobj_strset(obj.dyn, "push_back", solu_wrapmfun(s, obj_push_back, 2, NULL, 0));
+    solu_dobj_strset(obj.dyn, "pop", solu_wrapmfun(s, obj_pop, 1, NULL, 0));
+    solu_dobj_strset(obj.dyn, "pop_back", solu_wrapmfun(s, obj_pop_back, 1, NULL, 0));
+    solu_dobj_strset(obj.dyn, "len", solu_wrapmfun(s, obj_len, 1, NULL, 0));
+    solu_dobj_strset(obj.dyn, "remove", solu_wrapmfun(s, obj_remove, 1, NULL, 0));
+    solu_dobj_strset(obj.dyn, "foreach", solu_wrapmfun(s, obj_foreach, 2, NULL, 0));
+    solu_dobj_strset(obj.dyn, "reverse", solu_wrapmfun(s, obj_reverse, 1, NULL, 0));
+    solu_dobj_strset(obj.dyn, "range", solu_wrapmfun(s, obj_range, 3, NULL, 0));
+    solu_dobj_strset(obj.dyn, "where", solu_wrapmfun(s, obj_where, 2, NULL, 0));
+    solu_dobj_strset(obj.dyn, "all", solu_wrapmfun(s, obj_all, 2, NULL, 0));
+    solu_dobj_strset(obj.dyn, "map", solu_wrapmfun(s, obj_map, 2, NULL, 0));
+    solu_dobj_strset(obj.dyn, "contains", solu_wrapmfun(s, obj_contains, 2, NULL, 0));
 
     // Others that extend to obj
-    if (meta) {
-        solu_dobj_strset(obj.dyn, "then", fun(s, builtin_then, 2, NULL, 0));
-        solu_dobj_strset(obj.dyn, "type", fun(s, builtin_type, 1, NULL, 0));
-        solu_dobj_strset(obj.dyn, "str", fun(s, builtin_str, 1, NULL, 0));
-        solu_dobj_strset(obj.dyn, "unwrap", fun(s, builtin_unwrap, 1, NULL, 0));
-        solu_dobj_strset(obj.dyn, "or_else", fun(s, builtin_or_else, 1, NULL, 0));
+    solu_dobj_strset(obj.dyn, "then", solu_wrapmfun(s, builtin_then, 2, NULL, 0));
+    solu_dobj_strset(obj.dyn, "type", solu_wrapmfun(s, builtin_type, 1, NULL, 0));
+    solu_dobj_strset(obj.dyn, "str", solu_wrapmfun(s, builtin_str, 1, NULL, 0));
+    solu_dobj_strset(obj.dyn, "unwrap", solu_wrapmfun(s, builtin_unwrap, 1, NULL, 0));
+    solu_dobj_strset(obj.dyn, "or_else", solu_wrapmfun(s, builtin_or_else, 1, NULL, 0));
 
-        solu_dobj_strset(obj.dyn, "join", fun(s, string_join, 2, NULL, 0));
-    } else solu_dobj_strset(s->global.dyn, "obj", obj);
+    solu_dobj_strset(obj.dyn, "join", solu_wrapmfun(s, string_join, 2, NULL, 0));
+
     return obj;
 }

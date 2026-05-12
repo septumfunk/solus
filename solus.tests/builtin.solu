@@ -1,4 +1,1 @@
-val x = i64:'9';
-if bool:x {
-    io.println("Wow!");
-}
+var x: any = err("hi");

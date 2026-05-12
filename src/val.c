@@ -235,7 +235,7 @@ static void print_line(sf_str *out, sf_str src, uint16_t line) {
 }
 
 void highlight_line(sf_str *out, sf_str src, uint16_t line, uint16_t column, uint8_t lookback, uint8_t lookahead) {
-    for (uint16_t i = (uint16_t)(line <= lookback ? 1 : line - lookback + 1); i < line + 1; ++i)
+    for (uint16_t i = (uint16_t)(line - lookback < 1 ? 1 : line - lookback); i < line + 1; ++i)
         print_line(out, src, i);
 
     int prefix = snprintf(NULL, 0, "%4u | ", line);

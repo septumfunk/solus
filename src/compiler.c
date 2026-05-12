@@ -2,6 +2,7 @@
 #include "solus/bytecode.h"
 #include "solus/syntax.h"
 #include "solus/val.h"
+#include <setjmp.h>
 #include <sf/str.h>
 #include <stdbool.h>
 
@@ -16,121 +17,20 @@
 #define TUI_ERR ""
 #define TUI_CLR ""
 #endif
+#define TUI_TNAME(m) TUI_INFO "%s" TUI_CLR m
 
-/// A simple representation of a local variable (or upvalue)
-typedef struct {
-    uint32_t reg, scope;
-    bool upval, mut;
-    uint32_t frame;
-    solu_val type;
-} solu_local;
-
-struct solu_scope;
-static void _solu_scope_cleanup(struct solu_scope *);
-#define MAP_NAME solu_scope
-#define MAP_K sf_str
-#define MAP_V solu_local
-#define EQUAL_FN sf_str_eq
-#define HASH_FN sf_str_hash
-#define KCLEANUP sf_str_free
-#define CLEANUP_FN _solu_scope_cleanup
-#include <sf/containers/map.h>
 static void _solu_scope_fe(void *ud, sf_str key, solu_local loc) {
     (void)ud; (void)loc;
     sf_str_free(key);
 }
-static void _solu_scope_cleanup(struct solu_scope *s) {
+void _solu_scope_cleanup(struct solu_scope *s) {
     solu_scope_foreach(s, _solu_scope_fe, NULL);
 }
-
-struct solu_scopes;
-static void _solu_scopes_cleanup(struct solu_scopes *);
-#define VEC_NAME solu_scopes
-#define VEC_T solu_scope
-#define VSIZE_T uint32_t
-#define VSIZE_MAX UINT32_MAX
-#define CLEANUP_FN _solu_scopes_cleanup
-#include <sf/containers/vec.h>
-static void _solu_scopes_cleanup(struct solu_scopes *v) {
+void _solu_scopes_cleanup(struct solu_scopes *v) {
     for (size_t i = 0; i < v->count; ++i)
         solu_scope_free(v->data + i);
 }
 
-typedef struct { uint16_t idx; solu_tokentype tt; } solu_control;
-#define VEC_NAME solu_controls
-#define VEC_T solu_control
-#define VSIZE_T uint32_t
-#define VSIZE_MAX UINT32_MAX
-#include <sf/containers/vec.h>
-
-typedef enum {
-    SOLU_CANY,
-    SOLU_CF64,
-    SOLU_CI64,
-    SOLU_CBOOL,
-    SOLU_CSTR,
-    SOLU_COBJ,
-    SOLU_CERR,
-    SOLU_CCOUNT,
-} solu_pinfo;
-
-/// Temporary compilation info that's shared between all compiler functions
-typedef struct {
-    sf_str path;
-    solu_fproto proto;
-    solu_ast ast;
-    solu_scopes scopes;
-    uint32_t temps, max_reg, frame;
-    solu_dalloc *alloc;
-
-    uint32_t obj_r;
-    solu_valmap fields;
-    bool inloop;
-    solu_controls controls;
-    solu_ctrace *ct;
-    solu_valmap types;
-    solu_val ptypes[SOLU_CCOUNT];
-} solu_compiler;
-
-typedef struct {
-    solu_val name;
-    bool complex, nil;
-    solu_valmap members;
-    solu_opcode cast;
-} solu_tinfo;
-static solu_val solu_push_tinfo(solu_compiler *c, sf_str name, bool complex, bool nil, solu_valmap members, solu_opcode cast) {
-    solu_dalloc *alloc = c->alloc;
-    while (alloc && alloc->next)
-        alloc = alloc->next;
-    if (!alloc) return SOLU_NIL;
-    solu_dalloc *da = malloc(sizeof(solu_dalloc) + sizeof(solu_tinfo));
-    alloc->next = da;
-    solu_dalloc *na = malloc(sizeof(solu_dalloc) + name.len + 1);
-    *da = (solu_dalloc) {
-        na,
-        sizeof(solu_tinfo),
-        1, SOLU_DUSR,
-        SOLU_DYN_WHITE,
-        true, SOLU_NIL, {SOLU_NIL}
-    };
-    *na = (solu_dalloc) {
-        NULL,
-        name.len + 1,
-        1, SOLU_DSTR,
-        SOLU_DYN_WHITE,
-        true, SOLU_NIL, {SOLU_NIL}
-    };
-    solu_tinfo *ti = (solu_tinfo *)(da + 1);
-    *ti = (solu_tinfo) {
-        (solu_val){SOLU_TDYN, .dyn=na + 1},
-        complex, nil,
-        members, cast
-    };
-    memcpy(na + 1, name.c_str, name.len + 1);
-    return (solu_val){SOLU_TDYN, .dyn=ti};
-}
-
-#define OP_W 10
 /// Add an instruction to the proto.
 /// Optionally logs every instruction compiled (see SOLU_DBG_LOG)
 static inline void solu_cemitraw(solu_compiler *c, solu_instruction ins, uint16_t line, uint16_t column) {
@@ -160,7 +60,7 @@ static inline uint32_t solu_rtemp(solu_compiler *c) {
 }
 #define solu_rlocal solu_rtemp
 /// Find whether a local exists, and output the local if it does
-static inline bool solu_lexists(solu_compiler *c, char *name, solu_local *loc) {
+bool solu_lexists(solu_compiler *c, char *name, solu_local *loc) {
     for (uint32_t i = c->scopes.count; i > 0; --i) {
         solu_scope *s = &c->scopes.data[i - 1];
         solu_scope_ex sc_ex = solu_scope_get(s, sf_ref(name));
@@ -170,7 +70,9 @@ static inline bool solu_lexists(solu_compiler *c, char *name, solu_local *loc) {
         }
     }
     if (strcmp(name, "self") == 0 && c->obj_r != UINT32_MAX) {
-        *loc = (solu_local){c->obj_r, c->scopes.count - 1, false, false, c->frame, c->ptypes[SOLU_CANY]};
+        *loc = (solu_local){c->obj_r, c->scopes.count - 1, false, false, c->frame,
+            (solu_type){c->ptypes[SOLU_COBJ], false, false, false}
+        };
         return true;
     }
     return false;
@@ -223,63 +125,57 @@ static uint32_t solu_kadd(solu_compiler *c, solu_val con) {
     return c->proto.constants.count - 1;
 }
 
+
+// Types
+
+solu_val solu_cstr(solu_dalloc *alloc, sf_str str) {
+    while (alloc && alloc->next)
+        alloc = alloc->next;
+    if (!alloc) return SOLU_NIL;
+    solu_dalloc *na = malloc(sizeof(solu_dalloc) + str.len + 1);
+    *na = (solu_dalloc) {
+        NULL,
+        str.len + 1,
+        SOLU_DSTR,
+        SOLU_DYN_WHITE,
+        true, SOLU_NIL, {SOLU_NIL}
+    };
+    alloc->next = na;
+    memcpy(na + 1, str.c_str, str.len + 1);
+    return (solu_val){SOLU_TDYN, .dyn=na+1};
+}
+
+// Compilation
+
 typedef struct {
     solu_error tt;
     uint16_t line, column;
+    char *specific;
 } solu_cnode_err;
 #define EXPECTED_NAME solu_cnode_ex
 #define EXPECTED_E solu_cnode_err
 #include <sf/containers/expected.h>
 /// Shorthand macro for returning a solu_cnode_ex_err
-#define solu_cerr(type) solu_cnode_ex_err((solu_cnode_err){(type), node->line, node->column})
+#define solu_cerr(type) solu_cnode_ex_err((solu_cnode_err){(type), node->line, node->column, NULL})
+#define solu_cerrl(type, node) solu_cnode_ex_err((solu_cnode_err){\
+    (type), \
+    (node) ? (node)->line : 0, \
+    (node) ? (node)->column : 0, \
+    NULL \
+})
+#define solu_cerrs(type, node, specific, ...) solu_cnode_ex_err((solu_cnode_err){\
+    (type), \
+    (node) ? (node)->line : 0, \
+    (node) ? (node)->column : 0, \
+    sf_str_fmt((specific), __VA_ARGS__).c_str \
+})
 
 solu_cnode_ex solu_cnode(solu_compiler *c, solu_node *node, uint32_t t_reg);
-
-static solu_val solu_typeof(solu_compiler *c, solu_node *node) {
-    switch (node->tt) {
-        case SOLU_ND_CAST: {
-            solu_valmap_ex ex = solu_valmap_get(&c->types, sf_ref(node->n_cast.type.dyn));
-            if (!ex.is_ok) return SOLU_NIL;
-            return ex.ok;
-        }
-        case SOLU_ND_BINARY: {
-            if (solu_niscondition(node))
-                return c->ptypes[SOLU_CBOOL];
-
-            solu_val to = solu_typeof(c, node->n_binary.left);
-            if (to.tt == SOLU_TNIL) return SOLU_NIL;
-
-            if (to.dyn == c->ptypes[SOLU_CI64].dyn // f64 promotion
-                && solu_typeof(c, node->n_binary.right).dyn == c->ptypes[SOLU_CF64].dyn) {
-                to = c->ptypes[SOLU_CF64];
-            }
-            return to;
-        }
-        case SOLU_ND_LITERAL: {
-            switch (node->n_literal.tt) {
-                case SOLU_TCOUNT:
-                case SOLU_TNIL:   return c->ptypes[SOLU_CANY];
-                case SOLU_TI64:   return c->ptypes[SOLU_CI64];
-                case SOLU_TF64:   return c->ptypes[SOLU_CF64];
-                case SOLU_TBOOL:  return c->ptypes[SOLU_CBOOL];
-                case SOLU_TDYN:   return c->ptypes[SOLU_CSTR];
-            }
-        }
-        case SOLU_ND_IDENTIFIER: {
-            solu_local loc;
-            if (solu_lexists(c, node->n_identifier.dyn, &loc))
-                return loc.type;
-            return c->ptypes[SOLU_CANY];
-        }
-        default: return c->ptypes[SOLU_CANY];
-    }
-}
-
 /// Compile a fun from a block and info
 solu_compile_ex solu_cfun(
     sf_str file_name, uint32_t frame, solu_dalloc *alloc, solu_node *ast,
-    uint32_t arg_c, solu_val *args, bool variadic,
-    uint32_t up_c, solu_upvalue *upvals, solu_ctrace *ct) {
+    uint32_t arg_c, solu_val *args, solu_node *sig, bool variadic,
+    uint32_t up_c, solu_upvalue *upvals, solu_ctrace *ct, solu_typeenv *tenv, solu_val *ptypes) {
 
     solu_compiler c = {
         .path = file_name,
@@ -294,7 +190,8 @@ solu_compile_ex solu_cfun(
         .ct = ct,
 
         .controls = solu_controls_new(),
-        .types = solu_valmap_new(),
+        .tenv = tenv,
+        .ptypes = ptypes
     };
     c.proto.arg_c = arg_c - variadic;
     c.proto.file_name = file_name;
@@ -306,42 +203,48 @@ solu_compile_ex solu_cfun(
     memcpy(c.proto.upvals, upvals, sizeof(solu_upvalue) * up_c);
     c.proto.up_c = up_c;
 
-    c.ptypes[SOLU_CANY] = solu_push_tinfo(&c, sf_lit("any"), false, false, (solu_valmap){0}, SOLU_OP_COUNT);
-    solu_valmap_set(&c.types, sf_lit("any"), c.ptypes[SOLU_CANY]);
-    c.ptypes[SOLU_CF64] = solu_push_tinfo(&c, sf_lit("f64"), false, false, (solu_valmap){0}, SOLU_OP_CF64);
-    solu_valmap_set(&c.types, sf_lit("f64"), c.ptypes[SOLU_CF64]);
-    c.ptypes[SOLU_CI64] = solu_push_tinfo(&c, sf_lit("i64"), false, false, (solu_valmap){0}, SOLU_OP_CI64);
-    solu_valmap_set(&c.types, sf_lit("i64"), c.ptypes[SOLU_CI64]);
-    c.ptypes[SOLU_CBOOL] = solu_push_tinfo(&c, sf_lit("bool"), false, false, (solu_valmap){0}, SOLU_OP_CBOOL);
-    solu_valmap_set(&c.types, sf_lit("bool"), c.ptypes[SOLU_CBOOL]);
-
-
-    c.ptypes[SOLU_CSTR] = solu_push_tinfo(&c, sf_lit("str"), false, false, (solu_valmap){0}, SOLU_OP_CSTR);
-    solu_valmap_set(&c.types, sf_lit("str"), c.ptypes[SOLU_CSTR]);
-    c.ptypes[SOLU_COBJ] = solu_push_tinfo(&c, sf_lit("obj"), false, false, (solu_valmap){0}, SOLU_OP_UNKNOWN);
-    solu_valmap_set(&c.types, sf_lit("obj"), c.ptypes[SOLU_COBJ]);
-    c.ptypes[SOLU_CERR] = solu_push_tinfo(&c, sf_lit("err"), false, false, (solu_valmap){0}, SOLU_OP_UNKNOWN);
-    solu_valmap_set(&c.types, sf_lit("err"), c.ptypes[SOLU_CERR]);
-
     solu_scopes_push(&c.scopes, solu_scope_new());
-    for (uint32_t i = 0; i < arg_c; ++i)
+    for (uint32_t i = 0; i < arg_c; ++i) {
+        solu_type t = solu_tres(&c, sig->n_sig.args[i]);
+        if (!t.ok) t = solu_type_ok(c.ptypes[SOLU_CANY], true, true);
         solu_scope_set(c.scopes.data + c.scopes.count - 1, sf_str_cdup(args[i].dyn), (solu_local){
             i, 0, false, true, 0,
-            c.ptypes[SOLU_CANY]
+            t
         });
-    for (uint32_t i = 0; i < up_c; ++i)
+    }
+    for (uint32_t i = 0; i < up_c; ++i) {
+        solu_upvalue up = upvals[i];
+        if (up.type.tt == SOLU_TNIL) {
+            up.type = c.ptypes[SOLU_CANY];
+            up.nil = up.err = true;
+        }
         solu_scope_set(c.scopes.data + c.scopes.count - 1, sf_str_dup(upvals[i].name), (solu_local){
             i, 0, true, upvals[i].mut,
-            upvals[i].frame, upvals[i].type
+            up.frame, solu_type_ok(up.type, up.nil, up.err)
         });
+    }
 
     solu_cnode(&c, c.ast, UINT32_MAX);
     c.proto.reg_c = c.max_reg;
 
     solu_scopes_free(&c.scopes);
     solu_controls_free(&c.controls);
-    solu_valmap_free(&c.types);
     return !ct->count ? solu_compile_ex_ok(c.proto) : solu_compile_ex_err(ct);
+}
+
+typedef struct {
+    solu_cnode_ex ex;
+    jmp_buf *b;
+    solu_valmap *mcache;
+    solu_val any;
+} _ensure_mem;
+static void solu_ensure_members(void *ud, sf_str key, solu_type val) {
+    _ensure_mem *arg = ud;
+    if (val.base.dyn != arg->any.dyn && !solu_valmap_get(arg->mcache, key).is_ok) {
+        // TODO: Better output for missing members
+        arg->ex = solu_cnode_ex_err((solu_cnode_err){SOLU_ERRC_MISSING_MEMBER, 0, 0, NULL});
+        longjmp(*arg->b, 1);
+    }
 }
 
 static solu_cnode_ex solu_cmembers(solu_compiler *c, solu_node *node, uint32_t t_reg) {
@@ -349,6 +252,7 @@ static solu_cnode_ex solu_cmembers(solu_compiler *c, solu_node *node, uint32_t t
     uint32_t it = solu_rtemp(c), kt = solu_rtemp(c);
     uint32_t obj_r = c->obj_r;
     c->obj_r = t_reg;
+    solu_valmap mcache = solu_valmap_new();
     for (uint32_t i = 0; i < node->n_obj.mem_c; ++i) {
         solu_node *nd = node->n_obj.members[i];
         uint32_t key_i;
@@ -358,7 +262,10 @@ static solu_cnode_ex solu_cmembers(solu_compiler *c, solu_node *node, uint32_t t
             if (!solu_kfind(c, idx, &key_i))
                 key_i = solu_kadd(c, idx);
             right = solu_cnode(c, nd, it);
-            if (!right.is_ok) return right;
+            if (!right.is_ok) {
+                solu_valmap_free(&mcache);
+                return right;
+            }
             solu_cemitraw(c, solu_ins_ab(SOLU_OP_PUSH, t_reg, it), nd->line, nd->column);
         } else {
             bool isk = nd->n_binary.left->tt == SOLU_ND_IDENTIFIER || nd->n_binary.left->tt == SOLU_ND_LITERAL;
@@ -370,13 +277,63 @@ static solu_cnode_ex solu_cmembers(solu_compiler *c, solu_node *node, uint32_t t
             else {
                 key_i = solu_reg(kt);
                 solu_cnode_ex ex = solu_cnode(c, nd->n_binary.left, kt);
-                if (!ex.is_ok) return ex;
+                if (!ex.is_ok) {
+                    solu_valmap_free(&mcache);
+                    return ex;
+                }
             }
+
+            // Type check
+            if (c->def) {
+                solu_val mname = SOLU_NIL;
+                if (isk)
+                    mname = nd->n_binary.left->n_identifier;
+                else if (nd->n_binary.left->tt == SOLU_ND_LITERAL)
+                    mname = nd->n_binary.left->n_literal;
+                if (mname.tt == SOLU_TDYN) {
+                    solu_def_ex tt = solu_def_get(&c->def->def, sf_ref(mname.dyn));
+                    if (tt.is_ok) {
+                        solu_type typeof = solu_typeof(c, nd->n_binary.right);
+                        if (!typeof.ok) {
+                            solu_valmap_free(&mcache);
+                            return solu_cerr(SOLU_ERRC_UNDEFINED_TYPE);
+                        }
+                        solu_tinfo *ti = typeof.base.dyn;
+                        if ((tt.ok.base.dyn != c->ptypes[SOLU_CANY].dyn && ti != tt.ok.base.dyn &&
+                            !(ti == c->ptypes[SOLU_CNIL].dyn && tt.ok.nilable))) {
+                            solu_valmap_free(&mcache);
+                            return solu_cerr(SOLU_ERRC_INCORRECT_MEMBER_TYPE);
+                        }
+                        if (typeof.nilable && !tt.ok.nilable && tt.ok.base.dyn != c->ptypes[SOLU_CANY].dyn) {
+                            solu_valmap_free(&mcache);
+                            return solu_cerr(SOLU_ERRC_CAN_BE_NIL);
+                        }
+                        solu_valmap_set(&mcache, sf_ref(mname.dyn), SOLU_NIL);
+                    }
+                }
+            }
+
             right = solu_cnode(c, nd->n_binary.right, it);
-            if (!right.is_ok) return right;
+            if (!right.is_ok) {
+                solu_valmap_free(&mcache);
+                return right;
+            }
             solu_cemitraw(c, solu_ins_abc(SOLU_OP_SET, t_reg, key_i, solu_reg(it)), nd->line, nd->column);
         }
     }
+    if (c->def && c->def->complex) { // Ensure all non-any members are initialized
+        jmp_buf ctx;
+        _ensure_mem args = {solu_cnode_ex_ok(), &ctx, &mcache, c->ptypes[SOLU_CANY]};
+        if (setjmp(ctx) == 0)
+            solu_def_foreach(&c->def->def, solu_ensure_members, &args);
+        else {
+            solu_valmap_free(&mcache);
+            args.ex.err.line = node->line;
+            args.ex.err.column = node->column;
+            return args.ex;
+        }
+    }
+    solu_valmap_free(&mcache);
     c->obj_r = obj_r;
     solu_ctemps(c, 2);
     return solu_cnode_ex_ok();
@@ -404,26 +361,66 @@ solu_cnode_ex solu_cnode(solu_compiler *c, solu_node *node, uint32_t t_reg) {
             for (uint16_t i = 0; i < node->n_local.entry_c; ++i) {
                 struct solu_name n = node->n_local.entries[i];
 
-                solu_val lhst = c->ptypes[SOLU_CANY];
-                if (n.type.tt != SOLU_TNIL) {
-                    solu_valmap_ex ex = solu_valmap_get(&c->types, sf_ref(n.type.dyn));
-                    if (!ex.is_ok) solu_cerr(SOLU_ERRC_UNDEFINED_TYPE);
-                    lhst = ex.ok;
+                solu_type lhst = solu_type_ok(c->ptypes[SOLU_CANY], true, true);
+                if (n.type != NULL) {
+                    lhst = solu_tres(c, n.type);
+                    if (!lhst.ok) return solu_cerr(SOLU_ERRC_UNDEFINED_TYPE);
                 }
-                solu_val rhst = solu_typeof(c, n.value);
-                if (rhst.tt == SOLU_TNIL) return solu_cerr(SOLU_ERRC_UNDEFINED_TYPE);
-                if (lhst.dyn != c->ptypes[SOLU_CANY].dyn && lhst.dyn != rhst.dyn)
-                    return solu_cerr(SOLU_ERRC_INCORRECT_TYPE);
+                solu_type rhst = solu_typeof(c, n.value);
+                if (!rhst.ok) return solu_cerr(SOLU_ERRC_UNDEFINED_TYPE);
+                if (n.infer) {
+                    if (rhst.base.dyn == c->ptypes[SOLU_CERR].dyn) // Assume any! if rhs is err
+                        rhst = solu_type_ok(c->ptypes[SOLU_CANY], false, true);
+                    lhst = rhst;
+                }
+
+                solu_tinfo *lti = lhst.base.dyn;
+                solu_node *rhsn = n.value;
+                bool autocast = lti->tt == SOLU_TI_DEF && rhst.base.dyn == c->ptypes[SOLU_COBJ].dyn;
+                if (!autocast && !n.infer && !solu_tassignable(c, lhst, rhst)) {
+                    sf_str lname = solu_stypename(c, lhst);
+                    sf_str rname = solu_stypename(c, rhst);
+                    char *reason = "Attempt to assign type %s to type %s";
+                    if (rhst.nilable && !lhst.nilable && rhst.fallible && !lhst.fallible)
+                        reason = "Attempt to assign type "TUI_TNAME(TUI_ERR)" to type "TUI_TNAME(TUI_ERR)". Did you mean: "TUI_INFO"%s?!"TUI_CLR;
+                    else if (rhst.nilable && !lhst.nilable)
+                        reason = "Attempt to assign type "TUI_TNAME(TUI_ERR)" to type "TUI_TNAME(TUI_ERR)". Did you mean: "TUI_INFO"%s?"TUI_CLR;
+                    else if (rhst.fallible && !lhst.fallible)
+                        reason = "Attempt to assign type "TUI_TNAME(TUI_ERR)" to type "TUI_TNAME(TUI_ERR)". Did you mean: "TUI_INFO"%s!"TUI_CLR;
+                    solu_cnode_ex ex = solu_cerrs(
+                        SOLU_ERRC_INCORRECT_TYPE,
+                        n.type,
+                        reason,
+                        rname.c_str, lname.c_str, lname.c_str
+                    );
+                    sf_str_free(lname);
+                    sf_str_free(rname);
+                    return ex;
+                }
 
                 solu_scope_ex exists = solu_scope_get(c->scopes.data + c->scopes.count - 1, sf_ref(n.name.dyn));
                 if (exists.is_ok)
                     return solu_cerr(SOLU_ERRC_REDEFINED_LOCAL);
                 uint32_t rhs = solu_rlocal(c);
 
+                if (autocast) {
+                    rhsn = malloc(sizeof(solu_node));
+                    *rhsn = (solu_node) {
+                        SOLU_ND_CAST,
+                        n.value->line, n.value->column,
+                        .n_cast = {
+                            .type = lti->name,
+                            .expr = n.value,
+                        }
+                    };
+                }
+
+                solu_cnode_ex ex = solu_cnode(c, rhsn, rhs);
                 solu_scope_set(c->scopes.data + c->scopes.count - 1, sf_str_cdup(n.name.dyn), (solu_local){
-                    rhs, c->scopes.count - 1, false, node->n_local.mut, 0, n.infer ? rhst : lhst
+                    rhs, c->scopes.count - 1, false, node->n_local.mut, 0,
+                    n.infer && !autocast ? rhst : lhst
                 });
-                solu_cnode_ex ex = solu_cnode(c, n.value, rhs);
+                if (autocast) free(rhsn);
                 if (!ex.is_ok) return ex;
             }
             return solu_cnode_ex_ok();
@@ -436,8 +433,18 @@ solu_cnode_ex solu_cnode(solu_compiler *c, solu_node *node, uint32_t t_reg) {
                 cond = cond->n_unary.right;
             }
 
-            if (solu_typeof(c, cond).dyn != c->ptypes[SOLU_CBOOL].dyn)
-                return solu_cnode_ex_err((solu_cnode_err){SOLU_ERRC_EXPECTED_CONDITION, cond->line, cond->column});
+            solu_type tmp = solu_typeof(c, cond);
+            if (!tmp.ok) return solu_cerrl(SOLU_ERRC_UNDEFINED_TYPE, cond);
+            if (tmp.nilable || tmp.fallible || tmp.base.dyn != c->ptypes[SOLU_CBOOL].dyn) {
+                sf_str tname = solu_stypename(c, tmp);
+                solu_cnode_ex ex = solu_cerrs(
+                    SOLU_ERRC_EXPECTED_CONDITION,
+                    cond, "Expected bool, found %s",
+                    tname.c_str
+                );
+                sf_str_free(tname);
+                return ex;
+            }
 
             if (cond->tt == SOLU_ND_IDENTIFIER) {
                 solu_local loc;
@@ -501,8 +508,18 @@ solu_cnode_ex solu_cnode(solu_compiler *c, solu_node *node, uint32_t t_reg) {
                 cond = cond->n_unary.right;
             }
 
-            if (solu_typeof(c, cond).dyn != c->ptypes[SOLU_CBOOL].dyn)
-                return solu_cnode_ex_err((solu_cnode_err){SOLU_ERRC_EXPECTED_CONDITION, cond->line, cond->column});
+            solu_type tmp = solu_typeof(c, cond);
+            if (!tmp.ok) return solu_cerrl(SOLU_ERRC_UNDEFINED_TYPE, cond);
+            if (tmp.nilable || tmp.fallible || tmp.base.dyn != c->ptypes[SOLU_CBOOL].dyn) {
+                sf_str tname = solu_stypename(c, tmp);
+                solu_cnode_ex ex = solu_cerrs(
+                    SOLU_ERRC_EXPECTED_CONDITION,
+                    cond, "Expected bool, found %s",
+                    tname.c_str
+                );
+                sf_str_free(tname);
+                return ex;
+            }
 
             if (cond->tt == SOLU_ND_IDENTIFIER) {
                 solu_local loc;
@@ -566,8 +583,18 @@ solu_cnode_ex solu_cnode(solu_compiler *c, solu_node *node, uint32_t t_reg) {
                 cond = cond->n_unary.right;
             }
 
-            if (solu_typeof(c, cond).dyn != c->ptypes[SOLU_CBOOL].dyn)
-                return solu_cnode_ex_err((solu_cnode_err){SOLU_ERRC_EXPECTED_CONDITION, cond->line, cond->column});
+            solu_type tmp = solu_typeof(c, cond);
+            if (!tmp.ok) return solu_cerrl(SOLU_ERRC_UNDEFINED_TYPE, cond);
+            if (tmp.nilable || tmp.fallible || tmp.base.dyn != c->ptypes[SOLU_CBOOL].dyn) {
+                sf_str tname = solu_stypename(c, tmp);
+                solu_cnode_ex ex = solu_cerrs(
+                    SOLU_ERRC_EXPECTED_CONDITION,
+                    cond, "Expected bool, found %s",
+                    tname.c_str
+                );
+                sf_str_free(tname);
+                return ex;
+            }
 
             if (cond->tt == SOLU_ND_IDENTIFIER) {
                 solu_local loc;
@@ -705,9 +732,22 @@ solu_cnode_ex solu_cnode(solu_compiler *c, solu_node *node, uint32_t t_reg) {
             uint32_t left = UINT32_MAX, right = UINT32_MAX;
             bool set = t_reg == UINT32_MAX;
 
+            solu_type lhs = solu_typeof(c, node->n_binary.left);
+            if (!lhs.ok) return solu_cerrl(SOLU_ERRC_UNDEFINED_TYPE, node->n_binary.left);
+            if (node->n_binary.op == TK_AS) { // Reinterpret
+                char *tname = node->n_binary.right->tt == SOLU_ND_LITERAL ? "nil" : node->n_binary.right->n_identifier.dyn;
+                solu_valmap_ex ex = solu_valmap_get(&c->tenv->types, sf_ref(tname));
+                if (!ex.is_ok)
+                    return solu_cerrl(SOLU_ERRC_UNDEFINED_TYPE, node->n_binary.right);
+                // TODO: Yes/Nil
+                return solu_cnode(c, node->n_binary.left, t_reg);
+            }
+            solu_type rhs = solu_typeof(c, node->n_binary.right);
+            if (!rhs.ok) return solu_cerrl(SOLU_ERRC_UNDEFINED_TYPE, node->n_binary.right);
+
             if (node->n_binary.op != TK_AND && node->n_binary.op != TK_OR) {
                 if (node->n_binary.op != TK_EQUAL && node->n_binary.op != TK_PLUS_EQUAL && node->n_binary.op != TK_MINUS_EQUAL) {
-                    if (node->n_binary.left->tt == SOLU_ND_LITERAL && node->n_binary.op != TK_AND && node->n_binary.op != TK_OR) {
+                    if (node->n_binary.left->tt == SOLU_ND_LITERAL) {
                         if (!solu_kfind(c, node->n_binary.left->n_literal, &left))
                             left = solu_kadd(c, node->n_binary.left->n_literal);
                         ll = true;
@@ -718,16 +758,65 @@ solu_cnode_ex solu_cnode(solu_compiler *c, solu_node *node, uint32_t t_reg) {
                         if (!left_ex.is_ok) return left_ex;
                     }
                 }
-                if (node->n_binary.op != TK_AND && node->n_binary.op != TK_OR) {
-                    if (node->n_binary.right->tt == SOLU_ND_LITERAL) {
-                        if (!solu_kfind(c, node->n_binary.right->n_literal, &right))
-                            right = solu_kadd(c, node->n_binary.right->n_literal);
-                        rl = true;
-                    } else {
-                        right = solu_rtemp(c);
-                        rt = true;
-                        solu_cnode_ex right_ex = solu_cnode(c, node->n_binary.right, right);
-                        if (!right_ex.is_ok) return right_ex;
+
+                if (node->n_binary.right->tt == SOLU_ND_LITERAL) {
+                    if (!solu_kfind(c, node->n_binary.right->n_literal, &right))
+                        right = solu_kadd(c, node->n_binary.right->n_literal);
+                    rl = true;
+                } else {
+                    right = solu_rtemp(c);
+                    rt = true;
+                    solu_cnode_ex right_ex = solu_cnode(c, node->n_binary.right, right);
+                    if (!right_ex.is_ok) return right_ex;
+                }
+
+                solu_tokentype op = node->n_binary.op;
+                bool assign = op == TK_EQUAL || op == TK_COL_EQUAL || op == TK_PLUS_EQUAL || op == TK_MINUS_EQUAL || op == TK_STAR_EQUAL || op == TK_SLASH_EQUAL;
+                if (assign) {
+                    if (!solu_tassignable(c, lhs, rhs)) {
+                        sf_str lname = solu_stypename(c, lhs);
+                        sf_str rname = solu_stypename(c, rhs);
+                        solu_cnode_ex ex = solu_cerrs(
+                            SOLU_ERRC_INCORRECT_TYPE,
+                            node->n_binary.right,
+                            "Attempt to assign type "TUI_TNAME(TUI_ERR)" to type "TUI_TNAME(TUI_ERR),
+                            rname.c_str, lname.c_str
+                        );
+                        sf_str_free(lname);
+                        sf_str_free(rname);
+                        return ex;
+                    }
+                } else {
+                    if (op == TK_PLUS || op == TK_MINUS || op == TK_ASTERISK || op == TK_SLASH) { // Arithmetic
+                        if (lhs.base.dyn == c->ptypes[SOLU_CI64].dyn && rhs.base.dyn == c->ptypes[SOLU_CF64].dyn) {
+                            solu_cemit(c, solu_ins_ab(SOLU_OP_CF64, left, left));
+                            lhs = solu_type_ok(c->ptypes[SOLU_CF64], false, false);
+                        } else if (rhs.base.dyn == c->ptypes[SOLU_CI64].dyn && lhs.base.dyn == c->ptypes[SOLU_CF64].dyn) {
+                            solu_cemit(c, solu_ins_ab(SOLU_OP_CF64, right, right));
+                            rhs = solu_type_ok(c->ptypes[SOLU_CF64], false, false);
+                        }
+                    }
+                    if (lhs.nilable || rhs.nilable) {
+                        sf_str tname = solu_stypename(c, lhs.nilable ? lhs : rhs);
+                        solu_cnode_ex ex = solu_cerrs(
+                            SOLU_ERRC_NIL_ARITHMETIC,
+                            lhs.nilable ? node->n_binary.left : node->n_binary.right,
+                            "Attempt to perform arithmetic with nilable type "TUI_TNAME(TUI_ERR),
+                            tname.c_str
+                        );
+                        sf_str_free(tname);
+                        return ex;
+                    }
+                    if (lhs.fallible || rhs.fallible) {
+                        sf_str tname = solu_stypename(c, lhs.fallible ? lhs : rhs);
+                        solu_cnode_ex ex = solu_cerrs(
+                            SOLU_ERRC_ERR_ARITHMETIC,
+                            lhs.fallible ? node->n_binary.left : node->n_binary.right,
+                            "Attempt to perform arithmetic with fallible type "TUI_TNAME(TUI_ERR),
+                            tname.c_str
+                        );
+                        sf_str_free(tname);
+                        return ex;
                     }
                 }
             }
@@ -736,6 +825,10 @@ solu_cnode_ex solu_cnode(solu_compiler *c, solu_node *node, uint32_t t_reg) {
             switch (node->n_binary.op) {
             case TK_AND:
             case TK_OR: {
+                // Type check (bool/any)
+                if (lhs.base.dyn != c->ptypes[SOLU_CBOOL].dyn && lhs.base.dyn != c->ptypes[SOLU_CANY].dyn)
+                    return solu_cerr(SOLU_ERRC_EXPECTED_CONDITION);
+
                 solu_cnode_ex ex = solu_cnode(c, node->n_binary.left, t_reg);
                 if (!ex.is_ok) return ex;
 
@@ -763,7 +856,7 @@ solu_cnode_ex solu_cnode(solu_compiler *c, solu_node *node, uint32_t t_reg) {
                         if (!loc.mut)
                             return solu_cerr(SOLU_ERRC_REASSIGNED_VAL);
                         if (loc.upval) {
-                            if (node->n_binary.op == TK_EQUAL) {
+                            if (node->n_binary.op == TK_EQUAL || node->n_binary.op == TK_COL_EQUAL) {
                                 if (rl) {
                                     ot = solu_rtemp(c);
                                     solu_cemit(c, solu_ins_ab(SOLU_OP_LOAD, ot, right));
@@ -912,6 +1005,13 @@ solu_cnode_ex solu_cnode(solu_compiler *c, solu_node *node, uint32_t t_reg) {
         case SOLU_ND_POSTFIX: {
             if (t_reg == UINT32_MAX)
                 return solu_cerr(SOLU_ERRC_UNUSED_EVALUATION);
+            if (node->n_postfix.op == TK_QUESTION) { // ?
+                solu_cnode_ex ex = solu_cnode(c, node->n_postfix.expr, t_reg);
+                if (!ex.is_ok) return ex;
+                solu_cemit(c, solu_ins_ab(SOLU_OP_TRY, t_reg, t_reg));
+                return solu_cnode_ex_ok();
+            }
+
             uint32_t lhs;
             bool rl = false;
             solu_local loc;
@@ -943,7 +1043,13 @@ solu_cnode_ex solu_cnode(solu_compiler *c, solu_node *node, uint32_t t_reg) {
             return solu_cnode_ex_ok();
         }
         case SOLU_ND_CALL: {
-            if (node->n_call.identifier->tt == SOLU_ND_POSTFIX) {
+            solu_type typeof = solu_typeof(c, node->n_call.identifier);
+            if (!typeof.ok) return solu_cerr(SOLU_ERRC_UNDEFINED_TYPE);
+            if (typeof.nilable) return solu_cerr(SOLU_ERRC_NIL_CALL);
+            if (typeof.fallible) return solu_cerr(SOLU_ERRC_ERR_CALL);
+            solu_tinfo *ti = typeof.base.dyn;
+
+            if (node->n_call.identifier->tt == SOLU_ND_POSTFIX && node->n_call.identifier->n_postfix.op != TK_QUESTION) {
                 solu_node *pf = node->n_call.identifier;
                 uint32_t lhs = solu_rtemp(c), rhs = solu_rtemp(c);
                 if (node->n_call.variadic) {
@@ -952,8 +1058,40 @@ solu_cnode_ex solu_cnode(solu_compiler *c, solu_node *node, uint32_t t_reg) {
                     if (!lex.is_ok) return lex;
                     rhs += 1;
                 }
-                for (uint32_t i = 0; i < node->n_call.arg_c - node->n_call.variadic; ++i)
+                for (uint32_t i = 0; i < node->n_call.arg_c - node->n_call.variadic; ++i) {
+                    if (ti->tt == SOLU_TI_FUN && i < ti->fun.arg_c - ti->fun.variadic) {
+                        solu_type *t = ti->fun.args + i;
+                        solu_node *nd = node->n_call.args[i];
+                        solu_type atype = solu_typeof(c, nd);
+                        if (!atype.ok) return solu_cerrl(SOLU_ERRC_UNDEFINED_TYPE, nd);
+                        if (!solu_tassignable(c, *t, atype)) {
+                            sf_str lname = solu_stypename(c, *t);
+                            sf_str rname = solu_stypename(c, atype);
+                            solu_cnode_ex ex = solu_cerrs(
+                                SOLU_ERRC_ARG_TYPE,
+                                node,
+                                "Attempt to pass type "TUI_TNAME(TUI_ERR)" to argument ["TUI_INFO"%d"TUI_CLR TUI_ERR":"TUI_TNAME(TUI_ERR)"]",
+                                rname.c_str, i, lname.c_str
+                            );
+                            sf_str_free(lname);
+                            sf_str_free(rname);
+                            return ex;
+                        }
+                    }
                     solu_rtemp(c);
+                }
+                if (ti->tt == SOLU_TI_FUN) {
+                    for (uint32_t i = node->n_call.arg_c - node->n_call.variadic;
+                        i < ti->fun.arg_c - ti->fun.variadic; ++i) {
+                        solu_type atype = ti->fun.args[i];
+                        if (!atype.nilable) return solu_cerrs(
+                            SOLU_ERRC_ARG_NIL,
+                            node,
+                            "Non-nilable argument [%d] not provided",
+                            i
+                        );
+                    }
+                }
 
                 solu_cnode_ex lex = solu_cnode(c, pf->n_postfix.expr, lhs);
                 if (!lex.is_ok) return lex;
@@ -1000,31 +1138,67 @@ solu_cnode_ex solu_cnode(solu_compiler *c, solu_node *node, uint32_t t_reg) {
         case SOLU_ND_CAST: {
             if (t_reg == UINT32_MAX)
                 return solu_cerr(SOLU_ERRC_UNUSED_EVALUATION);
-            solu_valmap_ex ex = solu_valmap_get(&c->types, sf_ref(node->n_cast.type.dyn));
+            solu_valmap_ex ex = solu_valmap_get(&c->tenv->types, sf_ref(node->n_cast.type.dyn));
             if (!ex.is_ok) return solu_cerr(SOLU_ERRC_UNDEFINED_TYPE);
             solu_tinfo *ti = ex.ok.dyn;
-            if (ti->cast == SOLU_OP_UNKNOWN)
+
+            if (ti->tt == SOLU_TI_DEF) {
+                if (node->n_cast.expr->tt != SOLU_ND_OBJ)
+                    return solu_cerr(SOLU_ERRC_EXPECTED_CONSTRUCTION);
+                c->def = ti;
+            } else if (ti->cast == SOLU_OP_UNKNOWN)
                 return solu_cerr(SOLU_ERRC_CANNOT_CAST);
 
-            uint32_t t = solu_rtemp(c);
-            solu_cnode_ex exp = solu_cnode(c, node->n_cast.expr, t);
-            if (!ex.is_ok) return exp;
+            solu_cnode_ex exp = solu_cnode(c, node->n_cast.expr, t_reg);
+            c->def = NULL;
+            if (!exp.is_ok) return exp;
 
-            solu_cemit(c, solu_ins_ab(ti->cast, t_reg, t));
-            solu_ctemps(c, 1);
+            if (ti->tt != SOLU_TI_DEF)
+                solu_cemit(c, solu_ins_ab(ti->cast, t_reg, t_reg));
+            return solu_cnode_ex_ok();
+        }
+        case SOLU_ND_TYPEDEF: {
+            if (solu_valmap_get(&c->tenv->types, sf_ref(node->n_typedef.name.dyn)).is_ok)
+                return solu_cerr(SOLU_ERRC_REDEFINED_TYPE);
+            solu_val t = solu_push_tdef(c->alloc, sf_ref(node->n_typedef.name.dyn), true);
+            solu_valmap_set(
+                &c->tenv->types,
+                sf_str_cdup(node->n_typedef.name.dyn),
+                t
+            );
+
+            solu_tinfo *ti = t.dyn;
+            for (uint32_t i = 0; i < node->n_typedef.member_c; ++i) {
+                solu_node *bin = node->n_typedef.members[i];
+                solu_val lhs = bin->n_binary.left->n_identifier;
+                if (solu_def_get(&ti->def, sf_ref(lhs.dyn)).is_ok)
+                    return solu_cerrl(SOLU_ERRC_DUPLICATE_MEMBER, bin->n_binary.left);
+                solu_type rhs = solu_tres(c, bin->n_binary.right);
+                if (!rhs.ok)
+                    return solu_cerrl(SOLU_ERRC_UNDEFINED_TYPE, bin->n_binary.right);
+                solu_def_set(&ti->def, sf_str_cdup(lhs.dyn), rhs);
+            }
             return solu_cnode_ex_ok();
         }
         case SOLU_ND_TYPEOF: {
             if (t_reg == UINT32_MAX)
                 return solu_cerr(SOLU_ERRC_UNUSED_EVALUATION);
 
-            solu_val t = solu_typeof(c, node->n_typeof.expr);
-            if (t.tt == SOLU_TNIL) return solu_cerr(SOLU_ERRC_UNDEFINED_TYPE);
-            solu_tinfo *ti = t.dyn;
+            solu_type t = solu_typeof(c, node->n_typeof.expr);
+            if (!t.ok) return solu_cerr(SOLU_ERRC_UNDEFINED_TYPE);
 
+            sf_str base = solu_stypename(c, t);
+            solu_val cname = solu_cstr(c->alloc, base);
+            sf_str_free(base);
             uint32_t k;
-            if (!solu_kfind(c, ti->name, &k))
-                k = solu_kadd(c, ti->name);
+            if (!solu_kfind(c, cname, &k))
+                k = solu_kadd(c, cname);
+            solu_dalloc *ac = c->alloc;
+
+            // Pop that right off
+            while (ac->next && ac->next->next) ac = ac->next;
+            free(ac->next);
+            ac->next = NULL;
 
             solu_cemit(c, solu_ins_ab(SOLU_OP_LOAD, t_reg, k));
             return solu_cnode_ex_ok();
@@ -1076,7 +1250,7 @@ solu_cnode_ex solu_cnode(solu_compiler *c, solu_node *node, uint32_t t_reg) {
                     ex = solu_cnode(c, nd, t_reg);
                 } else ex = solu_cnode(c, nd, UINT32_MAX);
                 if (!ex.is_ok) {
-                    solu_ctrace_push(c->ct, (solu_compiledata){ex.err.tt, ex.err.line, ex.err.column});
+                    solu_ctrace_push(c->ct, (solu_compiledata){ex.err.tt, ex.err.line, ex.err.column, ex.err.specific});
                     continue;
                 }
             }
@@ -1141,8 +1315,11 @@ solu_cnode_ex solu_cnode(solu_compiler *c, solu_node *node, uint32_t t_reg) {
                 c->frame + 1,
                 c->alloc,
                 node->n_fun.stmt,
-                node->n_fun.arg_c, node->n_fun.args, node->n_fun.variadic,
-                ofs + node->n_fun.cap_c, upvals, c->ct
+                node->n_fun.arg_c, node->n_fun.args,
+                node->n_fun.sig,
+                node->n_fun.variadic,
+                ofs + node->n_fun.cap_c, upvals, c->ct,
+                c->tenv, c->ptypes
             );
             if (upvals) free(upvals);
 
@@ -1157,7 +1334,6 @@ solu_cnode_ex solu_cnode(solu_compiler *c, solu_node *node, uint32_t t_reg) {
             *dh = (solu_dalloc){
                 .next = NULL,
                 .size = sizeof(solu_fproto),
-                .thread = 1,
                 .tt = SOLU_DFUN,
                 .mark = SOLU_DYN_WHITE,
                 .held = true,
@@ -1183,11 +1359,11 @@ solu_cnode_ex solu_cnode(solu_compiler *c, solu_node *node, uint32_t t_reg) {
     }
 }
 
-solu_compile_ex solu_cproto(solu_ctrace *ct, sf_str path, char *src, uint32_t arg_c, solu_val *args, uint32_t up_c, solu_upvalue *upvals) {
+solu_compile_ex solu_cproto(solu_ctrace *ct, sf_str path, char *src, uint32_t arg_c, solu_val *args, uint32_t up_c, solu_upvalue *upvals, solu_typeenv *tenv) {
     *ct = solu_ctrace_new();
 
     if (memcmp(src, "[SOLC]", 6) == 0) {
-        solu_ctrace_push(ct, (solu_compiledata){SOLU_ERRP_EXPECTED_SOURCE, 0, 0});
+        solu_ctrace_push(ct, (solu_compiledata){SOLU_ERRP_EXPECTED_SOURCE, 0, 0, NULL});
         return solu_compile_ex_err(ct);
     }
     solu_scan_ex scan_ex = solu_scan(sf_ref(src), ct);
@@ -1206,10 +1382,27 @@ solu_compile_ex solu_cproto(solu_ctrace *ct, sf_str path, char *src, uint32_t ar
         return solu_compile_ex_err(ct);
     }
 
+    solu_val ptypes[SOLU_CCOUNT];
+
+    ptypes[SOLU_CANY] = solu_valmap_get(&tenv->types, sf_lit("any")).ok;
+    ptypes[SOLU_CNIL] = solu_valmap_get(&tenv->types, sf_lit("nil")).ok;
+    ptypes[SOLU_CF64] = solu_valmap_get(&tenv->types, sf_lit("f64")).ok;
+    ptypes[SOLU_CI64] = solu_valmap_get(&tenv->types, sf_lit("i64")).ok;
+    ptypes[SOLU_CBOOL] = solu_valmap_get(&tenv->types, sf_lit("bool")).ok;
+
+    ptypes[SOLU_CSTR] = solu_valmap_get(&tenv->types, sf_lit("str")).ok;
+    ptypes[SOLU_COBJ] = solu_valmap_get(&tenv->types, sf_lit("obj")).ok;
+    ptypes[SOLU_CERR] = solu_valmap_get(&tenv->types, sf_lit("err")).ok;
+
+    solu_node sig = {
+        SOLU_ND_SIG,
+        0, 0,
+        .n_sig = {0} // No Args, Any return
+    };
     solu_compile_ex ex = solu_cfun(
         sf_str_dup(path), 0, scan_ex.ok.alloc, par_ex.ok,
-        arg_c, args, true,
-        up_c, upvals, ct
+        arg_c, args, &sig, true,
+        up_c, upvals, ct, tenv, ptypes
     );
     solu_node_free(par_ex.ok);
 

@@ -1,6 +1,7 @@
 #include "solus/api.h"
 #include "std.h"
 #include <errno.h>
+#include <stdbool.h>
 
 /*
  * import(path: str) -> any|err
@@ -275,7 +276,6 @@ static solu_call_ex builtin_f64(solu_state *s) {
     }
 }
 
-
 void solu_mod_builtin(solu_state *s) {
     solu_dobj *_g = s->global.dyn;
 
@@ -289,16 +289,11 @@ void solu_mod_builtin(solu_state *s) {
     solu_dobj_strset(_g, "catch", solu_wrapcfun(s, builtin_catch, 1, NULL, 0));
     solu_dobj_strset(_g, "attempt", solu_wrapcfun(s, builtin_attempt, 2, NULL, 0));
     solu_dobj_strset(_g, "unwrap", solu_wrapcfun(s, builtin_unwrap, 1, NULL, 0));
-    solu_dobj_strset(_g, "or_else", solu_wrapcfun(s, builtin_or_else, 2, NULL, 0));
-    solu_dobj_strset(_g, "then", solu_wrapcfun(s, builtin_then, 2, NULL, 0));
     solu_dobj_strset(_g, "assert", solu_wrapcfun(s, builtin_assert, 1, NULL, 0));
 
     // Casting
     solu_dobj_strset(_g, "type", solu_wrapcfun(s, builtin_type, 1, NULL, 0));
-    solu_dobj_strset(_g, "str", solu_wrapcfun(s, builtin_str, 1, NULL, 0));
     solu_dobj_strset(_g, "err", solu_wrapcfun(s, builtin_err, 1, NULL, 0));
-    solu_dobj_strset(_g, "i64", solu_wrapcfun(s, builtin_i64, 1, NULL, 0));
-    solu_dobj_strset(_g, "f64", solu_wrapcfun(s, builtin_f64, 1, NULL, 0));
 
     solu_drelease(s->meta.base);
     solu_drelease(s->meta.prim);
@@ -315,8 +310,5 @@ void solu_mod_builtin(solu_state *s) {
         solu_dobj_strset((i ? s->meta.base : s->meta.prim).dyn, "or_else", fun(s, builtin_or_else, 2, NULL, 0));
         solu_dobj_strset((i ? s->meta.base : s->meta.prim).dyn, "then", fun(s, builtin_then, 2, NULL, 0));
         solu_dobj_strset((i ? s->meta.base : s->meta.prim).dyn, "type", fun(s, builtin_type, 1, NULL, 0));
-        solu_dobj_strset((i ? s->meta.base : s->meta.prim).dyn, "str", fun(s, builtin_str, 1, NULL, 0));
-        solu_dobj_strset((i ? s->meta.base : s->meta.prim).dyn, "i64", fun(s, builtin_i64, 1, NULL, 0));
-        solu_dobj_strset((i ? s->meta.base : s->meta.prim).dyn, "f64", fun(s, builtin_f64, 1, NULL, 0));
     }
 }

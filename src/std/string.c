@@ -70,7 +70,6 @@ static solu_call_ex string_repeat(solu_state *s) {
     *dh = (solu_dalloc){
         .next = NULL,
         .size = strlen,
-        .thread = 1,
         .tt = SOLU_DSTR,
         .mark = SOLU_DYN_WHITE,
     };
@@ -248,30 +247,22 @@ static solu_call_ex string_lower(solu_state *s) {
 }
 
 
-solu_val solu_mod_string(solu_state *s, bool meta) {
-    solu_val (*fun)(solu_state *, solu_cfunction, uint32_t, solu_val *, uint32_t) = meta ?
-        solu_wrapmfun : solu_wrapcfun;
-
+solu_val solu_mod_string(solu_state *s) {
     solu_val string = solu_dnew(s, SOLU_DOBJ);
-    solu_dobj_strset(string.dyn, "len", fun(s, string_len, 1, NULL, 0));
-    solu_dobj_strset(string.dyn, "sub", fun(s, string_sub, 3, NULL, 0));
-    solu_dobj_strset(string.dyn, "reverse", fun(s, string_reverse, 1, NULL, 0));
-    solu_dobj_strset(string.dyn, "repeat", fun(s, string_repeat, 2, NULL, 0));
-    solu_dobj_strset(string.dyn, "split", fun(s, string_split, 2, NULL, 0));
-    solu_dobj_strset(string.dyn, "ord", fun(s, string_ord, 1, NULL, 0));
-    solu_dobj_strset(string.dyn, "upper", fun(s, string_upper, 2, NULL, 0));
-    solu_dobj_strset(string.dyn, "lower", fun(s, string_lower, 2, NULL, 0));
+    solu_dobj_strset(string.dyn, "len", solu_wrapmfun(s, string_len, 1, NULL, 0));
+    solu_dobj_strset(string.dyn, "sub", solu_wrapmfun(s, string_sub, 3, NULL, 0));
+    solu_dobj_strset(string.dyn, "reverse", solu_wrapmfun(s, string_reverse, 1, NULL, 0));
+    solu_dobj_strset(string.dyn, "repeat", solu_wrapmfun(s, string_repeat, 2, NULL, 0));
+    solu_dobj_strset(string.dyn, "split", solu_wrapmfun(s, string_split, 2, NULL, 0));
+    solu_dobj_strset(string.dyn, "ord", solu_wrapmfun(s, string_ord, 1, NULL, 0));
+    solu_dobj_strset(string.dyn, "upper", solu_wrapmfun(s, string_upper, 1, NULL, 0));
+    solu_dobj_strset(string.dyn, "lower", solu_wrapmfun(s, string_lower, 1, NULL, 0));
 
     // Builtins that extend to string
-    if (meta) {
-        solu_dobj_strset(string.dyn, "then", fun(s, builtin_then, 2, NULL, 0));
-        solu_dobj_strset(string.dyn, "type", fun(s, builtin_type, 1, NULL, 0));
-        solu_dobj_strset(string.dyn, "str", fun(s, builtin_str, 1, NULL, 0));
-        solu_dobj_strset(string.dyn, "unwrap", fun(s, builtin_unwrap, 0, NULL, 0));
-        solu_dobj_strset(string.dyn, "or_else", fun(s, builtin_or_else, 1, NULL, 0));
-    } else { // Some don't make sense as member functions
-        solu_dobj_strset(string.dyn, "join", fun(s, string_join, 2, NULL, 0));
-        solu_dobj_strset(s->global.dyn, "string", string);
-    }
+    solu_dobj_strset(string.dyn, "then", solu_wrapmfun(s, builtin_then, 2, NULL, 0));
+    solu_dobj_strset(string.dyn, "type", solu_wrapmfun(s, builtin_type, 1, NULL, 0));
+    solu_dobj_strset(string.dyn, "str", solu_wrapmfun(s, builtin_str, 1, NULL, 0));
+    solu_dobj_strset(string.dyn, "unwrap", solu_wrapmfun(s, builtin_unwrap, 0, NULL, 0));
+    solu_dobj_strset(string.dyn, "or_else", solu_wrapmfun(s, builtin_or_else, 1, NULL, 0));
     return string;
 }

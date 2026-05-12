@@ -33,10 +33,11 @@ typedef enum {
 /// Type names table
 extern const char *SOLU_TYPE_NAMES[(size_t)SOLU_TCOUNT + (size_t)SOLU_DCOUNT];
 /// GC State
-typedef enum {
+typedef uint8_t solu_dstate;
+enum {
     SOLU_DYN_WHITE, /// Not yet marked, will be swept if it's not
     SOLU_DYN_BLACK, /// Marked valid
-} solu_dstate;
+};
 
 /// A primitive value, which may be a (dyn) reference to a GC/heap managed dynamic value
 typedef struct {
@@ -65,9 +66,10 @@ typedef enum {
 
     SOLU_META_COUNT,
 } solu_metafun;
+
 typedef struct solu_dalloc {
     struct solu_dalloc *next;
-    size_t size, thread;
+    size_t size;
     solu_dtype tt;
     solu_dstate mark;
     bool held;
@@ -96,8 +98,8 @@ typedef struct {
         uint32_t ref;
     };
     uint32_t frame;
-    bool mut;
     solu_val type;
+    bool mut, nil, err;
 } solu_upvalue;
 
 struct solu_state;

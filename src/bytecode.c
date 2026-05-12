@@ -206,6 +206,11 @@ const solu_inssig SOLU_OP_INFO[SOLU_OP_COUNT] = {
         .mnemonic = "CSTR",
         .type = SOLU_INS_AB,
     },
+    [SOLU_OP_TRY] = {
+        .opcode = SOLU_OP_TRY,
+        .mnemonic = "TRY",
+        .type = SOLU_INS_AB,
+    },
 
     [SOLU_OP_UNKNOWN] = {
         .opcode = SOLU_OP_UNKNOWN,

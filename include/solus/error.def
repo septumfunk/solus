@@ -23,8 +23,9 @@ X(P, EXPECTED_LPAREN, "Expected '('") \
 X(P, EXPECTED_RPAREN, "Expected ')'") \
 X(P, EXPECTED_RBRACKET, "Expected ']'") \
 X(P, EXPECTED_EQUAL, "Expected '='") \
+X(P, USE_INFER, "Type ommitted in local variable declaration. Did you mean to use the infer ':=' operator?") \
 X(P, INFER_ANNOTATED, "Type inference operator ':=' used alongside type annotation") \
-X(P, EXPECTED_LIST_TERM, "Expected '=', ',', or ';'") \
+X(P, EXPECTED_LIST_TERM, "Expected '=', ':=', ',', or ';'") \
 X(P, MAX_NAMES, "Exceeded max names (>255)") \
 X(P, EXPECTED_COMMA, "Expected ','") \
 X(P, EXPECTED_COLON, "Expected ':'") \
@@ -47,6 +48,7 @@ X(P, UNEXPECTED_IDENTIFIER, "Unexpected identifier. Missing ';'?") \
 X(P, MALFORMED_CALL, "Malformed function call") \
 X(P, UNTERMINATED_CAPTURES, "Unterminated capture list") \
 X(P, UNTERMINATED_ARGS, "Unterminated argument list") \
+X(P, UNTERMINATED_BLOCK, "Unterminated block") \
 X(P, DUPLICATE_CAPTURE, "Duplicate capture") \
 X(P, SELF_FIRST, "Keyword 'self' must appear as first capture") \
 X(P, DUPLICATE_SELF, "Keyword 'self' may not appear as an argument of a member function (duplicate name)") \
@@ -65,10 +67,26 @@ X(C, EXPECTED_EXPRESSION, "Expected expression") \
 X(C, UNEXPECTED_BREAK, "break can only be used within loops") \
 X(C, UNEXPECTED_CONTINUE, "continue can only be used within loops") \
 X(C, UNKNOWN_LOCAL, "Unknown local variable") \
-X(C, INCORRECT_TYPE, "Incorrect type for variable") \
+X(C, INCORRECT_TYPE, "Incorrect type for static local variable") \
+X(C, CAN_BE_NIL, "Value can be nil, but variable type is not nilable") \
+X(C, CAN_BE_ERR, "Value can be err, but variable type is not fallible") \
+X(C, ARG_TYPE, "Incorrect argument type for function signature") \
+X(C, ARG_NIL, "Non nilable argument is not provided") \
+X(C, NIL_CALL, "Attempted to call function that may be nil without verifying its integrity") \
+X(C, ERR_CALL, "Attempted to call function that may be err without verifying its integrity") \
+X(C, INCORRECT_MEMBER_TYPE, "Incorrect type for complex type's member") \
+X(C, EXPECTED_COMPLEX, "The as keyword can only reinterpret a complex type into another complex type") \
 X(C, UNDEFINED_TYPE, "Undefined type") \
 X(C, CANNOT_CAST, "Cannot cast to specified type") \
+X(C, EXPECTED_CONSTRUCTION, "Expected construction of complex type") \
+X(C, MISSING_MEMBER, "Complex type missing a member that is not of type any") \
+X(C, TYPE_COMPARISON, "Comparison is always false without explicit cast") \
+X(C, TYPE_ARITHMETIC, "Operation not supported without explicit cast") \
+X(C, NIL_ARITHMETIC, "Arithmetic operation performed on type that may be nil. Try '?'") \
+X(C, ERR_ARITHMETIC, "Arithmetic operation performed on type that may be err. Try '?'") \
 X(C, REDEFINED_LOCAL, "Redefined local variable") \
+X(C, REDEFINED_TYPE, "Redefined type name") \
+X(C, DUPLICATE_MEMBER, "Duplicate member name") \
 X(C, REASSIGNED_VAL, "Attempted to reassign a value. vals are immutable, did you mean var?") \
 X(C, REASSIGNED_SELF, "Attempted to assign self, a reserved keyword") \
 X(C, UNKNOWN_OPERATION, "Unknown operation") \
